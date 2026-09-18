@@ -1,0 +1,43 @@
+# Build artifacts
+build/
+out/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+*.pdb
+*.ilk
+*.idb
+compile_commands.json
+
+# vcpkg
+vcpkg_installed/
+
+# Environment / secrets — real .env files must NEVER be committed
+.env
+.env.*
+!.env.example
+
+# IDEs
+.vs/
+.vscode/
+.idea/
+*.swp
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Frontend
+node_modules/
+dist/
+frontend/node_modules/
