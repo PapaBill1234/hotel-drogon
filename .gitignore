@@ -41,3 +41,7 @@ Thumbs.db
 node_modules/
 dist/
 frontend/node_modules/
+
+# Legacy reference
+legacy/
+
