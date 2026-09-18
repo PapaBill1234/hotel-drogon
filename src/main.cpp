@@ -55,6 +55,138 @@ int main(int argc, char* argv[]) {
                 false, // is_fast
                 "utf8mb4"
             );
+
+            // Execute schema migrations / setup asynchronously
+            drogon::app().registerBeginningAdvice([]() {
+                auto db = drogon::app().getDbClient("default");
+                if (!db) {
+                    HOTEL_LOG_WARN("Default DbClient not available for initial migration");
+                    return;
+                }
+                HOTEL_LOG_INFO("Verifying / migrating PolarIS and service layer database tables...");
+                *db << "CREATE TABLE IF NOT EXISTS users ("
+                       "id INT AUTO_INCREMENT PRIMARY KEY, "
+                       "username VARCHAR(50) UNIQUE, "
+                       "real_name VARCHAR(100) DEFAULT '', "
+                       "password VARCHAR(255), "
+                       "mail VARCHAR(100) DEFAULT '', "
+                       "mail_verified TINYINT DEFAULT 0, "
+                       "rank INT DEFAULT 1, "
+                       "credits INT DEFAULT 500, "
+                       "pixels INT DEFAULT 100, "
+                       "points INT DEFAULT 0, "
+                       "look VARCHAR(255) DEFAULT 'hr-115-42.hd-190-1.ch-215-66.lg-270-82.sh-290-80', "
+                       "gender ENUM('M','F') DEFAULT 'M', "
+                       "motto VARCHAR(128) DEFAULT 'Hello Habbo!', "
+                       "online ENUM('0','1','2') DEFAULT '0', "
+                       "account_created BIGINT DEFAULT 0, "
+                       "last_login BIGINT DEFAULT 0, "
+                       "ip_current VARCHAR(50) DEFAULT '', "
+                       "auth_ticket VARCHAR(255) DEFAULT '', "
+                       "auth_ticket_expires_at BIGINT DEFAULT 0, "
+                       "remember_token_hash VARCHAR(64) DEFAULT '', "
+                       "remember_token_expires_at BIGINT DEFAULT 0"
+                       ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+                    >> [](const drogon::orm::Result&) {}
+                    >> [](const drogon::orm::DrogonDbException& e) {
+                        HOTEL_LOG_WARN("Schema init table 'users': {}", e.base().what());
+                    };
+
+                *db << "CREATE TABLE IF NOT EXISTS bans ("
+                       "id INT AUTO_INCREMENT PRIMARY KEY, "
+                       "user_id INT, "
+                       "ip VARCHAR(50) DEFAULT '', "
+                       "machine_id VARCHAR(255) DEFAULT '', "
+                       "user_staff_id INT DEFAULT 0, "
+                       "timestamp BIGINT DEFAULT 0, "
+                       "ban_expire BIGINT DEFAULT 0, "
+                       "ban_reason TEXT, "
+                       "type ENUM('account','ip','machine','super') DEFAULT 'account', "
+                       "cfh_topic VARCHAR(255) DEFAULT ''"
+                       ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+                    >> [](const drogon::orm::Result&) {}
+                    >> [](const drogon::orm::DrogonDbException& e) {
+                        HOTEL_LOG_WARN("Schema init table 'bans': {}", e.base().what());
+                    };
+
+                *db << "CREATE TABLE IF NOT EXISTS guilds ("
+                       "id INT AUTO_INCREMENT PRIMARY KEY, "
+                       "user_id INT, "
+                       "name VARCHAR(100), "
+                       "description TEXT, "
+                       "room_id INT DEFAULT 0, "
+                       "state INT DEFAULT 0, "
+                       "rights INT DEFAULT 0, "
+                       "badge VARCHAR(50) DEFAULT '', "
+                       "color_one VARCHAR(10) DEFAULT '', "
+                       "color_two VARCHAR(10) DEFAULT '', "
+                       "date_created BIGINT DEFAULT 0, "
+                       "forum ENUM('0','1') DEFAULT '0', "
+                       "read_forum ENUM('EVERYONE','MEMBERS','ADMINS') DEFAULT 'EVERYONE', "
+                       "post_messages ENUM('EVERYONE','MEMBERS','ADMINS','OWNER') DEFAULT 'MEMBERS', "
+                       "post_threads ENUM('EVERYONE','MEMBERS','ADMINS','OWNER') DEFAULT 'MEMBERS', "
+                       "mod_forum ENUM('ADMINS','OWNER') DEFAULT 'ADMINS'"
+                       ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+                    >> [](const drogon::orm::Result&) {}
+                    >> [](const drogon::orm::DrogonDbException& e) {
+                        HOTEL_LOG_WARN("Schema init table 'guilds': {}", e.base().what());
+                    };
+
+                *db << "CREATE TABLE IF NOT EXISTS guilds_members ("
+                       "guild_id INT, "
+                       "user_id INT, "
+                       "rank_level INT DEFAULT 0, "
+                       "is_current INT DEFAULT 0, "
+                       "PRIMARY KEY (guild_id, user_id)"
+                       ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+                    >> [](const drogon::orm::Result&) {}
+                    >> [](const drogon::orm::DrogonDbException& e) {
+                        HOTEL_LOG_WARN("Schema init table 'guilds_members': {}", e.base().what());
+                    };
+
+                *db << "CREATE TABLE IF NOT EXISTS phpretro_admin_action_log ("
+                       "id INT AUTO_INCREMENT PRIMARY KEY, "
+                       "admin_id INT, "
+                       "action_type VARCHAR(64), "
+                       "target_type VARCHAR(64), "
+                       "target_id INT DEFAULT 0, "
+                       "details TEXT, "
+                       "ip VARCHAR(50) DEFAULT '', "
+                       "created_at BIGINT DEFAULT 0"
+                       ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+                    >> [](const drogon::orm::Result&) {}
+                    >> [](const drogon::orm::DrogonDbException& e) {
+                        HOTEL_LOG_WARN("Schema init table 'phpretro_admin_action_log': {}", e.base().what());
+                    };
+
+                *db << "CREATE TABLE IF NOT EXISTS phpretro_user_reports ("
+                       "id INT AUTO_INCREMENT PRIMARY KEY, "
+                       "user_id INT, "
+                       "target_id INT, "
+                       "category VARCHAR(64), "
+                       "message TEXT, "
+                       "status ENUM('open','resolved','dismissed') DEFAULT 'open', "
+                       "created_at BIGINT DEFAULT 0, "
+                       "resolved_at BIGINT DEFAULT 0, "
+                       "resolved_by INT DEFAULT 0"
+                       ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+                    >> [](const drogon::orm::Result&) {}
+                    >> [](const drogon::orm::DrogonDbException& e) {
+                        HOTEL_LOG_WARN("Schema init table 'phpretro_user_reports': {}", e.base().what());
+                    };
+
+                // Seed test user 'testuser' (pass: 'password123', legacy sha1) and 'admin' (rank 7) if missing
+                // sha1('password123' . 'testuser') = 81b6aa6b1892520bb291a27e025ec15ec834c7ef
+                *db << "INSERT IGNORE INTO users (id, username, real_name, password, mail, rank, motto) VALUES "
+                       "(1, 'admin', 'Hotel Administrator', '81b6aa6b1892520bb291a27e025ec15ec834c7ef', 'admin@hotel.local', 7, 'Hotel Administrator'), "
+                       "(2, 'testuser', 'Test User', '81b6aa6b1892520bb291a27e025ec15ec834c7ef', 'test@hotel.local', 1, 'Exploring the hotel!')"
+                    >> [](const drogon::orm::Result&) {
+                        HOTEL_LOG_INFO("Default test user and admin seeded successfully.");
+                    }
+                    >> [](const drogon::orm::DrogonDbException& e) {
+                        HOTEL_LOG_WARN("Seeding default users: {}", e.base().what());
+                    };
+            });
         }
 
         // Configure Redis if REDIS_HOST is set

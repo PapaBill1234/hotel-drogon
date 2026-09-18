@@ -35,9 +35,16 @@ jobs:
             libsqlite3-dev \
             libhiredis-dev \
             libspdlog-dev \
+            libcrypt-dev \
             catch2 \
             libdrogon-dev \
-            nlohmann-json3-dev
+            nlohmann-json3-dev \
+            python3
+
+      - name: Run CSRF Route and PolarIS Isolation Linters
+        run: |
+          python3 scripts/check_csrf_rules.py
+          python3 scripts/check_polaris_access.py
 
       - name: Configure CMake with Sanitizers
         run: |

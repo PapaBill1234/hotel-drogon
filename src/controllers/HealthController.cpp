@@ -4,6 +4,8 @@
 #include <json/json.h>
 #include <atomic>
 
+using Json::Value;
+
 namespace hotel::controllers {
 
 static std::atomic<uint64_t> s_requestCount{0};
@@ -21,12 +23,11 @@ void HealthController::healthCheck(
     auto now = std::chrono::steady_clock::now();
     auto uptimeSeconds = std::chrono::duration_cast<std::chrono::seconds>(now - m_startTime).count();
 
-    Json::Value root;
+    Value root;
     root["status"] = "ok";
     root["service"] = "hotel-drogon";
     root["uptime_seconds"] = static_cast<Json::UInt64>(uptimeSeconds);
 
-    // Check DB client if configured
     bool dbOk = false;
     try {
         auto dbClient = drogon::app().getDbClient("default");
@@ -38,7 +39,6 @@ void HealthController::healthCheck(
     }
     root["database"] = dbOk ? "connected" : "idle";
 
-    // Check Redis client if configured
     bool redisOk = false;
     try {
         auto redisClient = drogon::app().getRedisClient("default");

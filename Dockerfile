@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsqlite3-dev \
     libhiredis-dev \
     libspdlog-dev \
+    libcrypt-dev \
     catch2 \
     libdrogon-dev \
     nlohmann-json3-dev \
@@ -53,6 +54,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libjsoncpp25 \
+    libjsoncpp-dev \
     libmariadb3 \
     libpq5 \
     libsqlite3-0 \

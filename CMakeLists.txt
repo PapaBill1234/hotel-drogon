@@ -41,7 +41,10 @@ endif()
 find_package(Drogon CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
+find_package(OpenSSL REQUIRED)
 find_package(Catch2 3 CONFIG QUIET)
+
+find_library(CRYPT_LIB crypt)
 
 # Include directories
 include_directories(
@@ -59,6 +62,9 @@ file(GLOB_RECURSE CORE_SOURCES
     "src/utils/*.cpp"
 )
 
+# Explicitly list test controller for debugging JSON
+list(APPEND CORE_SOURCES "src/controllers/TestController.cpp")
+
 add_library(hotel_core OBJECT
     ${CORE_SOURCES}
 )
@@ -71,6 +77,8 @@ target_link_libraries(hotel_core PUBLIC
     Drogon::Drogon
     nlohmann_json::nlohmann_json
     spdlog::spdlog
+    OpenSSL::Crypto
+    $<$<BOOL:${CRYPT_LIB}>:${CRYPT_LIB}>
 )
 
 # Main HTTP / WebSocket Server binary
@@ -83,6 +91,8 @@ target_link_libraries(hotel_server PRIVATE
     Drogon::Drogon
     nlohmann_json::nlohmann_json
     spdlog::spdlog
+    crypto
+    crypt
 )
 
 # Background Worker binary
@@ -95,6 +105,8 @@ target_link_libraries(hotel_worker PRIVATE
     Drogon::Drogon
     nlohmann_json::nlohmann_json
     spdlog::spdlog
+    crypto
+    crypt
 )
 
 # Unit & Integration Tests
@@ -115,6 +127,8 @@ if(BUILD_TESTING)
                 nlohmann_json::nlohmann_json
                 spdlog::spdlog
                 Catch2::Catch2WithMain
+                crypto
+                crypt
             )
         elseif(TARGET Catch2::Catch2)
             target_link_libraries(hotel_tests PRIVATE
@@ -122,12 +136,16 @@ if(BUILD_TESTING)
                 nlohmann_json::nlohmann_json
                 spdlog::spdlog
                 Catch2::Catch2
+                crypto
+                crypt
             )
         else()
             target_link_libraries(hotel_tests PRIVATE
                 Drogon::Drogon
                 nlohmann_json::nlohmann_json
                 spdlog::spdlog
+                crypto
+                crypt
             )
         endif()
         add_test(NAME hotel_all_tests COMMAND hotel_tests)
