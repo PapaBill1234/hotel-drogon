@@ -1,0 +1,15 @@
+# Route cutover map
+# Maps request URI patterns to upstream backends:
+# 'drogon' = new C++/Drogon async backend (backend:8080)
+# 'legacy' = legacy PHPRetro PHP stack
+
+# Default: un-migrated routes stay on legacy PHP
+default legacy;
+
+# Infrastructure & health endpoints
+~^/health drogon;
+~^/api/health drogon;
+~^/metrics drogon;
+
+# Modern JSON APIs (Phase 3+)
+~^/api/ drogon;

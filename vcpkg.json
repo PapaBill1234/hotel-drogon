@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "hotel-drogon",
+  "version-string": "0.1.0",
+  "description": "C++ (Drogon) + React rewrite of the Habbo-style hotel CMS",
+  "dependencies": [
+    {
+      "name": "drogon",
+      "features": [
+        "redis",
+        "mysql"
+      ]
+    },
+    "jsoncpp",
+    "nlohmann-json",
+    "spdlog",
+    "catch2"
+  ]
+}

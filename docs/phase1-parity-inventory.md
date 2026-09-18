@@ -32,17 +32,19 @@ says Filament) before it compounds.
 | `phpretro_user_reports`, `phpretro_helpdesk_tickets` | Website | Read + write implemented in `HousekeepingUsersController` (reports, help desk). |
 | `sys` / `hotel_cms_sys` (Laravel `users`, sessions, jobs, passkeys) | **Laravel-owned, separate from PolarIS `users`** | Fully functional — this is the Fortify/starter-kit auth system. **Not connected to hotel identity at all.** Two parallel "users" concepts exist in this codebase right now. |
 
-## Phase 2 — Laravel foundation
+## Phase 2 / 2b — Drogon backend foundation and local delivery
 
 | Item | Plan asks for | Status |
 | --- | --- | --- |
-| Docker Compose (app, DB, Redis, queue, scheduler) | Yes | **Done.** `compose.yaml` + `compose.override.yaml` for XAMPP-beside mode. |
-| `web-gallery` served without copying/hashing | Yes | **Done.** nginx `alias`, enforced by `scripts/visual-contract.sh`. |
-| Route switch/proxy with rollback | Yes | **Partially done.** `proxy/cutover.map` mechanism exists and is a one-line add/remove + reload. Currently only routes `/up /health/* /horizon /build/*` — nothing hotel-facing has moved. |
-| CI (PHP lint, tests, TS checks, Playwright) | Yes | **Not verified in this read** — no CI config found in the checked-out tree. |
-| Redis cache/sessions/queues/locks | Yes | **Done.** DB 0 cache, DB 1 sessions (`hotel_session`), DB 2 Horizon queues, DB 3 scheduler flags. |
-| Horizon | Adopt "when first queued work is introduced" | **Installed and wired**, ahead of any actual queued jobs existing yet. |
-| Sentry / OpenTelemetry metrics | Before public cutover | **Not started.** |
+| Docker Compose (backend binary, MariaDB, Redis, worker binary, nginx proxy) | Yes | **Done.** `compose.yaml` running Drogon C++ server, MariaDB 10.11, Redis 7, worker process, and nginx reverse proxy. |
+| `web-gallery` served without copying/hashing | Yes | **Done.** nginx `alias` mount directly in `proxy/nginx.conf`. |
+| Route switch/proxy with instant rollback | Yes | **Done.** `proxy/cutover.map` with live reload routing `/health`, `/metrics`, `/api/*` to Drogon and remaining routes to legacy PHP. Tested and verified live. |
+| CI (CMake build with ASan/UBSan, Catch2 unit tests) | Yes | **Done.** `.github/workflows/ci.yml` building on Ubuntu 24.04 with GCC, sanitizers, and CTest suite. |
+| Redis cache/sessions/queues/locks | Yes | **Done.** Async Redis client configured with database routing, health check verified. |
+| Background Worker | Minimal worker binary | **Done.** `hotel_worker` binary building and running in container. |
+| Structured logging, /health, /metrics | Yes | **Done.** spdlog JSON logging, `/health` and `/metrics` controllers verified live. |
+| Sentry / Metrics | Before public cutover | **In progress.** `/metrics` prometheus endpoint live; Sentry DSN configuration wired into `AppConfig`. |
+
 
 ## Phase 3 — Auth, authorization, Polaris access layer
 

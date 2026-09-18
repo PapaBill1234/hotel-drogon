@@ -1,0 +1,55 @@
+name: CI Build & Verify
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  cpp-build-and-test:
+    name: C++ Drogon (Sanitizers + Tests)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libssl-dev \
+            zlib1g-dev \
+            libbrotli-dev \
+            libc-ares-dev \
+            libyaml-cpp-dev \
+            libjsoncpp-dev \
+            uuid-dev \
+            libmariadb-dev \
+            libpq-dev \
+            libsqlite3-dev \
+            libhiredis-dev \
+            libspdlog-dev \
+            catch2 \
+            libdrogon-dev \
+            nlohmann-json3-dev
+
+      - name: Configure CMake with Sanitizers
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DENABLE_SANITIZERS=ON \
+            -DBUILD_TESTING=ON
+
+      - name: Build backend, worker, and test binaries
+        run: |
+          cmake --build build --parallel
+
+      - name: Run Catch2 test suite with Sanitizers
+        run: |
+          ctest --test-dir build --output-on-failure

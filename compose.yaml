@@ -1,0 +1,102 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hotel_backend
+    restart: unless-stopped
+    environment:
+      APP_ENV: development
+      APP_PORT: 8080
+      LOG_LEVEL: debug
+      LOG_JSON: "false"
+      DB_HOST: mariadb
+      DB_PORT: 3306
+      DB_DATABASE: polaris
+      DB_USERNAME: hotel
+      DB_PASSWORD: hotel_secret
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - hotel-network
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint: ["/app/hotel_worker"]
+    container_name: hotel_worker
+    restart: unless-stopped
+    environment:
+      APP_ENV: development
+      LOG_LEVEL: debug
+      LOG_JSON: "false"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - hotel-network
+
+  mariadb:
+    image: mariadb:10.11
+    container_name: hotel_mariadb
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_secret
+      MYSQL_DATABASE: polaris
+      MYSQL_USER: hotel
+      MYSQL_PASSWORD: hotel_secret
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    networks:
+      - hotel-network
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: hotel_redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - hotel-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  proxy:
+    image: nginx:alpine
+    container_name: hotel_proxy
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    volumes:
+      - ./proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./proxy/cutover.map:/etc/nginx/cutover.map:ro
+    depends_on:
+      - backend
+    networks:
+      - hotel-network
+
+networks:
+  hotel-network:
+    driver: bridge
+
+volumes:
+  mariadb_data:
+  redis_data:

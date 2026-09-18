@@ -1,0 +1,54 @@
+{
+  "listeners": [
+    {
+      "address": "0.0.0.0",
+      "port": 8080,
+      "https": false
+    }
+  ],
+  "db_clients": [
+    {
+      "name": "default",
+      "rdbms": "mysql",
+      "host": "127.0.0.1",
+      "port": 3306,
+      "dbname": "polaris",
+      "user": "hotel",
+      "passwd": "hotel_password",
+      "is_fast": false,
+      "connection_number": 10,
+      "character_set": "utf8mb4"
+    }
+  ],
+  "redis_clients": [
+    {
+      "name": "default",
+      "host": "127.0.0.1",
+      "port": 6379,
+      "passwd": "",
+      "db": 0,
+      "connection_number": 5
+    }
+  ],
+  "app": {
+    "threads_num": 0,
+    "enable_session": false,
+    "session_timeout": 0,
+    "document_root": "./public",
+    "upload_path": "./uploads",
+    "file_types": ["gif", "png", "jpg", "js", "css", "html", "ico", "swf"],
+    "max_connections": 100000,
+    "max_connections_per_ip": 0,
+    "log": {
+      "log_path": "",
+      "logfile_base_name": "",
+      "log_size_limit": 100000000,
+      "log_level": "INFO"
+    },
+    "custom_config": {
+      "app_env": "development",
+      "session_cookie_name": "hotel_session",
+      "csrf_header_name": "X-XSRF-TOKEN"
+    }
+  }
+}
