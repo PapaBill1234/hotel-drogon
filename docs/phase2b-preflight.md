@@ -51,9 +51,38 @@ the plan's "stop Docker work and use the native path" branch does not apply here
 
 ## CI runner
 
-The `ubuntu-24.04` hosted runner runs the same check as its first job step; the
-job log is the authoritative record for CI. Last verified green run:
-`35524678557` (then `35524944450`), both jobs `success`.
+The `ubuntu-24.04` hosted runner runs the same script as the first step of
+`cpp-build-and-test`; its job log is the authoritative record for CI. Captured
+from the green run `35525417437`:
+
+| Check | Result |
+| --- | --- |
+| `uname` | Linux 6.17.0-1022-azure, x86_64 |
+| `g++ --version` | `g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0` |
+| `clang++ --version` | `Ubuntu clang version 18.1.3 (1ubuntu1)` |
+| `cmake --version` | `cmake version 3.31.6` |
+| `ninja --version` | `1.13.2` |
+| `git --version` | `git version 2.55.0` |
+| `docker --version` | `Docker version 28.0.4, build b8034c0` |
+| `docker compose version` | `2.38.2` |
+| `systemd-detect-virt` | `microsoft` |
+| `python3 --version` | `Python 3.12.3` |
+| Docker daemon | reachable: **yes**, containers listed |
+
+Two things worth noting rather than smoothing over:
+
+- the CI runner's `cmake` (3.31.6) and `ninja` (1.13.2) are **newer** than the
+  ones in the `ubuntu:24.04` image used locally (3.28.3 / 1.11.1), and its
+  `systemd-detect-virt` reports `microsoft` rather than `wsl`. Neither difference
+  has caused a build or test discrepancy, and both builds pass, but a build that
+  depends on a CMake feature newer than 3.28 would pass in CI and fail in the
+  Docker build image, or vice versa.
+- the local Docker engine (29.8.0) is newer than CI's (28.0.4). Compose file
+  syntax and behaviour used here is long-standing, so this is not a risk today;
+  it is recorded as an observed difference.
+
+Last green runs: `35524678557`, `35524944450`, `35525417437` — both jobs
+`success` in each.
 
 ## What this changes
 
