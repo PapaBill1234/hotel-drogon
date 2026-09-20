@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "description": "Playwright visual-parity harness: compares converted React pages against captured legacy PHPRetro references.",
   "scripts": {
-    "capture": "playwright test capture-references.spec.ts --project=chromium",
-    "test:visual": "playwright test visual-parity.spec.ts --project=chromium",
+    "capture": "playwright test --config=playwright.capture.config.ts",
+    "test:visual": "playwright test",
     "report": "playwright show-report"
   },
   "devDependencies": {

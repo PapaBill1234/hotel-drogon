@@ -53,7 +53,12 @@ export default defineConfig({
   },
   projects: [
     {
+      // The parity comparison only. capture-references.spec.ts is a capture
+      // TOOL that needs a live legacy app; it lives in its own config
+      // (playwright.capture.config.ts) so a bare `npx playwright test` never
+      // reports a capture failure as a parity failure.
       name: 'chromium',
+      testIgnore: '**/capture-references.spec.ts',
       use: { ...devices['Desktop Chrome'], viewport: VIEWPORT },
     },
   ],
