@@ -323,22 +323,25 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      # Same reference the proxy mounts for /web-gallery/; see the note in the
-      # integration-smoke job. The harness proxy uses the REAL proxy/nginx.conf,
-      # so an empty mount here would 404 that alias — harmless for the RSS route
-      # under test, but the guard keeps the two jobs consistent about the trap.
-      - name: Fetch the legacy web-gallery reference (sparse, read-only)
+      # This job RUNS the legacy application, so it needs the whole checkout, not
+      # just the static asset subtrees the smoke job mounts. A sparse checkout of
+      # `web-gallery` alone left the PHP entry points and `includes/` absent, and
+      # the cutover probe got Apache's 404 page instead of the feed — the CSS-only
+      # subset is fine for the proxy's alias, but useless to Apache.
+      #
+      # Blobless and depth-1, so it is a small download; `legacy/` is gitignored in
+      # this repository and is never committed.
+      - name: Fetch the legacy application (blobless, read-only)
         run: |
           for root in "$GITHUB_WORKSPACE/.." "$GITHUB_WORKSPACE"; do
             dest="$root/legacy/phpretro-pdo"
-            [ -d "$dest/web-gallery/v2/styles" ] && continue
+            [ -f "$dest/xml/rss.php" ] && continue
             rm -rf "$dest"
             mkdir -p "$(dirname "$dest")"
-            git clone --filter=blob:none --no-checkout --depth=1 \
+            git clone --filter=blob:none --depth=1 \
               https://github.com/PapaBill1234/PHPRetro-PDO.git "$dest"
-            git -C "$dest" sparse-checkout set --no-cone web-gallery housekeeping/images
-            git -C "$dest" checkout
           done
+          echo "legacy entry point present: $(test -f "$GITHUB_WORKSPACE/legacy/phpretro-pdo/xml/rss.php" && echo yes || echo no)"
 
       - name: Build the cutover harness (new stack + legacy stack + proxy)
         run: docker compose -p ci-cutover -f tools/ci-repro/compose-cutover.yaml up -d --build
