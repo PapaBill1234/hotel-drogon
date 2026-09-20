@@ -35,7 +35,7 @@ read than it was worth. Historical investigation is in the log, not below.
 | Async MariaDB + Redis proven against real data | **DONE** | live stack; smoke suites |
 | Compose services incl. a frontend build | **PARTIAL — NEXT WORK UNIT** | backend, MariaDB, Redis, worker, nginx all present. **No frontend build service**: `frontend/dist` is built out-of-band (locally and in CI) and bind-mounted |
 | CI covers CMake + sanitizers + tests, TypeScript build, Playwright | **DONE** | `.github/workflows/ci.yml`: `cpp-build-and-test`, `integration-smoke`, `cutover-check` |
-| CI passes | **GREEN** | run `35530699981` on `9d49fc0`, all three jobs success; four consecutive green runs before it |
+| CI passes | **GREEN** | run `35538279876` on `cacc095`, all three jobs success (install step 29s, diagnosis step skipped) |
 | Cutover **and rollback** demonstrated | **DONE** | `scripts/check_cutover.sh` 8/8; the `cutover-check` CI job runs it against the real proxy config on an isolated stack |
 | Sentry | **MOVED TO PHASE 10** | Decision gate, not a Phase 2b deliverable: no Sentry C++ SDK in the Ubuntu archive, and a measured `sentry-native` vcpkg probe failed building `libunwind`. `/metrics` **is** implemented. |
 | Basic metrics endpoint | **DONE** | `/metrics` serves Prometheus text |
@@ -85,6 +85,11 @@ pins at exactly the pinned Ubuntu versions. Pinning stayed strict throughout.
 This is the first, not the second, same-signature failure, so the escalation
 counter is at 1.
 
+**Run `35538279876` on `cacc095` then passed: all three jobs green** — the pinned
+install completed in 29 seconds, the diagnosis step skipped, and
+`integration-smoke` and `cutover-check` both succeeded, so the dependency strategy
+is verified on CI rather than on a local reproduction alone.
+
 **Cutover and rollback (green in run `35530042653`).** `proxy/cutover.map` is
 included by `nginx.conf` and every route defaults to `app:8080`, so deploying it
 changed no routing. `/articles/rss.xml` is switched to `legacy:80` and back by
@@ -97,19 +102,20 @@ Fixed durably by mounting the proxy **directory** instead of the file, plus a
 checksum assertion that the proxy's copy matches the host's before each reload.
 An interim "the reload is slow" explanation was wrong and is withdrawn.
 
-## Verified state at `9d49fc0`
+## Verified state at `cacc095`
 
 | Check | Command | Result |
 | --- | --- | --- |
 | C++ build + sanitizers + CTest | `-DENABLE_SANITIZERS=ON -DBUILD_TESTING=ON`, `-Werror` | 0 warnings, 1/1 |
-| Image build | `docker build` | succeeds, ctest inside the build passes |
-| Dependency pins | `scripts/check_dependency_pins.py` | exit 0; negative-tested |
+| Image build | `docker build` (pinned base image by digest) | succeeds, ctest inside the build passes |
+| Dependency pins | `scripts/check_dependency_pins.py` | exit 0; negative-tested for a rotted pin, a bypassed `$PINS`, and an unreadable `PINS` block |
+| Pinned install under the runner's conditions | CI's exact commands in a container with PGDG added | all 21 pins install, each at exactly its pinned version |
 | CSRF / PolarIS isolation / admin UI coverage | three lints | exit 0 each |
 | Phase 3 / Phase 4 admin / Phase 4 public smokes | `scripts/smoke_phase*.sh\|py` | 12/12, 33/33, 17/17 |
 | Admin UI browser flow | `PLAYWRIGHT_ADMIN=1 npx playwright test admin.spec.ts` | 10/10 |
 | Visual parity | `npm run test:visual:container` | 6/6 at 2%, 0-diff in the pinned container |
 | Cutover + rollback | `scripts/check_cutover.sh` | 8/8 |
-| CI | runs `35530042653`, `35530699981` | all jobs success |
+| CI | run `35538279876` | all three jobs success |
 
 ## Baseline provenance
 
