@@ -164,7 +164,9 @@ Phase 4 public+RSS 17/17, visual parity 6/6, both linters exit 0.
 **Caveat, stated plainly:** this removes the *mechanism* behind the intermittent
 CI failure and proves the readiness invariant holds locally and deterministically.
 It does not by itself prove the CI job will never fail again — that needs green
-runs on CI. The next CI run is the confirmation.
+runs on CI. First post-fix CI run: `6ab4127` (run `35516423156`) — both jobs
+**success**. Encouraging, but one green run is not proof of stability; watch the
+job over the next few commits.
 
 **Also discovered (evidence for the warnings-as-errors item).** A clean compile
 emits exactly **7 warnings**, all `-Wunused-parameter` in
