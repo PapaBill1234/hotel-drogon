@@ -104,6 +104,36 @@ jobs:
       - name: Run Phase 4 public API and RSS smoke suite
         run: python3 scripts/smoke_phase4_public.py http://localhost:3000
 
+      # --- visual-parity data preconditions ---------------------------------
+      #
+      # The baselines were captured from a legacy stack that imports
+      # tools/legacy-stack/init/99-seed.sql at database init. The new app has no
+      # equivalent hook, so without this the parity run compares a seeded legacy
+      # screenshot against an EMPTY new app and fails on content, not markup.
+      # `docker exec -i` (no -t: -t rewrites line endings under Git Bash, which
+      # is not this shell but is a trap worth not reintroducing).
+      - name: Apply the shared content fixtures to the new app database
+        run: docker exec -i hotel_mariadb mysql -uhotel -photel_secret polaris < tools/legacy-stack/init/99-seed.sql
+
+      # The admin smoke suite above creates banners and does not delete them,
+      # while the baselines have none, so the new app would render ad slots
+      # legacy has no rows for. (Its own banners are deleted afterwards by the
+      # Playwright flow, which asserts the deletion.)
+      - name: Clear banners before the parity run
+        run: |
+          docker exec hotel_mariadb mysql -uhotel -photel_secret polaris \
+            -e "DELETE FROM phpretro_banners;"
+
+      # The maintenance baseline can only be captured with the site closed:
+      # legacy maintenance.php redirects to "/" while site_closed is "0", so the
+      # committed baseline is the maintenance page and the comparison needs the
+      # same state. The seed above restores site_closed to "0", hence this.
+      - name: Close the site for the maintenance baseline
+        run: |
+          docker exec hotel_mariadb mysql -uhotel -photel_secret polaris \
+            -e "UPDATE phpretro_site_settings SET setting_value='1' WHERE setting_key='site_closed';"
+          curl -s http://localhost:3000/api/public/maintenance
+
       - name: Set up Node for the frontend build and browser tests
         uses: actions/setup-node@v4
         with:
@@ -128,7 +158,7 @@ jobs:
       - name: Reload the proxy so it serves the freshly built bundle
         run: docker compose exec -T proxy nginx -s reload
 
-      - name: Wait for the stack again after the restart
+      - name: Wait for the stack again after the proxy reload
         run: |
           for i in $(seq 1 60); do
             code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/health || true)
@@ -138,7 +168,7 @@ jobs:
             fi
             sleep 2
           done
-          echo "::error::stack did not become healthy after the proxy restart"
+          echo "::error::stack did not become healthy after the proxy reload"
           docker compose logs --tail=200
           exit 1
 

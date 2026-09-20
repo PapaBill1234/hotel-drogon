@@ -17,22 +17,34 @@ BASE_NEW=http://localhost:3000 npm run test:visual   # 6 passed
 Baselines live in `../../docs/reference-screenshots/baseline/` and are committed.
 To re-capture them, bring up `tools/legacy-stack/` and run `npm run capture`.
 
-### Two preconditions
+### Data preconditions (both are wired into CI)
 
-1. **Identical content on both sides.** Fixtures come from
-   `tools/legacy-stack/init/99-seed.sql` and are applied to both databases.
-   Differing data shows up as a markup diff. Note the admin smoke suite creates
-   banners and does not clean up after itself — clear `phpretro_banners` before
-   running parity, or the new app renders ad slots legacy has no rows for.
-2. **`maintenance` needs `site_closed=1` on both apps.** Legacy redirects to `/`
-   while the site is open, so its baseline can only be captured closed. The
-   comparison itself runs against captured PNGs, so flipping the flag does not
-   affect the other five pages.
+1. **The shared content fixtures must be applied to the NEW app too.** The
+   legacy stack imports `tools/legacy-stack/init/99-seed.sql` at database init;
+   the Drogon app has no equivalent hook, so a fresh database starts with empty
+   `phpretro_news`, `phpretro_faq` and `phpretro_collectibles`. Comparing a
+   seeded legacy baseline against an empty new app fails on content, not markup.
+   CI therefore pipes that same file into the new app's MariaDB, and clears
+   `phpretro_banners` afterwards — the admin smoke suite runs earlier in the same
+   job and creates banners it does not delete, while the baselines have none.
+2. **`maintenance` needs `site_closed=1` on the NEW app.** Legacy redirects to
+   `/` while the site is open, so its baseline could only be captured closed, and
+   the comparison needs the same state. The seed above restores `site_closed` to
+   `'0'`, so CI sets it back to `'1'` before running this suite. The comparison
+   itself is against captured PNGs, so the flag does not affect the other five
+   pages.
 
-The admin UI suite (`admin.spec.ts`) deletes everything it creates, so it does
-not need that cleanup step; it asserts the removal rather than just the success
-notice, precisely because a leftover banner would change the public markup the
-baselines were captured against.
+Locally, reproduce all three steps with:
+
+```sh
+get-content tools/legacy-stack/init/99-seed.sql -raw | docker exec -i hotel_mariadb mysql -uhotel -photel_secret polaris
+docker exec hotel_mariadb mysql -uhotel -photel_secret polaris -e "DELETE FROM phpretro_banners;"
+docker exec hotel_mariadb mysql -uhotel -photel_secret polaris -e "UPDATE phpretro_site_settings SET setting_value='1' WHERE setting_key='site_closed';"
+```
+
+The admin UI suite (`admin.spec.ts`) deletes everything it creates and asserts
+the removal rather than just the success notice, so it does not need the banner
+cleanup step.
 
 ## 2. Admin UI flow — the Phase 4 exit condition
 
