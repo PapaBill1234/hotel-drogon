@@ -126,13 +126,15 @@ def ci_pins_text() -> str:
 
 
 def ci_installs_shared_pins() -> bool:
-    """True when CI's apt install uses `$PINS` rather than naming packages.
+    """True when every apt install in CI installs `$PINS` rather than naming packages.
 
     Without this the shared variable could be bypassed by a hand-written install
     somewhere else in the workflow, and the comparison above would still pass
-    because it only ever looked at `PINS`.
+    because it only ever looked at `PINS`. Checked per apt-install line so that a
+    second, unpinned install cannot hide anywhere in the file.
     """
-    return "--no-install-recommends $PINS" in read(CI)
+    installs = [line for line in read(CI).splitlines() if "apt-get install" in line]
+    return bool(installs) and all("$PINS" in line for line in installs)
 
 
 def candidate_versions(names: list[str]) -> dict[str, str]:

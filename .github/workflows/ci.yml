@@ -40,6 +40,20 @@ jobs:
 
       - name: Install system dependencies
         run: |
+          # The runner image adds third-party apt sources — apt.postgresql.org
+          # among them — whose versions outrank Ubuntu's. Run 35537686018 failed
+          # exactly there: `libpq-dev : Depends: libpq5 (= 16.15-0ubuntu0.24.04.1)
+          # but 18.6-1.pgdg24.04+2 is to be installed`, exit 100, "held broken
+          # packages". Preferring `release o=Ubuntu` at priority 1001 makes the
+          # Ubuntu archive authoritative, which is what "pinned Ubuntu 24.04
+          # archive packages" means; 1001 is also the threshold that permits a
+          # downgrade, and `--allow-downgrades` lets apt take it rather than
+          # refuse. Neither widens what is installed: every package is still
+          # named at an exact version, and check_dependency_pins.py still fails on
+          # any pin the archive no longer offers. Both were reproduced and fixed
+          # in a clean ubuntu:24.04 with the PGDG repository added, which fails
+          # with the same message and installs all 21 pins with these two changes.
+          printf 'Package: *\nPin: release o=Ubuntu\nPin-Priority: 1001\n' | sudo tee /etc/apt/preferences.d/00-ubuntu-archive-only >/dev/null
           # A failing `apt-get update` from a repository unrelated to this build
           # (the runner image carries several third-party lists) previously
           # aborted this step with a bare exit 100 that said nothing about which
@@ -47,7 +61,7 @@ jobs:
           # let the pinned install below decide: it either succeeds against the
           # index that actually exists, or it fails and the next step reports why.
           sudo apt-get update > /tmp/apt-update.log 2>&1 || echo "::warning title=apt-get update reported failures::$(grep -aE '^(E:|Err:|W: Failed)' /tmp/apt-update.log | head -5 | tr '\n' '|')"
-          sudo apt-get install -y --no-install-recommends $PINS
+          sudo apt-get install -y --no-install-recommends --allow-downgrades $PINS
 
       # Self-diagnosing, because a pinned install can fail for two reasons that
       # look identical from outside — exit 100 and no message: a pin has left the
@@ -59,7 +73,8 @@ jobs:
       - name: Diagnose a failed pinned install
         if: failure()
         run: |
-          sudo apt-get install -y --no-install-recommends $PINS > /tmp/apt-install.log 2>&1 || true
+          printf 'Package: *\nPin: release o=Ubuntu\nPin-Priority: 1001\n' | sudo tee /etc/apt/preferences.d/00-ubuntu-archive-only >/dev/null
+          sudo apt-get install -y --no-install-recommends --allow-downgrades $PINS > /tmp/apt-install.log 2>&1 || true
           echo "::error title=apt install error::$(grep -aE '^E:' /tmp/apt-install.log | head -4 | tr '\n' '|')"
           echo "--- apt sources in use ---"
           grep -ahE '^(deb |URIs:|Suites:)' /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null | head -12

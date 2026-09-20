@@ -74,18 +74,60 @@ than implicit.
 Exact-version pins fail fast and say little: apt exits 100 and the job log is the
 only place the reason appears. Two different causes look identical from outside —
 a pin that has left the archive, and an index that is not the one the pins were
-read from (mirrors lag the archive by hours) — so CI carries an
-`if: failure()` step that re-runs the install, then reports the apt error, the
-sources actually in use, and every pin whose candidate disagrees, as check-run
-annotations. That makes the failure readable from the API without the job log,
-which matters because the log archive is not reachable with a read-only
-credential.
+read from — so CI carries an `if: failure()` step that re-runs the install, then
+reports the apt error, the sources actually in use, and every pin whose candidate
+disagrees, as check-run annotations. That makes the failure readable from the API
+without the job log, which matters because the log archive is not reachable with
+a read-only credential — that is how the failure below was diagnosed.
 
 A failing `apt-get update` from a repository unrelated to this build (the runner
 image carries several third-party lists) is downgraded to a warning annotation
 rather than aborting the step. That is not a weakening: the pinned install still
 has to succeed against the index that exists, and the linter re-reads the index
 afterwards and fails on any pin the archive no longer offers.
+
+### The runner's third-party repositories, and why CI prefers `o=Ubuntu`
+
+An Ubuntu 24.04 **Docker** image has only the Ubuntu archive configured. A GitHub
+`ubuntu-24.04` **runner** image does not: it adds third-party repositories, and
+`apt.postgresql.org` is one of them.
+
+Run `35537686018` failed on exactly that difference. The diagnosis step reported:
+
+```
+Pin unavailable: libpq-dev
+  libpq-dev is pinned to 16.15-0ubuntu0.24.04.1
+  but this index offers 18.6-1.pgdg24.04+2
+
+apt install error
+  E: Unable to correct problems, you have held broken packages.
+```
+
+The runner image already has PGDG's `libpq5` installed. The pinned `libpq-dev`
+requires `libpq5 (= 16.15-0ubuntu0.24.04.1)`, so apt had to downgrade `libpq5` —
+and with equal source priorities it preferred the higher version and refused.
+This is reproducible in a disposable container by adding the PGDG repository and
+installing `libpq5 libpq-dev` from it first; the message is identical.
+
+Two changes fix it, and neither widens what gets installed:
+
+- `/etc/apt/preferences.d/00-ubuntu-archive-only` pins `release o=Ubuntu` at
+  priority **1001**. Ubuntu's archive becomes authoritative over any third-party
+  repository, including for packages pulled in transitively, so the CI and Docker
+  build paths resolve to the same versions. 1001 is also the threshold above
+  which apt is willing to *consider* a downgrade.
+- `--allow-downgrades` lets apt take that downgrade of `libpq-dev`/`libpq5`
+  instead of refusing. Priority 1001 alone is not enough: apt plans the downgrade
+  and then stops with `E: Packages were downgraded and -y was used without
+  --allow-downgrades`.
+
+Verified in a clean `ubuntu:24.04` with the PGDG repository added and its
+`libpq-dev`/`libpq5` preinstalled: CI's exact commands then install all 21 pins,
+and every one is present at exactly its pinned version.
+
+The Dockerfile deliberately does **not** carry the preference file: its base
+image has no third-party sources to outrank. If that ever stops being true, it
+belongs there too.
 
 ## Update procedure
 

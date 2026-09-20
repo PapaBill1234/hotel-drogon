@@ -56,21 +56,34 @@ removed — it had no consumer, and leaving it would have let a future `vcpkg
 install` silently upgrade Drogon.
 
 **First CI run on the pins failed at "Install system dependencies"** — run
-`35536762317`, commit `a09c9ef`, exit 100 after six seconds. Six seconds is fast
-enough that apt rejected a version or the index update itself failed, rather than
-downloading packages and hitting a conflict. The job log is **not reachable with
-the available read-only credential** (the log endpoint returns an archive the
-tooling drops), and the annotation carried only "exit code 100", so the cause
-could not be read. Rather than guess a fix, the workflow now diagnoses itself: a
-single job-level `PINS` variable feeds both the install step and an
-`if: failure()` step that reports the apt error, the sources actually in use, and
-every pin whose candidate disagrees, as check-run annotations — the one channel
-that is readable. A failing `apt-get update` from a repository unrelated to this
-build no longer aborts the step on its own; the pinned install still has to
-succeed, and the linter still fails on a pin the archive no longer offers.
-Pinning is unchanged and still strict. All of this was reproduced locally in a
-clean `ubuntu:24.04` (21 packages install, 0 pin mismatches) and the new
-assertions were negative-tested.
+`35536762317`, commit `a09c9ef`, exit 100 after six seconds, annotation
+"exit code 100" and nothing else. The job log is **not reachable with the
+available read-only credential** (the log endpoint returns an archive the tooling
+drops), so the cause could not be read directly and no fix was guessed. Instead
+the workflow was made to diagnose itself: one job-level `PINS` variable feeds both
+the install step and an `if: failure()` step that emits the apt error, the sources
+in use, and every disagreeing pin as check-run annotations — the one readable
+channel.
+
+Run `35537686018` then reported the root cause:
+
+```
+Pin unavailable: libpq-dev
+  pinned to 16.15-0ubuntu0.24.04.1 but this index offers 18.6-1.pgdg24.04+2
+apt install error
+  E: Unable to correct problems, you have held broken packages.
+```
+
+The **runner image adds third-party apt repositories** — `apt.postgresql.org`
+among them — and Docker's `ubuntu:24.04` does not. The runner already has PGDG's
+`libpq5`, so the pinned `libpq-dev` could not be satisfied without a downgrade,
+which apt refused at equal priority. This was **reproduced in a disposable
+container** (add PGDG, install its `libpq5 libpq-dev`, run the pinned install:
+identical message) and fixed by making `release o=Ubuntu` authoritative at
+priority 1001 plus `--allow-downgrades`; CI's exact commands then install all 21
+pins at exactly the pinned Ubuntu versions. Pinning stayed strict throughout.
+This is the first, not the second, same-signature failure, so the escalation
+counter is at 1.
 
 **Cutover and rollback (green in run `35530042653`).** `proxy/cutover.map` is
 included by `nginx.conf` and every route defaults to `app:8080`, so deploying it
