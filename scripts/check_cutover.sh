@@ -124,6 +124,48 @@ wait_for_side() { # SIDE
     return 0
 }
 
+# Assert the PROXY sees exactly the map we just wrote, before asking it to reload.
+#
+# This is the assertion that was missing, and its absence cost several CI runs.
+# The map is bind-mounted into the proxy; if the proxy's copy still holds the old
+# routing, the reload is a no-op and the probe dutifully reports the old side —
+# which reads exactly like "the switch is slow" rather than "the proxy never saw
+# the change".
+#
+# Compared by CHECKSUM, not by grepping for a marker. Two reasons, both learned
+# here: the interesting strings appear in the map's own explanatory comments, so a
+# marker match proves nothing; and pushing a regex (`\.`, `$`) through
+# `docker compose exec` into the container's grep survives two shells badly.
+# `cksum` is POSIX and present in busybox, so both sides agree byte for byte.
+proxy_map_checksum() {
+    if [ -z "$COMPOSE_ARGS" ] && [ -z "$RELOAD_CMD" ]; then
+        return 1
+    fi
+    # Two spellings of the container path on purpose. MSYS/Git-Bash on Windows
+    # rewrites an argument like `/etc/nginx/...` into a Windows path before docker
+    # ever sees it (`cksum: can't open 'C:/Program Files/Git/etc/...'`), which made
+    # this assertion fail on a developer machine while working on the runner. The
+    # `//` form is the POSIX-sanctioned way to say "do not translate this".
+    out=""
+    for p in /etc/nginx/config/cutover.map //etc/nginx/config/cutover.map; do
+        # shellcheck disable=SC2086
+        out=$(docker compose $COMPOSE_ARGS exec -T proxy cksum "$p" 2>/dev/null \
+            | tr -d '\r' | awk '{print $1, $2}')
+        [ -n "$out" ] && break
+    done
+    printf '%s' "$out"
+}
+
+assert_proxy_sees_map() { # LABEL
+    host_sum=$(cksum "$MAP" | awk '{print $1, $2}')
+    proxy_sum=$(proxy_map_checksum || echo '')
+    if [ -n "$proxy_sum" ] && [ "$host_sum" = "$proxy_sum" ]; then
+        ok "$1 (checksum ${host_sum%% *})"
+    else
+        bad "$1: host map (${host_sum:-?}) and the proxy's copy (${proxy_sum:-unreadable}) differ — a stale bind mount would make the reload a no-op"
+    fi
+}
+
 # --- locate the committed configuration ------------------------------------
 # PROXY_DIR lets this run against a mounted copy (the isolated reproduction does
 # exactly that); otherwise it is found relative to this script.
@@ -144,11 +186,12 @@ say
 
 # The map must actually be included by nginx.conf. An orphaned map is exactly the
 # defect this check exists to prevent: it looks like routing configuration, it
-# says sensible things, and nothing reads it.
-if grep -q 'include /etc/nginx/cutover.map' "$CONF"; then
+# says sensible things, and nothing reads it. Matched on the filename rather than
+# the full path so that moving the mount point does not silently disable the check.
+if grep -qE '^[[:space:]]*include[[:space:]]+[^;]*cutover\.map' "$CONF"; then
     ok "nginx.conf includes the cutover map"
 else
-    bad "nginx.conf does not include /etc/nginx/cutover.map — the map would be orphaned"
+    bad "nginx.conf does not include a cutover.map — the map would be orphaned"
     say
     say "RESULT: FAIL (map not wired up); stopping"
     exit 1
@@ -206,6 +249,11 @@ if grep -q '^ *~\^/articles/rss\\\.xml\$ legacy:80;' "$MAP"; then
 else
     bad "map rewrite did not take effect"
 fi
+# Markers are deliberately free of regex metacharacters and backslashes: they are
+# passed through `docker compose exec` into the container's grep, and `\.`/`$`
+# survive two shells badly. `legacy:80;` appears only on the cutover line of the
+# map, so it identifies the change without needing a regex.
+assert_proxy_sees_map "proxy sees the cutover map before reload"
 
 reload_proxy
 wait_for_side legacy
@@ -216,6 +264,7 @@ say
 say "[3] Rollback — restore the committed map"
 cp "$BACKUP" "$MAP"
 rm -f "$BACKUP"
+assert_proxy_sees_map "proxy sees the restored map before reload"
 reload_proxy
 wait_for_side app
 check "after rollback, route resolves to the new stack again" app "$(probe)"

@@ -116,7 +116,10 @@ services:
       - "3200:80"
     volumes:
       - ../../proxy/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ../../proxy/cutover.map:/etc/nginx/cutover.map:ro
+      # The whole proxy directory for the cutover map nginx.conf includes: a
+      # bind-mounted file is pinned to its inode, so atomic replacement would be
+      # invisible to the container. See the proxy service in the root compose.yaml.
+      - ../../proxy:/etc/nginx/config:ro
       - ../../../legacy/phpretro-pdo/web-gallery:/var/www/web-gallery:ro
       - ../../../legacy/phpretro-pdo/housekeeping/images:/var/www/housekeeping-images:ro
       - ../../frontend/dist:/usr/share/nginx/html:ro

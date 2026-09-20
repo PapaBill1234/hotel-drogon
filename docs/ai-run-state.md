@@ -15,6 +15,101 @@ commit `77f7c87`. Plan installed at
 `7f01bcd7bc3c58070ffdfcb7f2208c0701ddcab48ebd310ac3bdb421d609e5a7` (verified
 byte-for-byte against the supplied attachment).
 
+## Update — 2026-09-21 (seventh pass): cutover map wired up, cutover and rollback demonstrated
+
+**Work unit:** Phase 2b's *"a route-switch/proxy map and demonstrate both cutover
+and rollback for one real test route."* **Closed, with green CI: run
+`35530042653` (commit `4e922898`) — all three jobs `success`, including the new
+`cutover-check` job.**
+
+### What changed
+
+- `proxy/nginx.conf` now `include`s `/etc/nginx/config/cutover.map`, and the
+  duplicate inline `map $uri $target_backend` is gone, so routing is decided in
+  exactly one place. Route variables are `$cutover_{content,infra,app,staff}_backend`.
+- Every area defaults to `app:8080`, so **deploying the map changes no routing**.
+  `default legacy` — the file's previous value — would have been actively wrong:
+  the un-migrated routes are raw PHP entry points, while `/community`, `/articles`,
+  `/help` and `/credits/collectables` are owned by the new app and are no longer
+  served by legacy PHP.
+- `/articles/rss.xml` is the demonstrated route: both stacks implement it, so the
+  switch is real rather than a redirect.
+- `scripts/check_cutover.sh` — 8/8 locally — asserts the sequence `app → legacy →
+  app`, restoring the map on exit even when it fails.
+- `tools/ci-repro/compose-cutover.yaml` — an isolated project on port 3500 running
+  both applications behind one proxy that uses the **real** `nginx.conf` and
+  `cutover.map` — plus CI job `cutover-check`.
+- Primary stack re-verified unchanged after the map change: Phase 3 12/12, Phase 4
+  admin 33/33, Phase 4 public 17/17.
+
+### The failure that took six CI iterations — corrected diagnosis
+
+The first five runs failed inside this work unit. The recorded cause of iterations
+2 and 3 was **wrong in the way that matters**, and the correction is the point:
+
+> **The map update never reached the container.** `compose-cutover.yaml` mounted
+> `proxy/cutover.map` as a single FILE. A bind-mounted file is pinned to its
+> **inode**, so `sed -i` and `mv` — both of which replace the file — left the mount
+> attached to the original inode. The host's `grep` reported `legacy:80`, nginx
+> kept serving `app`, and the rollback step "passed" only because it restored the
+> value the container was still reading. This is exactly why the check passed on
+> this Windows development host and could never pass on a Linux runner: Docker
+> Desktop's Windows bind mounts resolve by path, so the effect is not reproducible
+> locally at all.
+
+The interim explanation — "the reload is slow, wait longer, then poll" — was not
+the cause, and the polling added in `024b993` was a change made in response to a
+repeated failure without evidence that timing was responsible. It is retained only
+because a reload does need a moment to settle; it fixed nothing. The FAILURE-
+ESCALATION POLICY above exists so that the third iteration stops for review rather
+than being taken on a plausible guess.
+
+Two fixes were needed, and only the inode one was the map problem:
+
+1. **In-place map writes** (`1ac5165`): `sed 's|…|…|' "$BACKUP" > "$MAP"` and
+   `cp "$BACKUP" "$MAP"` replace `sed -i` and `mv`, preserving the inode. CI
+   evidence: iteration 3 stopped seeing `app` and began reaching the legacy
+   upstream.
+2. **Directory mount, not file mount** (`compose.yaml`, harnesses): `./proxy` is
+   now mounted at `/etc/nginx/config`, so both atomic replacement and in-place
+   writes are visible and the documented "edit the file, reload" procedure works
+   however the file is edited. This is the durable fix; the in-place write alone
+   would leave the next editor to rediscover the trap.
+
+A third, unrelated defect surfaced once the map worked: the harness reached the
+legacy container, which answered Apache's 404 because the job's **sparse** legacy
+checkout contained only `web-gallery` and `housekeeping/images` — enough for the
+proxy's asset alias, useless to a PHP application that needs `xml/rss.php` and
+`includes/`. The `cutover-check` job now fetches the whole legacy application
+(blobless, depth-1; 1525 files).
+
+### Guards added, so this cannot recur silently
+
+- **The check asserts the proxy's copy of the map matches the host's, by
+  checksum, before each reload** — the assertion whose absence turned a stale mount
+  into "the switch is slow". Compared by `cksum`, not by grepping for a marker: the
+  interesting strings appear in the map's own comments, and pushing a regex through
+  `docker compose exec` into the container's grep survives two shells badly.
+- The include check matches any `include … cutover.map`, so moving the mount point
+  cannot silently disable it.
+- `tools/ci-repro/cutover-legacy-min.sql` + `cutover-fixtures.sql`: the harness
+  creates only the two tables `xml/rss.php` reads. The full `CleanDB.sql` import
+  made `ci-cutover-legacy-db-1` exit 1 on a runner while starting fine locally.
+
+### Verification for this pass
+
+| Check | Result |
+| --- | --- |
+| `scripts/check_cutover.sh` against the isolated harness | **8 passed, 0 failed** |
+| CI run `35530042653` on `4e922898` | **all three jobs success**, `cutover-check` included |
+| Primary stack after the map and mount change | Phase 3 **12/12**, Phase 4 admin **33/33**, Phase 4 public **17/17** |
+| `docker compose config` (root, harness, parity) | all exit 0 |
+
+### Still outstanding in Phase 2b
+
+Sentry unwired; the vcpkg/Conan deviation unresolved; no Compose frontend build
+service. Nothing else in the Phase 2b matrix is unmet.
+
 ## Update — 2026-09-21 (third pass): CI runs 35520491808 and 35520883936
 
 Both runs after the first fix were **inspected and both FAILED**, each time at a
@@ -456,6 +551,63 @@ pre-existing `smoke_phase4_admin.sh` still leaves banners behind; the e2e
 Playwright, visual-parity Playwright) have not yet executed on CI. Locally they
 pass; "wired" is not "verified in CI".
 
+
+## FAILURE-ESCALATION POLICY — when to stop and ask
+
+Standing policy, set 2026-09-21 at the user's direction, after the cutover-check
+work unit took six CI iterations to go green. It applies to every work unit from
+now on. It is deliberately mechanical, because the failure mode it guards against
+is not laziness — it is a plausible-but-wrong hypothesis that keeps producing
+*tidy* fixes.
+
+**Stop and request review when:**
+
+1. **Two consecutive attempted fixes produce materially the same failing step,
+   assertion, or error signature.** Do not attempt a third implementation change.
+2. **One work unit reaches five failed CI or verification iterations in total**,
+   even if the failure signatures differ.
+3. A materially different failure, supported by logs or artifacts, may **reset the
+   same-signature counter — but never the five-iteration total.**
+4. Required evidence is inaccessible, credentials or authority are missing, or a
+   destructive action appears necessary. Stop immediately.
+5. `docs/cpp-drogon-conversion-plan.md` says the next action is a decision gate.
+
+**Do not** respond to a repeated failure by increasing waits, retries, timeouts, or
+tolerances unless direct evidence proves that timing or tolerance is the cause. A
+tolerance raised to make a check pass is the failure this policy exists to prevent
+(the parity tolerance was once raised to 10% on a misdiagnosis, and that is
+recorded in the fifth-pass entry).
+
+**When escalating, report:** the run IDs; the exact failing step and the log
+excerpt; the commits and fixes attempted; the hypotheses disproved; current Git and
+working-tree state; and one focused request for help.
+
+**Always:** preserve all safe work, and never conceal, bypass, or mark a failing
+check as passed.
+
+### Retrospective against this policy — the cutover work unit
+
+Recorded because a policy applied for the first time to the work that produced it
+is worthless if that work is not audited against it.
+
+| Iteration | Commit | Failing signature | Fix attempted |
+| --- | --- | --- | --- |
+| 1 | `663520a` | harness build: `ci-cutover-legacy-db-1 exited (1)` | minimal legacy schema |
+| 2 | `cbeac4f` | assertion: `expected legacy, got app` | poll for the switched side (20s) |
+| 3 | `024b993` | **same assertion, same signature** | in-place map write (inode preserved) |
+| 4 | `1ac5165` | harness now reached legacy, which answered 404 | fetch the whole legacy app, not just the CSS |
+| 5 | `4e922898` | — | **green** |
+
+Iterations 2 and 3 were the same failing assertion, so under rule 1 a stop should
+have come **before** iteration 3. What actually happened is that the user
+intervened at that point with the inode diagnosis, which is the review the policy
+would have required — so the outcome matched, but the process did not, and
+iteration 3 was taken unilaterally. Two concrete lessons that would have shortened
+this: the second iteration should have compared the host map against the
+container's copy *before* touching the timeout (which is why that assertion now
+exists permanently in `scripts/check_cutover.sh`), and `sed -i`/`mv` on a
+bind-mounted file should be treated as suspect by default. Both are now recorded
+here rather than left as folklore.
 
 ## SAFETY CONSTRAINT — destructive Docker/database operations
 

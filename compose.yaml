@@ -92,11 +92,22 @@ services:
       - "3000:80"
     volumes:
       - ./proxy/nginx.conf:/etc/nginx/nginx.conf:ro
-      # Routing lives in the map, and nginx.conf `include`s it, so the proxy must
-      # have it mounted or it will not start. Read-only on purpose: the cutover
-      # procedure is "edit the file in the repo, then reload", not "edit it
-      # inside the container", so the change is always reviewable in Git.
-      - ./proxy/cutover.map:/etc/nginx/cutover.map:ro
+      # The rest of the proxy configuration — the cutover map — as a DIRECTORY, not
+      # as a single file, and deliberately so.
+      #
+      # Mounting `proxy/cutover.map` as one file pins the container to that file's
+      # INODE. An edit that replaces the file — `sed -i`, `mv`, an editor's atomic
+      # save — leaves the mount attached to the old inode, so the host shows the
+      # new map and nginx keeps reading the old one. That is not theoretical: it is
+      # why the cutover check passed on a Windows host (whose bind mounts resolve
+      # by path) and failed on Linux CI, where the map appeared to change and
+      # routing did not.
+      #
+      # With the directory mounted, both atomic replacement and in-place writes are
+      # visible, so the documented edit-then-reload procedure works however the
+      # file is edited. Read-only: changes belong in the repo and in Git, not in
+      # the container.
+      - ./proxy:/etc/nginx/config:ro
       # Legacy web-gallery assets: the stylesheets and imagery the converted
       # pages must reuse verbatim (nginx aliases /web-gallery/ to this path).
       # Without it the React pages render completely unstyled.

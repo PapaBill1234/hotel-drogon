@@ -57,7 +57,7 @@ should be read as claiming it is.
 | Warnings-as-errors enabled, all warnings cleared | **Yes** — `-Werror`; the 7 `-Wunused-parameter` findings in `PublicContentController.cpp` cleared; clean builds warning-free in both Release and Debug+ASan/UBSan |
 | CI covers TypeScript build and Playwright | **Added; first CI run failed and the cause is fixed, not yet re-observed** — the steps were added and run `35519492373` failed at exactly one step, **"Build the React frontend (TypeScript + Vite)"**, so every Playwright step was skipped. Cause: `frontend/dist` is a bind-mount source that Docker auto-creates as **root** on a fresh checkout, so Vite's output-directory emptying hit EACCES as the unprivileged runner. Fixed three ways: `frontend/dist/.gitignore` is committed so the directory exists and is runner-owned before `docker compose up`; the proxy is now **reloaded** (`nginx -s reload`) instead of restarted, because a restart briefly moved the container address that the variable-based `proxy_pass` had resolved; and a check for the exact failure re-runs locally against a fresh tree. **Unproven until the next CI run.** |
 | **CI passes** | **FAILED on the last run, cause fixed, re-verification pending** — run `35519492373` (commit `869a4ef`) concluded `failure`: job `cpp-build-and-test` **success**, job `integration-smoke` **failure** at the frontend-build step above. The readiness flake from `77f7c87` remains fixed and did not recur (Phase 3 and both Phase 4 smoke suites passed in that run). |
-| Cutover **and rollback** demonstrated for a real route | **Yes** | `scripts/check_cutover.sh` against the isolated harness: baseline `app`, flip the map to `legacy:80`, assert the legacy implementation answered, restore, assert `app` again — 6/6 locally, and the `cutover-check` CI job runs the same script. The map is the real committed one, not a stand-in |
+| Cutover **and rollback** demonstrated for a real route | **Yes** | `scripts/check_cutover.sh` against the isolated harness: baseline `app`, the proxy's copy of the map verified by checksum, flip the map to `legacy:80`, assert the legacy implementation answered, restore, assert `app` again — **8/8 locally**, and the `cutover-check` CI job runs the same script (green in run `35530042653`) |
 | Sentry wired | **No** — inert config field only |
 | Compose services incl. a frontend build | **Partial** — no frontend build service; `frontend/dist` is built out-of-band and bind-mounted (locally and now in CI). The proxy additionally mounts the legacy `housekeeping/images/` tree read-only so `/housekeeping/images/…` resolves instead of being answered with the SPA shell. |
 | Preflight host checks recorded | **Yes** — `docs/phase2b-preflight.md`, produced by `scripts/preflight.sh`, which CI now also runs as a visible first step. It records the Windows 11 development host, the Ubuntu 24.04 Linux build environment (g++ 13.3.0, cmake 3.28.3, git 2.43.0, ninja 1.11.1, python 3.12.3, systemd-detect-virt `wsl`) and that the Docker daemon is reachable, so the plan's "stop Docker work" branch does not apply |
@@ -459,13 +459,25 @@ Two deliberate choices, both recorded because the obvious alternatives are worse
   the legacy app no longer serves them. Defaulting to legacy would break every
   converted page. Deploying the map therefore changes no routing at all.
 
+**The map is mounted as a directory, not as a file.** `compose.yaml` mounts
+`./proxy` at `/etc/nginx/config`, and `nginx.conf` includes
+`/etc/nginx/config/cutover.map`. Mounting the single file pins the container to
+that file's **inode**: `sed -i`, `mv`, or an editor's atomic save all replace the
+file, leaving the mount attached to the old inode — so the host shows the new map
+and nginx keeps reading the old one. That defect is what made the cutover check
+pass on a Windows host and fail on Linux CI, and because Docker Desktop's Windows
+bind mounts resolve by path it cannot be reproduced locally at all. Directories do
+not have this problem, so the documented edit-then-reload procedure now works
+however the file is edited.
+
 `/articles/rss.xml` is the demonstrated route because both stacks implement it,
 so the switch is real rather than a redirect. `scripts/check_cutover.sh` asserts
-the sequence end to end: route on `app`, map flipped, route on `legacy`, map
-restored, route on `app` again — 6/6 locally. It runs against
-`tools/ci-repro/compose-cutover.yaml`, an isolated project that runs the **real**
-`proxy/nginx.conf` and `proxy/cutover.map` with both applications behind one
-proxy, and the `cutover-check` CI job runs the same script on every push.
+the sequence end to end — route on `app`, proxy's copy of the map verified by
+checksum, map flipped, route on `legacy`, map restored, route on `app` again —
+**8/8 locally**. It runs against `tools/ci-repro/compose-cutover.yaml`, an isolated
+project that runs the **real** `proxy/nginx.conf` and `proxy/cutover.map` with both
+applications behind one proxy, and the `cutover-check` CI job runs the same script
+on every push (green in run `35530042653`).
 
 #### Reference screenshots are not baselines
 

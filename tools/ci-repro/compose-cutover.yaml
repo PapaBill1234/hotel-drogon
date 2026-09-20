@@ -40,9 +40,14 @@ services:
     ports:
       - "3500:80"
     volumes:
-      # The REAL routing configuration under test.
+      # nginx.conf at its real path, plus the rest of the proxy DIRECTORY for the
+      # cutover map it includes. A bind-mounted file is pinned to its inode, so a
+      # map edit that replaces the file (sed -i, mv, an atomic editor save) would
+      # leave nginx reading the old content while the host showed the new one. That
+      # is exactly how this check first failed on Linux CI while passing on
+      # Windows. See the proxy service in the root compose.yaml.
       - ../../proxy/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ../../proxy/cutover.map:/etc/nginx/cutover.map:ro
+      - ../../proxy:/etc/nginx/config:ro
       - ../../../legacy/phpretro-pdo/web-gallery:/var/www/web-gallery:ro
       - ../../../legacy/phpretro-pdo/housekeeping/images:/var/www/housekeeping-images:ro
       - ../../frontend/dist:/usr/share/nginx/html:ro
