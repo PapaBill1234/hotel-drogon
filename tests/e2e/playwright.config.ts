@@ -31,6 +31,11 @@ export default defineConfig({
   workers: 1,
   reporter: [['list'], ['html', { open: 'never' }]],
   timeout: 60_000,
+  // Baselines live alongside the other reference imagery, and must NOT carry
+  // Playwright's default `-<project>-<platform>` suffix: they are captured from
+  // the legacy app by capture-references.spec.ts, not auto-generated per
+  // platform, so both sides have to agree on one exact filename.
+  snapshotPathTemplate: '{testDir}/../../docs/reference-screenshots/baseline/{arg}{ext}',
   expect: {
     toHaveScreenshot: {
       maxDiffPixelRatio: MAX_DIFF_PIXEL_RATIO,

@@ -149,8 +149,19 @@ void ContentService::ensureSchema(const DbClientPtr& db) {
         "PRIMARY KEY (id), INDEX idx_visible_order (visible, sort_order)"
         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
+        // Shape taken from legacy migrations/002_admin_features.sql, including
+        // updated_at NOT NULL (the legacy app writes this table too). An earlier
+        // version had only (setting_key, setting_value): it was inferred from the
+        // SELECT in includes/classes.php rather than the migration, and diverged
+        // from the table the legacy app actually writes.
+        //
+        // Divergence: legacy declares a FK on updated_by -> users(id). Omitted
+        // here because Drogon dispatches statements asynchronously, so this
+        // CREATE is not ordered after the users CREATE and the constraint would
+        // race. It is a constraint only; column shape matches.
         "CREATE TABLE IF NOT EXISTS phpretro_site_settings ("
-        "setting_key VARCHAR(100) NOT NULL, setting_value TEXT NOT NULL,"
+        "setting_key VARCHAR(100) NOT NULL, setting_value VARCHAR(255) NOT NULL,"
+        "updated_by INT NULL, updated_at INT NOT NULL,"
         "PRIMARY KEY (setting_key)"
         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
     };
@@ -174,10 +185,15 @@ void ContentService::ensureSchema(const DbClientPtr& db) {
         // Seed the maintenance/site flags the ported pages depend on, so a
         // fresh install renders the same defaults as legacy. INSERT IGNORE:
         // never clobber an operator's existing value.
-        *db << "INSERT IGNORE INTO phpretro_site_settings (setting_key, setting_value) VALUES "
-               "('site_closed','0'),('maintenance_style','0'),('maintenance_twitter',''),"
-               "('site_capcha','0'),('site_name','PHPRetro'),('site_url',''),"
-               "('site_promo_phrases','Welcome to the hotel|Hey there!|Come on in!')"
+        *db << "INSERT IGNORE INTO phpretro_site_settings "
+               "(setting_key, setting_value, updated_by, updated_at) VALUES "
+               "('site_closed','0',NULL,UNIX_TIMESTAMP()),"
+               "('maintenance_style','0',NULL,UNIX_TIMESTAMP()),"
+               "('maintenance_twitter','',NULL,UNIX_TIMESTAMP()),"
+               "('site_capcha','0',NULL,UNIX_TIMESTAMP()),"
+               "('site_name','PHPRetro',NULL,UNIX_TIMESTAMP()),"
+               "('site_url','',NULL,UNIX_TIMESTAMP()),"
+               "('site_promo_phrases','Welcome to the hotel|Hey there!|Come on in!',NULL,UNIX_TIMESTAMP())"
             >> [](const Result&) {
                    HOTEL_LOG_INFO("ContentService: content schema ready.");
                }
@@ -899,9 +915,11 @@ void ContentService::setSetting(
     auto db = drogon::app().getDbClient("default");
     if (!db) { res.error = "database unavailable"; callback(res); return; }
 
-    *db << "INSERT INTO phpretro_site_settings (setting_key, setting_value) VALUES (?, ?) "
-           "ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
-        << key << value
+    *db << "INSERT INTO phpretro_site_settings "
+           "(setting_key, setting_value, updated_by, updated_at) VALUES (?, ?, ?, UNIX_TIMESTAMP()) "
+           "ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), "
+           "updated_by = VALUES(updated_by), updated_at = UNIX_TIMESTAMP()"
+        << key << value << static_cast<int32_t>(actorId)
         >> [callback, actorId, key, ip, res](const Result&) mutable {
                res.ok = true;
                AuditService::logAction(actorId, "content_setting_update", "phpretro_site_settings",

@@ -7,19 +7,30 @@ import { BASELINE_DIR, VIEWPORT } from './playwright.config';
 // Captures legacy baselines. Run this against a RUNNING legacy PHPRetro stack
 // before the parity suite means anything:
 //
-//   BASE_LEGACY=http://127.0.0.1 npx playwright test capture-references.spec.ts
+//   BASE_LEGACY=http://localhost:8081 npx playwright test capture-references.spec.ts
 //
-// Until this has been run at the fixed viewport below, visual-parity.spec.ts
-// has nothing valid to compare against. The hand-taken PNGs in
-// docs/reference-screenshots/ are design references only -- different window
-// sizes, browser chrome, no fixed viewport.
+// See tools/legacy-stack/README.md for bringing that stack up. The hand-taken
+// PNGs in docs/reference-screenshots/ are design references only -- different
+// window sizes, browser chrome, no fixed viewport.
 //
 // These are intentionally NOT tests: they are a capture tool. The assertions
-// only guard that the legacy app answered with something renderable, so a
-// misconfigured BASE_LEGACY fails loudly instead of writing blank baselines.
+// guard that the legacy app answered with the RIGHT page, so a misconfigured
+// URL or an intervening redirect fails loudly instead of writing a wrong
+// baseline that later comparisons would "pass" against.
+//
+// Two passes are required because the pages are mutually exclusive:
+//   site_closed=0 -> landing, community, articles, help, collectables
+//   site_closed=1 -> maintenance   (and with it set, everything else redirects)
+//   CAPTURE_ONLY=landing,community,... selects a subset.
 
 const BASE_LEGACY = envOr('BASE_LEGACY', 'http://127.0.0.1');
 const outDir = path.resolve(__dirname, BASELINE_DIR);
+
+const only = (process.env.CAPTURE_ONLY ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+const selected = only.length ? PAGES.filter((p) => only.includes(p.name)) : PAGES;
 
 test.describe.configure({ mode: 'serial' });
 
@@ -27,7 +38,9 @@ test.beforeAll(() => {
   fs.mkdirSync(outDir, { recursive: true });
 });
 
-for (const page of PAGES) {
+const norm = (p: string) => p.replace(/\/+$/, '') || '/';
+
+for (const page of selected) {
   test(`capture legacy baseline: ${page.name}`, async ({ browser }) => {
     const context = await browser.newContext({ viewport: VIEWPORT });
     const p = await context.newPage();
@@ -36,19 +49,27 @@ for (const page of PAGES) {
       waitUntil: 'networkidle',
     });
 
-    // A blank or error page would otherwise be saved as a "baseline" and every
-    // later comparison would be meaningless.
     expect(response, `no response from ${BASE_LEGACY}${page.legacyPath}`).toBeTruthy();
     expect(
       response!.status(),
       `legacy app returned ${response!.status()} for ${page.legacyPath}`,
     ).toBeLessThan(400);
 
-    const bodyText = (await p.textContent('body')) ?? '';
+    // Redirect guard. The app redirects in several normal situations --
+    // maintenance.php sends guests to "/" while the site is open, session.php
+    // bounces guests when site_allow_guests is unset, core.php redirects to
+    // /maintenance while closed. Playwright follows redirects transparently, so
+    // without this check we would happily save the WRONG page under this
+    // page's name and every later comparison would be measured against it.
     expect(
-      bodyText.trim().length,
-      `legacy page ${page.legacyPath} rendered empty`,
-    ).toBeGreaterThan(0);
+      norm(new URL(p.url()).pathname),
+      `redirected to ${p.url()} — that is not ${page.legacyPath}; refusing to ` +
+        `write a baseline from the wrong page`,
+    ).toBe(norm(page.legacyPath));
+
+    const bodyText = (await p.textContent('body')) ?? '';
+    expect(bodyText.trim().length, `legacy page ${page.legacyPath} rendered empty`)
+      .toBeGreaterThan(0);
 
     // Mask dynamic regions so the baseline does not bake in a live counter.
     for (const sel of page.mask) {
@@ -61,7 +82,6 @@ for (const page of PAGES) {
     const file = path.join(outDir, `${page.name}.png`);
     await p.screenshot({ path: file, fullPage: false });
 
-    // eslint-disable-next-line no-console
     console.log(
       `captured ${page.name}: ${BASE_LEGACY}${page.legacyPath} -> ${file}` +
         (page.knownDivergence ? `\n  NOTE: ${page.knownDivergence}` : ''),

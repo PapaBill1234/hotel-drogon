@@ -1,0 +1,66 @@
+# Legacy PHPRetro stack, used ONLY to capture visual-parity baselines.
+#
+# Deliberately separate from the main compose.yaml: it runs the old PHP app
+# against its own database so it can never clobber the new app's data.
+#
+#   docker compose -f tools/legacy-stack/compose.yaml up -d --build
+#   # wait for the schema import (CleanDB.sql is ~5.5MB / 55k lines)
+#   curl -I http://localhost:8081/
+#
+# Then capture baselines (see tests/e2e/README.md):
+#   BASE_LEGACY=http://localhost:8081 npm run capture
+
+services:
+  legacy-db:
+    image: mariadb:10.11
+    container_name: legacy_db
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: root_secret
+      MARIADB_DATABASE: polaris
+      MARIADB_USER: hotel
+      MARIADB_PASSWORD: hotel_secret
+    volumes:
+      - legacy_db_data:/var/lib/mysql
+      # Import order is alphabetical, hence the numeric prefixes.
+      - ../../../legacy/phpretro-pdo/references/schema/CleanDB.sql:/docker-entrypoint-initdb.d/01-clean.sql:ro
+      - ../../../legacy/phpretro-pdo/migrations/001_custom_tables.sql:/docker-entrypoint-initdb.d/02-m001.sql:ro
+      - ../../../legacy/phpretro-pdo/migrations/002_admin_features.sql:/docker-entrypoint-initdb.d/03-m002.sql:ro
+      - ../../../legacy/phpretro-pdo/migrations/003_web_minimail.sql:/docker-entrypoint-initdb.d/04-m003.sql:ro
+      - ../../../legacy/phpretro-pdo/migrations/004_web_homes.sql:/docker-entrypoint-initdb.d/05-m004.sql:ro
+      - ../../../legacy/phpretro-pdo/migrations/005_web_group_urls.sql:/docker-entrypoint-initdb.d/06-m005.sql:ro
+      - ../../../legacy/phpretro-pdo/migrations/006_restore_remaining.sql:/docker-entrypoint-initdb.d/07-m006.sql:ro
+      - ../../../legacy/phpretro-pdo/migrations/007_restore_remaining_501s.sql:/docker-entrypoint-initdb.d/08-m007.sql:ro
+      - ../../../legacy/phpretro-pdo/migrations/008_phase10_website_content.sql:/docker-entrypoint-initdb.d/09-m008.sql:ro
+      - ../../../legacy/phpretro-pdo/migrations/009_guild_tags.sql:/docker-entrypoint-initdb.d/10-m009.sql:ro
+      - ./init/99-seed.sql:/docker-entrypoint-initdb.d/99-seed.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  legacy-web:
+    build:
+      context: .
+      dockerfile: web.Dockerfile
+    container_name: legacy_web
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    environment:
+      DB_DSN: "mysql:host=legacy-db;dbname=polaris;charset=utf8mb4"
+      DB_USER: hotel
+      DB_PASS: hotel_secret
+    volumes:
+      - ../../../legacy/phpretro-pdo:/var/www/html
+      # core.php redirects to /install/ when ./.env is missing, so the file has
+      # to exist even though credentials arrive via the environment.
+      - ./legacy.env:/var/www/html/.env:ro
+    depends_on:
+      legacy-db:
+        condition: service_healthy
+
+volumes:
+  legacy_db_data:

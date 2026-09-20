@@ -15,7 +15,9 @@ import { BASELINE_DIR, VIEWPORT } from './playwright.config';
 const BASE_NEW = envOr('BASE_NEW', 'http://localhost:3000');
 const baselineDir = path.resolve(__dirname, BASELINE_DIR);
 
-test.describe.configure({ mode: 'serial' });
+// NOT serial: a failure on one page must not skip the remaining pages, or a
+// single bad page hides the parity status of every other one.
+test.describe.configure({ mode: 'default' });
 
 for (const page of PAGES) {
   test(`visual parity: ${page.name}`, async ({ browser }) => {
