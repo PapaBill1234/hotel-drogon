@@ -81,6 +81,27 @@ void AuthPolicy::requireStaff(
     );
 }
 
+void AuthPolicy::requireHighTrust(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const services::StaffSessionData& session)> onSuccess,
+    std::function<void(const drogon::HttpResponsePtr& resp)> onDenied
+) {
+    requireStaff(
+        req,
+        kHighTrustMinRank,
+        onSuccess,
+        [onDenied](const drogon::HttpResponsePtr& resp) {
+            // Re-label the denial so a capability failure is distinguishable
+            // from "no staff session at all". The underlying requireStaff
+            // already returns 403; we add an explicit marker.
+            if (resp) {
+                resp->addHeader("X-High-Trust-Required", "1");
+            }
+            onDenied(resp);
+        }
+    );
+}
+
 void AuthPolicy::requireGroupOwner(
     const drogon::HttpRequestPtr& req,
     uint32_t guildId,

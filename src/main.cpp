@@ -4,6 +4,7 @@
 #include <filesystem>
 #include "utils/Logger.h"
 #include "utils/Config.h"
+#include "services/ContentService.h"
 
 static void handleSignal(int sig) {
     HOTEL_LOG_INFO("Received signal {}, initiating graceful shutdown...", sig);
@@ -64,6 +65,12 @@ int main(int argc, char* argv[]) {
                     return;
                 }
                 HOTEL_LOG_INFO("Verifying / migrating PolarIS and service layer database tables...");
+
+                // Phase 4: website-owned content tables (phpretro_news, phpretro_faq,
+                // phpretro_collectibles, phpretro_banners, phpretro_campaigns,
+                // phpretro_site_settings). Idempotent.
+                hotel::services::ContentService::ensureSchema(db);
+
                 *db << "CREATE TABLE IF NOT EXISTS users ("
                        "id INT AUTO_INCREMENT PRIMARY KEY, "
                        "username VARCHAR(50) UNIQUE, "
