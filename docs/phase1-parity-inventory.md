@@ -149,6 +149,47 @@ use `Json::Value`/`isMember`/`asString`.
 | Raw-HTML/script settings as gated high-trust features | Explicit permission gates + warnings | **Not implemented as a gate.** Legacy PHPRetro's raw-output settings (`site_tracking`, banner HTML) were flagged in its own XSS audit as "deliberate staff code execution" needing documented trust boundaries; Laravel side doesn't yet reproduce or gate this at all — it's simply not read/write here yet. |
 | Screenshot parity tests vs. original pages | Yes | **Not found.** `tests/Feature/VisualContractTest.php` checks file/route hygiene (no `web-gallery` copy, correct nginx alias), not visual screenshot diffing against the legacy page. |
 
+### Phase 4b — Drogon C++ implementation (current stack)
+
+Ported from `legacy/phpretro-pdo` at the reviewed commit. The Laravel rows above
+are historical; these are the live statuses.
+
+| Page/feature | Legacy source | Status |
+| --- | --- | --- |
+| Content models (`phpretro_*`) | `migrations/001`, `008` | **Done.** Typed structs + `ContentService` named methods (not Drogon ORM classes — one data-access idiom with Phase 3). Schema bootstrapped at startup for `phpretro_news`, `phpretro_collectibles`, `phpretro_faq`, `phpretro_banners`, `phpretro_campaigns`, `phpretro_site_settings`. |
+| Admin CMS API | legacy `housekeeping/*` | **Done.** `/api/admin/{news,faq,collectibles,banners,campaigns,settings}`, staff rank ≥ 5, per-field validation, audit-logged, CSRF-enforced. 19/19 smoke assertions. |
+| High-trust raw-HTML gating | not gated in legacy | **Done.** `AuthPolicy::requireHighTrust` (rank ≥ 7), enforced in controller *and* service, visible warning in responses, `X-High-Trust-Required` on denial, high-trust writes distinctly audit-labelled. Public API never exposes `html`. |
+| Public content API | the `*.php` pages | **Done.** `/api/public/{landing,news,news/{id},faq,collectibles,banners,campaigns,maintenance,settings}`. |
+| RSS | `xml/rss.php` | **Done, with bug fixed.** See "RSS double-escaping" below. |
+| React pages (landing, community, articles, FAQ, collectables, maintenance) | the `*.php` pages | **Not started.** `frontend/` is still empty `.gitkeep` scaffolding — no `package.json`, Vite, or React. |
+| Screenshot parity tests | n/a | **Not started.** 11 reference screenshots are committed under `docs/reference-screenshots/`, but they are *not* usable as pixel-diff baselines (see below). |
+
+#### RSS double-escaping — fixed
+
+`xml/rss.php` escaped the article title **twice**: once when reading the row
+(`$row['title'] = $input->HoloText($row['title'])`, line 34) and again on output
+(`<title><?php echo $input->HoloText($row['title']); ?></title>`, line 41). A
+title containing `&` therefore rendered as the double-escaped entity.
+`$row['summary']` was escaped once and echoed raw, so it was correct — the bug
+was title-specific.
+
+The port escapes exactly once, centralised in `xmlEscape()`, with every call
+site passing raw data. Verified by round-trip rather than by string matching:
+parsing the feed returns the original title verbatim and the raw feed contains
+no double-escaped entity. A double-escaped implementation fails both.
+
+#### Reference screenshots are not baselines
+
+The 11 captures in `docs/reference-screenshots/` were taken by hand from the
+running XAMPP instance at `127.0.0.1`. They cover landing, articles/news and
+collectables (of the Phase 4 pages) plus Club, Pixels, housekeeping login,
+forgot-password, registration, `/me` and profile. They are useful as design
+references but **cannot** serve as comparison baselines: window widths range
+658–1312px, several include browser chrome and the OS taskbar, and none is a
+fixed viewport. A tolerance comparison against them would fail on framing
+alone. Baselines must be re-captured by the test harness at one fixed viewport
+against a running legacy stack.
+
 ## Phase 5 — Account, profile, credits, Club, client entry
 
 | Page/feature | Status |
