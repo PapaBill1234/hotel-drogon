@@ -114,6 +114,13 @@ public:
         std::function<void(std::optional<NewsArticle>)> callback);
     static void getLatestNews(
         std::function<void(std::optional<NewsArticle>)> callback);
+
+    // Public listing for the landing/community/article pages and the RSS feed.
+    // Populates `title_safe` (URL slug) the way legacy stringToURL() did, so
+    // article links keep the /articles/<id>-<slug> shape.
+    static void listPublicNews(
+        uint32_t limit,
+        std::function<void(std::vector<PublicNewsItem>)> callback);
     static void publishNews(
         uint32_t actorId, const NewsArticle& article, const std::string& ip,
         std::function<void(ContentResult)> callback);

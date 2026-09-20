@@ -176,7 +176,8 @@ void ContentService::ensureSchema(const DbClientPtr& db) {
         // never clobber an operator's existing value.
         *db << "INSERT IGNORE INTO phpretro_site_settings (setting_key, setting_value) VALUES "
                "('site_closed','0'),('maintenance_style','0'),('maintenance_twitter',''),"
-               "('site_capcha','0'),('site_promo_phrases','Welcome to the hotel|Hey there!|Come on in!')"
+               "('site_capcha','0'),('site_name','PHPRetro'),('site_url',''),"
+               "('site_promo_phrases','Welcome to the hotel|Hey there!|Come on in!')"
             >> [](const Result&) {
                    HOTEL_LOG_INFO("ContentService: content schema ready.");
                }
@@ -263,6 +264,37 @@ void ContentService::getLatestNews(
         >> [callback](const DrogonDbException& e) {
                HOTEL_LOG_ERROR("ContentService::getLatestNews: {}", e.base().what());
                callback(std::nullopt);
+           };
+}
+
+void ContentService::listPublicNews(
+    uint32_t limit,
+    std::function<void(std::vector<PublicNewsItem>)> callback) {
+    auto db = drogon::app().getDbClient("default");
+    if (!db) { callback({}); return; }
+    if (limit == 0 || limit > 100) limit = 10;
+
+    std::string sql =
+        "SELECT id, title, summary, time FROM phpretro_news ORDER BY time DESC, id DESC LIMIT ?";
+    *db << sql
+        << static_cast<int>(limit)
+        >> [callback](const Result& r) {
+               std::vector<PublicNewsItem> out;
+               out.reserve(r.size());
+               for (const auto& row : r) {
+                   PublicNewsItem n;
+                   n.id = row["id"].as<uint32_t>();
+                   n.title = row["title"].as<std::string>();
+                   n.summary = row["summary"].as<std::string>();
+                   n.time = static_cast<uint64_t>(row["time"].as<int64_t>());
+                   n.title_safe = slugify(n.title);
+                   out.push_back(std::move(n));
+               }
+               callback(std::move(out));
+           }
+        >> [callback](const DrogonDbException& e) {
+               HOTEL_LOG_ERROR("ContentService::listPublicNews: {}", e.base().what());
+               callback({});
            };
 }
 
