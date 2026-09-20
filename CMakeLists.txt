@@ -8,9 +8,16 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Export compile_commands.json for language servers / linters
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Compiler warnings
+# Compiler warnings.
+#
+# Warnings are errors: the plan's Phase 2b exit condition requires that
+# "everything written so far compiles without warnings under the sanitizer
+# configuration", and a warning that does not fail the build is a warning nobody
+# fixes. Third-party headers are included via -isystem (DrogonConfig and
+# find_package add them that way), so their warnings stay suppressed and only
+# this repository's own code is gated.
 if(MSVC)
-    add_compile_options(/W4 /permissive-)
+    add_compile_options(/W4 /permissive- /WX)
 else()
     add_compile_options(
         -Wall
@@ -23,6 +30,7 @@ else()
         -Wunused
         -Woverloaded-virtual
         -Wformat=2
+        -Werror
     )
 endif()
 

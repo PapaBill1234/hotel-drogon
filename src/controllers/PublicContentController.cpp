@@ -165,7 +165,7 @@ void PublicContentController::news(const drogon::HttpRequestPtr& req,
     });
 }
 
-void PublicContentController::newsItem(const drogon::HttpRequestPtr& req,
+void PublicContentController::newsItem(const drogon::HttpRequestPtr& /*req*/,
                                        std::function<void(const drogon::HttpResponsePtr&)>&& cb,
                                        const std::string& id) {
     uint32_t newsId = 0;
@@ -188,7 +188,7 @@ void PublicContentController::newsItem(const drogon::HttpRequestPtr& req,
 
 // ==================================================================== faq
 
-void PublicContentController::faq(const drogon::HttpRequestPtr& req,
+void PublicContentController::faq(const drogon::HttpRequestPtr& /*req*/,
                                   std::function<void(const drogon::HttpResponsePtr&)>&& cb) {
     services::ContentService::listFaq(true, [cb](std::vector<services::FaqEntry> items) {
         Value out(Json::arrayValue);
@@ -210,7 +210,7 @@ void PublicContentController::faq(const drogon::HttpRequestPtr& req,
 
 // =========================================================== collectibles
 
-void PublicContentController::collectibles(const drogon::HttpRequestPtr& req,
+void PublicContentController::collectibles(const drogon::HttpRequestPtr& /*req*/,
                                            std::function<void(const drogon::HttpResponsePtr&)>&& cb) {
     services::ContentService::listCollectibles([cb](std::vector<services::Collectible> items) {
         Value out(Json::arrayValue);
@@ -232,7 +232,7 @@ void PublicContentController::collectibles(const drogon::HttpRequestPtr& req,
 
 // ================================================================ banners
 
-void PublicContentController::banners(const drogon::HttpRequestPtr& req,
+void PublicContentController::banners(const drogon::HttpRequestPtr& /*req*/,
                                       std::function<void(const drogon::HttpResponsePtr&)>&& cb) {
     // visibleOnly = true, and the service never populates `html` here.
     services::ContentService::listBanners(true, [cb](std::vector<services::Banner> items) {
@@ -254,7 +254,7 @@ void PublicContentController::banners(const drogon::HttpRequestPtr& req,
     });
 }
 
-void PublicContentController::campaigns(const drogon::HttpRequestPtr& req,
+void PublicContentController::campaigns(const drogon::HttpRequestPtr& /*req*/,
                                         std::function<void(const drogon::HttpResponsePtr&)>&& cb) {
     services::ContentService::listCampaigns([cb](std::vector<services::Campaign> items) {
         Value out(Json::arrayValue);
@@ -278,7 +278,7 @@ void PublicContentController::campaigns(const drogon::HttpRequestPtr& req,
 
 // ============================================================ maintenance
 
-void PublicContentController::maintenance(const drogon::HttpRequestPtr& req,
+void PublicContentController::maintenance(const drogon::HttpRequestPtr& /*req*/,
                                           std::function<void(const drogon::HttpResponsePtr&)>&& cb) {
     services::ContentService::listSettings([cb](std::vector<services::SiteSetting> items) {
         std::string closed = "0", style = "0", twitter;
@@ -297,7 +297,7 @@ void PublicContentController::maintenance(const drogon::HttpRequestPtr& req,
     });
 }
 
-void PublicContentController::settings(const drogon::HttpRequestPtr& req,
+void PublicContentController::settings(const drogon::HttpRequestPtr& /*req*/,
                                        std::function<void(const drogon::HttpResponsePtr&)>&& cb) {
     services::ContentService::listSettings([cb](std::vector<services::SiteSetting> items) {
         Value out;

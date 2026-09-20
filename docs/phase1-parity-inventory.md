@@ -53,7 +53,7 @@ fourth is unproven. **Verification is incomplete, so Phase 2b is not complete.**
 | Requirement | State |
 | --- | --- |
 | Compiles; sanitizers on every test run | **Yes** — CI `cpp-build-and-test` green; CTest passes under ASan/UBSan |
-| Warnings-as-errors enabled, all warnings cleared | **No** — no `-Werror`; warnings are not gating |
+| Warnings-as-errors enabled, all warnings cleared | **Yes** — `-Werror` added; the 7 `-Wunused-parameter` findings in `PublicContentController.cpp` cleared; clean builds warning-free in both Release and Debug+ASan/UBSan |
 | CI covers TypeScript build and Playwright | **No** — neither exists in CI |
 | **CI passes** | **Green, and the flake's mechanism is fixed** — passed on `9684e3a` and `b933abf`, failed on the identically-coded `77f7c87`; the readiness window behind it is closed and verified deterministically |
 | Cutover **and rollback** demonstrated for a real route | **No** — see the cutover row above |

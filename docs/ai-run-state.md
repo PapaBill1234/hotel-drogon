@@ -57,7 +57,7 @@ papered over, and the phase label can be switched to 4 if preferred.
 | Preflight: compiler/cmake/git/docker versions reported | **Not recorded** | No artifact in the repo |
 | vcpkg or Conan chosen and explained | **Deviation** | Dependencies come from Ubuntu 24.04 apt packages, not vcpkg/Conan. Works, but the plan's choice was never made or explained |
 | Everything compiles | **Yes** | CMake + Ninja build succeeds; CI job "C++ Drogon (Sanitizers + Tests)" success on `77f7c87` |
-| Warnings-as-errors enabled | **Not done** | `CMakeLists.txt` sets `-Wall -Wextra` but no `-Werror`; CI does not fail on warnings. Complete inventory obtained: exactly **7 warnings**, all `-Wunused-parameter` in `PublicContentController.cpp` (168, 191, 213, 235, 257, 281, 300). `-Werror` will fail on precisely these |
+| Warnings-as-errors enabled | **DONE** | `-Werror` added (with `/WX` for MSVC). The 7 known `-Wunused-parameter` findings in `PublicContentController.cpp` (168, 191, 213, 235, 257, 281, 300 — the handlers that take `req` and ignore it) are fixed by dropping the unused parameter names. Verified **zero compiler warnings** on clean builds in both configurations: Release (Docker image) and Debug + ASan/UBSan (CI's exact flags). One non-compiler warning remains and is deliberately NOT suppressed — see below |
 | ASan/UBSan on every test run | **Yes** | CI configures `-DENABLE_SANITIZERS=ON`; CTest passes |
 | Structured logging, `/health`, graceful shutdown, env config | **Yes** | spdlog JSON logging, `HealthController`, SIGTERM handler, `AppConfig::loadFromEnv` |
 | Async MariaDB + Redis clients, proven against real data | **Yes** | Live stack serves real queries; smoke suites exercise them |
@@ -247,12 +247,15 @@ a deterministic probe shows 503-then-200 with login succeeding at the first 200
 — versus a violated invariant on the pre-fix image. *Remaining in this item:*
 confirm on CI that the job is now stable (green runs), since the fix removes the
 mechanism but only CI can confirm the flake is gone. Then the rest of the Phase
-2b matrix: enable warnings-as-errors and clear the 7 known `-Wunused-parameter`
-findings; add a TypeScript-build job and a Playwright job to CI; make the cutover
+2b matrix: add a TypeScript-build job and a Playwright job to CI; make the cutover
 map real (include it in `nginx.conf`, add a legacy upstream, and demonstrate
 cutover **and** rollback for one route) or delete it and correct the inventory;
 Sentry either wired or its claim downgraded; the vcpkg/Conan deviation either
 resolved or explicitly accepted; the preflight host-check results recorded.
+
+*Warnings-as-errors: DONE* — `-Werror` enabled and the 7 known findings cleared;
+clean builds are warning-free in both the Release and the sanitizer
+configurations.
 
 **2. Close the missing Phase 1 OpenAPI deliverable.**
 Phase 1's exit condition requires "an OpenAPI document for the first slice".
