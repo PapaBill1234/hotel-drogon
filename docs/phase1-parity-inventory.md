@@ -161,8 +161,8 @@ are historical; these are the live statuses.
 | High-trust raw-HTML gating | not gated in legacy | **Done.** `AuthPolicy::requireHighTrust` (rank ≥ 7), enforced in controller *and* service, visible warning in responses, `X-High-Trust-Required` on denial, high-trust writes distinctly audit-labelled. Public API never exposes `html`. |
 | Public content API | the `*.php` pages | **Done.** `/api/public/{landing,news,news/{id},faq,collectibles,banners,campaigns,maintenance,settings}`. |
 | RSS | `xml/rss.php` | **Done, with bug fixed.** See "RSS double-escaping" below. |
-| React pages (landing, community, articles, FAQ, collectables, maintenance) | the `*.php` pages | **Not started.** `frontend/` is still empty `.gitkeep` scaffolding — no `package.json`, Vite, or React. |
-| Screenshot parity tests | n/a | **Not started.** 11 reference screenshots are committed under `docs/reference-screenshots/`, but they are *not* usable as pixel-diff baselines (see below). |
+| React pages (landing, community, articles, FAQ, collectables, maintenance) | the `*.php` pages | **Done, unverified visually.** `frontend/` bootstrapped (Vite + React 18 + TS + TanStack Query); all six pages converted preserving legacy markup and class names verbatim. Build verified (`tsc -b && vite build`). nginx serves `frontend/dist` with SPA fallback. |
+| Screenshot parity tests | n/a | **Harness done, baselines missing — 0 pages verified.** `tests/e2e/` captures legacy baselines at a fixed 1280×800 viewport and diffs the converted pages within a 2% pixel tolerance. The suite skips pages with no baseline, so it is green-by-skipping and reports no parity result. Capturing baselines needs a running legacy stack, which is not available here. |
 
 #### RSS double-escaping — fixed
 
