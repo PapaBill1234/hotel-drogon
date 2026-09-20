@@ -41,7 +41,13 @@ export default function CommunityShell({ pageId, cat, pageName, children }: Comm
 
   const settings = settingsData?.settings ?? {};
   const banners = bannerData?.items ?? [];
-  const faqLinks = faqData?.items ?? [];
+  // The footer orders FAQ links differently from the help page. Legacy
+  // community_footer.php uses `ORDER BY sort_order ASC, id ASC` (no category),
+  // whereas help.php groups by category first. /api/public/faq serves the
+  // help-page order, so re-sort here rather than change the shared endpoint.
+  const faqLinks = [...(faqData?.items ?? [])].sort(
+    (a, b) => a.sort_order - b.sort_order || a.id - b.id,
+  );
   const siteTracking = settings['site_tracking'] ?? '';
 
   return (
@@ -58,7 +64,7 @@ export default function CommunityShell({ pageId, cat, pageName, children }: Comm
               <div className="clearfix">&nbsp;</div>
               <p>
                 <a href="/client" id="enter-hotel-open-medium-link" target="client">
-                  Enter Hotel
+                  Enter PHPRetro
                 </a>
               </p>
             </div>
@@ -89,7 +95,7 @@ export default function CommunityShell({ pageId, cat, pageName, children }: Comm
                     <input
                       type="submit"
                       id="login-submit-button"
-                      value="Login"
+                      value="Log in"
                       className="submit"
                     />
                   </li>
@@ -121,7 +127,7 @@ export default function CommunityShell({ pageId, cat, pageName, children }: Comm
                 <ul>
                   <li className="register">
                     <a href="/account/password/forgot" id="forgot-password">
-                      <span>Forgot password?</span>
+                      <span>I forgot my password/username</span>
                     </a>
                   </li>
                   <li>
@@ -163,7 +169,9 @@ export default function CommunityShell({ pageId, cat, pageName, children }: Comm
 
           <div id="habbos-online">
             <div className="rounded">
-              <span>0 PHPRetros online</span>
+              {/* Legacy: `<?= $online ?> Retros online` — SHORTNAME, not the full
+                  site name ("Retros", not "PHPRetros"). */}
+              <span>0 Retros online</span>
             </div>
           </div>
         </div>
