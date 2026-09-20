@@ -409,6 +409,26 @@ void AdminContentController::createCollectible(const drogon::HttpRequestPtr& req
         [cb](const drogon::HttpResponsePtr& denied) { cb(denied); });
 }
 
+void AdminContentController::updateCollectible(const drogon::HttpRequestPtr& req,
+                                               std::function<void(const drogon::HttpResponsePtr&)>&& cb,
+                                               const std::string& id) {
+    uint32_t cid = 0;
+    if (!parseId(id, cid)) { cb(errResp(drogon::k400BadRequest, "Bad Request", "Invalid id.")); return; }
+    auto body = req->getJsonObject();
+    if (!body) { cb(errResp(drogon::k400BadRequest, "Bad Request", "Invalid JSON payload.")); return; }
+
+    filters::AuthPolicy::requireStaff(
+        req, 5,
+        [req, cb, body, cid](const services::StaffSessionData& session) {
+            auto item = collectibleFromJson(*body);
+            item.id = cid;
+            services::ContentService::updateCollectible(
+                session.user_id, item, clientIp(req),
+                [cb](const ContentResult& r) { finish(r, "Collectible updated.", false, cb); });
+        },
+        [cb](const drogon::HttpResponsePtr& denied) { cb(denied); });
+}
+
 void AdminContentController::deleteCollectible(const drogon::HttpRequestPtr& req,
                                                std::function<void(const drogon::HttpResponsePtr&)>&& cb,
                                                const std::string& id) {

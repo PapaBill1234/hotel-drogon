@@ -100,6 +100,19 @@ bool ContentService::bannerRequiresHighTrust(const Banner& b) {
     return b.advanced || isHighTrustHtml(b.html);
 }
 
+// The create path validated these inline before; the update path needs exactly
+// the same rules, so they are named here and both call it. Legacy
+// `housekeeping/collectables.php` required name, description, image and a
+// positive month timestamp on insert and update alike.
+std::string ContentService::validateCollectible(const Collectible& item, std::string& badField) {
+    badField.clear();
+    if (trim(item.name).empty()) { badField = "name"; return "name is required"; }
+    if (trim(item.description).empty()) { badField = "description"; return "description is required"; }
+    if (trim(item.image).empty()) { badField = "image"; return "image is required"; }
+    if (item.time == 0) { badField = "time"; return "time is required"; }
+    return {};
+}
+
 // ---------------------------------------------------------------- schema
 
 void ContentService::ensureSchema(const DbClientPtr& db,
@@ -565,12 +578,34 @@ void ContentService::listCollectibles(
            };
 }
 
+// The collectibles table carries UNIQUE(time), so a duplicate month is the
+// expected failure mode — but it is NOT the only one. MariaDB error 1264
+// ("Out of range value for column 'time'") is reachable with an ordinary
+// 2038-era timestamp, because the column is a signed INT. Reporting every
+// database error as "that month already exists" sends the operator after the
+// wrong problem, so the two are told apart by the server's message.
+//
+// Both spellings are accepted on purpose: Drogon surfaces the driver's text
+// ("Out of range value for column 'time' at row 1") and that text does not
+// always carry the numeric code, which is how the first version of this check
+// silently missed the case it was written for.
+static const char* collectibleWriteError(const DrogonDbException& e) {
+    const std::string what = e.base().what();
+    if (what.find("1264") != std::string::npos ||
+        what.find("Out of range") != std::string::npos) {
+        return "the month is outside the range this table can store "
+               "(phpretro_collectibles.time is a signed INT, so it ends at 2038-01-19)";
+    }
+    return "a collectible may already exist for that month";
+}
+
 void ContentService::createCollectible(
     uint32_t actorId, const Collectible& item, const std::string& ip,
     std::function<void(ContentResult)> callback) {
     ContentResult res;
-    if (trim(item.name).empty()) { res.error = "name is required"; res.field = "name"; callback(res); return; }
-    if (item.time == 0) { res.error = "time is required"; res.field = "time"; callback(res); return; }
+    std::string badField;
+    std::string err = validateCollectible(item, badField);
+    if (!err.empty()) { res.error = err; res.field = badField; callback(res); return; }
 
     auto db = drogon::app().getDbClient("default");
     if (!db) { res.error = "database unavailable"; callback(res); return; }
@@ -586,8 +621,44 @@ void ContentService::createCollectible(
            }
         >> [callback, res](const DrogonDbException& e) mutable {
                HOTEL_LOG_ERROR("ContentService::createCollectible: {}", e.base().what());
-               // UNIQUE(time) is the likely cause; say so rather than "failed".
-               res.error = "failed to create collectible (a collectible may already exist for that month)";
+               res.error = std::string("failed to create collectible (") +
+                           collectibleWriteError(e) + ")";
+               res.field = "time";
+               callback(res);
+           };
+}
+
+void ContentService::updateCollectible(
+    uint32_t actorId, const Collectible& item, const std::string& ip,
+    std::function<void(ContentResult)> callback) {
+    ContentResult res;
+    if (item.id == 0) { res.error = "id is required"; res.field = "id"; callback(res); return; }
+    std::string badField;
+    std::string err = validateCollectible(item, badField);
+    if (!err.empty()) { res.error = err; res.field = badField; callback(res); return; }
+
+    auto db = drogon::app().getDbClient("default");
+    if (!db) { res.error = "database unavailable"; callback(res); return; }
+
+    *db << "UPDATE phpretro_collectibles SET name = ?, description = ?, image = ?, time = ? "
+           "WHERE id = ?"
+        << item.name << item.description << item.image << static_cast<int64_t>(item.time)
+        << item.id
+        >> [callback, actorId, item, ip, res](const Result& r) mutable {
+               if (r.affectedRows() == 0) {
+                   res.error = "collectible not found"; callback(res); return;
+               }
+               res.ok = true; res.id = item.id;
+               AuditService::logAction(actorId, "content_collectible_update",
+                                       "phpretro_collectibles", item.id,
+                                       "Updated collectible", ip);
+               callback(res);
+           }
+        >> [callback, res](const DrogonDbException& e) mutable {
+               HOTEL_LOG_ERROR("ContentService::updateCollectible: {}", e.base().what());
+               res.error = std::string("failed to update collectible (") +
+                           collectibleWriteError(e) + ")";
+               res.field = "time";
                callback(res);
            };
 }

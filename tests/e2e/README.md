@@ -41,7 +41,7 @@ is the half of the Phase 4 exit condition the API-only smoke suite could not
 cover.
 
 ```sh
-PLAYWRIGHT_ADMIN=1 npx playwright test admin.spec.ts   # 9 passed
+PLAYWRIGHT_ADMIN=1 npx playwright test admin.spec.ts   # 10 passed
 # PowerShell: $env:PLAYWRIGHT_ADMIN='1'; npx playwright test admin.spec.ts
 ```
 
@@ -56,13 +56,19 @@ running. What it covers:
 | 3 | a wrong password is refused |
 | 4 | successful sign-in yields **both** cookies (`hotel_session` *and* `hotel_staff_session`) |
 | 5 | create → edit → per-field validation error → delete a news article through the forms |
-| 6 | a mutation stripped of `X-XSRF-TOKEN` is refused with 403 |
-| 7 | raw-HTML banner content shows the high-trust warning before submit, is written, and never renders as markup |
-| 8 | settings list existing keys and save a change, then restore it |
-| 9 | logout returns to the gate |
+| 6 | create → edit → duplicate-month rejection → delete a collectible through the forms |
+| 7 | a mutation stripped of `X-XSRF-TOKEN` is refused with 403 |
+| 8 | raw-HTML banner content shows the high-trust warning before submit, is written, and never renders as markup |
+| 9 | settings list existing keys and save a change, then restore it |
+| 10 | logout returns to the gate |
 
 Fixtures: `admin` / `password123` (rank 7) and `testuser` / `password123`
 (rank 1), both seeded by `src/main.cpp`.
+
+The collectible test uses 2037-02 deliberately: `phpretro_collectibles.time` is a
+signed `INT`, so 2038 months are out of range for the column. That bound was
+found by writing such a row, and the resulting error is now reported distinctly
+from a duplicate month (see `ContentService::collectibleWriteError`).
 
 ## Diagnostics
 

@@ -39,7 +39,12 @@ Thumbs.db
 
 # Frontend
 node_modules/
-dist/
+# Anchored on purpose. An unanchored `dist/` matches *any* directory named dist,
+# including `frontend/dist`, and an ignored directory is terminal: git never
+# descends into it, so `frontend/.gitignore` cannot re-include a placeholder
+# inside it. `frontend/dist` must stay in the tree because compose.yaml
+# bind-mounts it (see frontend/.gitignore).
+/dist/
 frontend/node_modules/
 
 # Legacy reference

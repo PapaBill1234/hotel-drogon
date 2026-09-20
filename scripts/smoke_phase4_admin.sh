@@ -146,6 +146,53 @@ check "empty title rejected" 400
 contains "validation names the bad field" '"field":"title"'
 
 echo
+echo "[3b] Collectibles CRUD (including update)"
+# A month no fixture uses, so the run is repeatable and cannot collide with the
+# seeded current-month collectable: phpretro_collectibles.time is UNIQUE.
+#
+# 2037, not 2038: `phpretro_collectibles.time` is a signed INT, so the column
+# cannot hold Unix seconds at or beyond 2038-01-19 (the 32-bit epoch rollover).
+# Using a later date fails with "Out of range value for column 'time'", which is
+# how this bound was found rather than assumed.
+COLL_TIME=2117059200   # 2037-02-01 00:00:00 UTC
+COLL_TIME_OOR=2147483648  # 2038-01-19 03:14:08 UTC -- one second past a signed INT
+printf '{"name":"Smoke collectible","description":"smoke","image":"/x.gif","time":%s}' "$COLL_TIME"  > "$TMP/coll.json"
+printf '{"name":"Smoke collectible (edited)","description":"smoke","image":"/x.gif","time":%s}' "$COLL_TIME" > "$TMP/coll_upd.json"
+# Same month as the row created below, which is what UNIQUE(time) must refuse.
+printf '{"name":"Smoke collectible duplicate","description":"smoke","image":"/x.gif","time":%s}' "$COLL_TIME" > "$TMP/coll_dup.json"
+printf '{"name":"Smoke collectible out of range","description":"smoke","image":"/x.gif","time":%s}' "$COLL_TIME_OOR" > "$TMP/coll_oor.json"
+printf '{"name":"","description":"smoke","image":"/x.gif","time":%s}' "$COLL_TIME" > "$TMP/coll_bad.json"
+
+do_req GET "$BASE/api/admin/collectibles" "$ADMIN_ALL"
+check "list collectibles" 200
+
+do_req POST "$BASE/api/admin/collectibles" "$ADMIN_ALL" "$TMP/coll.json"
+check "create collectible" 200
+COLL_ID=$(jnum "$TMP/body" id)
+printf '        created id=%s\n' "${COLL_ID:-?}"
+
+if [ -n "${COLL_ID:-}" ]; then
+    do_req PUT "$BASE/api/admin/collectibles/$COLL_ID" "$ADMIN_ALL" "$TMP/coll_upd.json"
+    check "update collectible" 200
+    do_req GET "$BASE/api/admin/collectibles" "$ADMIN_ALL"
+    contains "edited collectible is listed" "Smoke collectible (edited)"
+
+    do_req POST "$BASE/api/admin/collectibles" "$ADMIN_ALL" "$TMP/coll_dup.json"
+    check "second collectible for the same month rejected" 400
+    contains "month collision names the time field" '"field":"time"'
+
+    do_req POST "$BASE/api/admin/collectibles" "$ADMIN_ALL" "$TMP/coll_oor.json"
+    check "month past the signed INT range rejected" 400
+    contains "out-of-range month says why" 'signed INT'
+
+    do_req PUT "$BASE/api/admin/collectibles/$COLL_ID" "$ADMIN_ALL" "$TMP/coll_bad.json"
+    check "update with an empty name rejected" 400
+
+    do_req DELETE "$BASE/api/admin/collectibles/$COLL_ID" "$ADMIN_ALL"
+    check "delete collectible" 200
+fi
+
+echo
 echo "[4] Audit trail"
 # Audit rows land in phpretro_admin_action_log, which has no read endpoint;
 # they are asserted separately against the database (see the runbook), so this

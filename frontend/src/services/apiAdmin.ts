@@ -220,6 +220,16 @@ export function createCollectible(
   });
 }
 
+export function updateCollectible(
+  id: number,
+  payload: CollectiblePayload,
+): Promise<AdminMutationResult> {
+  return request<AdminMutationResult>(`/admin/collectibles/${id}`, {
+    method: 'PUT',
+    body: payload,
+  });
+}
+
 export function deleteCollectible(id: number): Promise<AdminMutationResult> {
   return request<AdminMutationResult>(`/admin/collectibles/${id}`, { method: 'DELETE' });
 }

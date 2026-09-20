@@ -119,8 +119,14 @@ jobs:
           npm ci
           npm run build
 
-      - name: Restart the proxy so it serves the freshly built bundle
-        run: docker compose restart proxy
+      # The bundle was already built into the host bind-mount above, which is
+      # what nginx serves. Nginx resolves its static root once at start, so a
+      # reload (not a restart) is enough to pick up replaced files, and a reload
+      # keeps the container address stable — the variable-based proxy_pass
+      # re-resolves at most every 10s, and `docker compose restart` would
+      # otherwise leave a window of 502s right before the browser tests run.
+      - name: Reload the proxy so it serves the freshly built bundle
+        run: docker compose exec -T proxy nginx -s reload
 
       - name: Wait for the stack again after the restart
         run: |

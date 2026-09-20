@@ -49,6 +49,23 @@ async function signIn(page: Page, username: string, password: string) {
   await expect(page.getByTestId('admin-session')).toBeVisible({ timeout: 15_000 });
 }
 
+/**
+ * The CSRF token from the browser's own readable cookie.
+ *
+ * `page.request` shares the page's cookie jar, so an authenticated API call can
+ * be made from a test without re-deriving any state. This is used only to
+ * *locate* a row; the delete itself still goes through the UI.
+ */
+async function pageCsrf(page: Page): Promise<string> {
+  const cookies = await page.context().cookies();
+  return cookies.find((c) => c.name === 'XSRF-TOKEN')?.value ?? '';
+}
+
+/** First instant of the given month, local time, as Unix seconds. */
+function monthStart(year: number, month1: number): number {
+  return Math.floor(new Date(year, month1 - 1, 1).getTime() / 1000);
+}
+
 if (process.env.PLAYWRIGHT_ADMIN !== '1') {
   // Declared but skipped: a bare `npx playwright test` reports the same result
   // set it reported before this file existed, with an explicit reason.
@@ -149,6 +166,100 @@ if (process.env.PLAYWRIGHT_ADMIN !== '1') {
 
     await expect(page.getByTestId('admin-notice')).toContainText('deleted');
     await expect(page.getByRole('row', { name: new RegExp(STAMP) })).toHaveCount(0);
+  });
+
+  test('staff can create, edit and delete a collectible through the UI', async ({ page }) => {
+    await signIn(page, ADMIN_USER, ADMIN_PASS);
+    await page.goto(`${BASE_NEW}/housekeeping/collectables`);
+    await page.getByTestId('collectible-new').waitFor();
+
+    // A month no fixture uses, so the run is repeatable and cannot collide with
+    // the seeded current-month collectable (phpretro_collectibles.time is UNIQUE).
+    //
+    // 2037, not 2038: the column is a signed INT, so it cannot hold Unix seconds
+    // at or beyond 2038-01-19. A later date fails with "Out of range value for
+    // column 'time'", which is how this bound was found rather than assumed.
+    const targetMonth = monthStart(2037, 2);
+    const collisionMonth = monthStart(2037, 3);
+
+    // --- create ---------------------------------------------------------
+    await page.getByTestId('collectible-new').click();
+    await page.getByLabel('Name').fill(`${STAMP} collectible`);
+    await page.getByLabel('Description').fill('created by the browser flow');
+    await page.getByLabel('Image URL').fill('/web-gallery/v2/images/rares/dino.gif');
+    await page.getByLabel('Month').fill('2037-02');
+    await page.getByLabel('Name').click(); // commit the month field
+    await page.getByTestId('collectible-save').click();
+
+    await expect(page.getByTestId('admin-notice')).toContainText('Collectible created');
+
+    // Locate this run's row through the API rather than by guessing which of
+    // several similar rows to click; the edit and delete still go through the UI.
+    const list = await page.request.get(`${BASE_NEW}/api/admin/collectibles`);
+    expect(list.status()).toBe(200);
+    const listed = (await list.json()) as { items: { id: number; name: string; time: number }[] };
+    const created = listed.items.find((i) => i.time === targetMonth);
+    expect(
+      created,
+      `no collectible with time=${targetMonth} in ${JSON.stringify(listed.items)}`,
+    ).toBeTruthy();
+    const id = created!.id;
+
+    // --- edit -----------------------------------------------------------
+    await page.getByTestId(`collectible-row-${id}`).getByRole('button', { name: 'Edit' }).click();
+    await page.getByLabel('Name').fill(`${STAMP} collectible (edited)`);
+    await page.getByTestId('collectible-save').click();
+
+    await expect(page.getByTestId('admin-notice')).toContainText('Collectible updated');
+    await expect(page.getByTestId(`collectible-row-${id}`)).toContainText(
+      `${STAMP} collectible (edited)`,
+    );
+
+    // --- the UNIQUE month constraint is reported against the field --------
+    // Occupy the next month (creating a collision fixture if that month is
+    // free), then try to move this row onto it. The move must fail, and the
+    // failure must be attributed to the Month field.
+    await page.getByTestId(`collectible-row-${id}`).getByRole('button', { name: 'Edit' }).click();
+    await page.getByRole('button', { name: 'Cancel' }).click();
+
+    const collision = await page.request.post(`${BASE_NEW}/api/admin/collectibles`, {
+      headers: { 'X-XSRF-TOKEN': await pageCsrf(page) },
+      data: {
+        name: `${STAMP} collision`,
+        description: 'collision fixture',
+        image: '/web-gallery/v2/images/rares/dino.gif',
+        time: collisionMonth,
+      },
+    });
+    // 200 on a clean run; 400 when an earlier interrupted run already left a row
+    // in that month, which is equally fine for this assertion.
+    expect([200, 400]).toContain(collision.status());
+
+    await page.getByTestId(`collectible-row-${id}`).getByRole('button', { name: 'Edit' }).click();
+    await page.getByLabel('Month').fill('2037-03');
+    await page.getByLabel('Name').click();
+    await page.getByTestId('collectible-save').click();
+
+    await expect(page.getByTestId('admin-notice')).toContainText('Collectible not updated');
+    await expect(page.getByTestId('field-error-time')).toContainText('already exist for that month');
+    await page.getByRole('button', { name: 'Cancel' }).click();
+
+    // --- delete, restoring the fixture set ------------------------------
+    await page.getByTestId(`collectible-row-${id}`).getByRole('button', { name: 'Delete' }).click();
+    await expect(page.getByTestId('admin-notice')).toContainText('Collectible deleted');
+    await expect(page.getByTestId(`collectible-row-${id}`)).toHaveCount(0);
+
+    // Clean up the collision fixture too, so a later run starts from the same
+    // state. `phpretro_collectibles` drives the public collectables page.
+    const after = await page.request.get(`${BASE_NEW}/api/admin/collectibles`);
+    const remaining = (await after.json()) as { items: { id: number; time: number }[] };
+    for (const item of remaining.items.filter((i) => i.time >= monthStart(2037, 1))) {
+      const response = await page.request.delete(
+        `${BASE_NEW}/api/admin/collectibles/${item.id}`,
+        { headers: { 'X-XSRF-TOKEN': await pageCsrf(page) } },
+      );
+      expect(response.status(), `cleanup of collectible ${item.id}`).toBe(200);
+    }
   });
 
   test('a mutation without the CSRF header is refused', async ({ page }) => {

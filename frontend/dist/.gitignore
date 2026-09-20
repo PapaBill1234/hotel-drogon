@@ -1,0 +1,12 @@
+# Build output — never committed.
+#
+# This file exists so the directory itself is present in a fresh checkout.
+# `frontend/dist` is a bind-mount source in compose.yaml, and Docker creates a
+# missing bind-mount source as *root*; a later `npm run build` as an
+# unprivileged user then fails with EACCES while Vite empties the output
+# directory, which is exactly how CI's frontend-build step failed.
+#
+# Keep this file tracked: Vite empties this directory on every build, so it is
+# removed locally each time and restored by the next checkout.
+*
+!.gitignore

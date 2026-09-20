@@ -156,6 +156,14 @@ public:
     static void createCollectible(
         uint32_t actorId, const Collectible& item, const std::string& ip,
         std::function<void(ContentResult)> callback);
+    // Editing a collectible is a legacy capability (`housekeeping/collectables.php`
+    // had an explicit update branch) that the plan's Phase 4 CRUD requirement
+    // keeps in scope. `time` is UNIQUE in `phpretro_collectibles`, so moving a row
+    // onto another row's month is rejected by the database and surfaced as a
+    // named failure rather than a generic one.
+    static void updateCollectible(
+        uint32_t actorId, const Collectible& item, const std::string& ip,
+        std::function<void(ContentResult)> callback);
     static void deleteCollectible(
         uint32_t actorId, uint32_t id, const std::string& ip,
         std::function<void(ContentResult)> callback);
@@ -207,6 +215,7 @@ public:
     static std::string validateNews(const NewsArticle& article, std::string& badField);
     static std::string validateFaq(const FaqEntry& entry, std::string& badField);
     static std::string validateBanner(const Banner& banner, std::string& badField);
+    static std::string validateCollectible(const Collectible& item, std::string& badField);
 
     // HIGH TRUST classification: a banner is high-trust when it carries raw
     // markup or is flagged advanced. Used to decide whether a write needs the

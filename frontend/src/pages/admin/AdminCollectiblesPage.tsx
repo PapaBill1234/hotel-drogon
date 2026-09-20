@@ -7,7 +7,7 @@ import {
   useCollectiblesList,
 } from '../../hooks/useAdminContent';
 import { formatMonthYear } from '../../services/legacy';
-import type { CollectiblePayload } from '../../types/admin';
+import type { AdminCollectible, CollectiblePayload } from '../../types/admin';
 
 /**
  * `housekeeping/collectables.php` against `/api/admin/collectibles`.
@@ -16,27 +16,33 @@ import type { CollectiblePayload } from '../../types/admin';
  *
  *   - the same four fields with the same labels and control types (Name,
  *     Description, Image URL, Month timestamp);
- *   - the new-entry default for `time` is the first instant of the current
- *     month (`strtotime(date('Y-m-01 00:00:00'))`), which is what makes the row
- *     the "current collectable" on `/credits/collectables`;
- *   - the list column shows `date('F Y', $time)` and is ordered by `time DESC`;
- *   - required-field failures are reported.
+ *   - the same required set on create *and* update: name, description, image and
+ *     a positive month timestamp (`in_array('', array_slice($v, 0, 3), true)
+ *     || $v[3] <= 0` -> "Name, description, image, and month timestamp are
+ *     required."), mirrored by `ContentService::validateCollectible`;
+ *   - the new-entry default for `time` is the first instant of the current month
+ *     (`strtotime(date('Y-m-01 00:00:00'))`), which is what makes the row the
+ *     "current collectable" on `/credits/collectables`;
+ *   - the list column shows `date('F Y', $time)`, ordered by `time DESC`, with
+ *     per-row Edit and Delete.
  *
  * ## The legacy "Month timestamp" number box
  *
  * Legacy rendered a raw epoch `<input type="number">`. Reproducing that in a
- * React panel would be a usability regression dressed up as parity, so the
- * field is a `<input type="month">` that reads and writes the same epoch value
- * (first instant of the chosen month, local time). The stored column is
- * unchanged; the inventory records the mapping.
+ * React panel would be a usability regression dressed up as parity, so the field
+ * is an `<input type="month">` that reads and writes the same epoch value (first
+ * instant of the chosen month, local time). The stored column is unchanged; the
+ * inventory records the mapping.
  *
- * ## Missing capability
+ * ## `time` is UNIQUE
  *
- * `AdminContentController` exposes create and delete only — there is no
- * `PUT /api/admin/collectibles/{id}`. The list therefore has no Edit action,
- * whereas the legacy page had one. That is an API gap, not a UI choice, and it
- * is recorded in the inventory rather than hidden behind a disabled button.
+ * `phpretro_collectibles.time` carries a UNIQUE index, so one collectible per
+ * month. Moving a row onto another row's month, or creating a second row for an
+ * existing month, is refused by the database and reported against the Month
+ * field rather than as a generic failure.
  */
+
+type Mode = 'list' | 'create' | 'edit';
 
 const EMPTY: CollectiblePayload = { name: '', description: '', image: '', time: 0 };
 
@@ -67,7 +73,8 @@ export default function AdminCollectiblesPage() {
   const list = useCollectiblesList();
   const mutations = useAdminMutations();
 
-  const [creating, setCreating] = useState(false);
+  const [mode, setMode] = useState<Mode>('list');
+  const [editingId, setEditingId] = useState(0);
   const [form, setForm] = useState<CollectiblePayload>(() => ({
     ...EMPTY,
     time: currentMonthStart(),
@@ -76,9 +83,30 @@ export default function AdminCollectiblesPage() {
   const [messageTone, setMessageTone] = useState<'ok' | 'error'>('ok');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  function startCreate() {
-    setCreating(true);
+  function reset() {
+    setMode('list');
+    setEditingId(0);
     setForm({ ...EMPTY, time: currentMonthStart() });
+    setFieldErrors({});
+  }
+
+  function startCreate() {
+    setMode('create');
+    setEditingId(0);
+    setForm({ ...EMPTY, time: currentMonthStart() });
+    setMessage(null);
+    setFieldErrors({});
+  }
+
+  function startEdit(item: AdminCollectible) {
+    setMode('edit');
+    setEditingId(item.id);
+    setForm({
+      name: item.name,
+      description: item.description,
+      image: item.image,
+      time: item.time,
+    });
     setMessage(null);
     setFieldErrors({});
   }
@@ -96,27 +124,33 @@ export default function AdminCollectiblesPage() {
     setMessage(null);
     setFieldErrors({});
     try {
-      const result = await mutations.createCollectible.mutateAsync(form);
-      setMessage(result.message ?? 'Collectible created.');
+      const result =
+        mode === 'edit'
+          ? await mutations.updateCollectible.mutateAsync({ id: editingId, payload: form })
+          : await mutations.createCollectible.mutateAsync(form);
+      setMessage(result.message ?? 'Saved.');
       setMessageTone('ok');
-      setCreating(false);
-      setForm({ ...EMPTY, time: currentMonthStart() });
+      reset();
     } catch (error) {
-      report(error, 'Collectible not created');
+      report(error, mode === 'edit' ? 'Collectible not updated' : 'Collectible not created');
     }
   }
 
-  async function onDelete(id: number) {
+  async function onDelete(item: AdminCollectible) {
     setMessage(null);
     setFieldErrors({});
     try {
-      const result = await mutations.deleteCollectible.mutateAsync(id);
+      const result = await mutations.deleteCollectible.mutateAsync(item.id);
       setMessage(result.message ?? 'Collectible removed.');
       setMessageTone('ok');
+      if (editingId === item.id) reset();
     } catch (error) {
       report(error, 'Collectible not removed');
     }
   }
+
+  const saving =
+    mutations.createCollectible.isPending || mutations.updateCollectible.isPending;
 
   return (
     <AdminPage title="Collectibles">
@@ -126,7 +160,54 @@ export default function AdminCollectiblesPage() {
         </AdminNotice>
       )}
 
-      {creating ? (
+      {mode === 'list' ? (
+        <>
+          <div className="hk-toolbar">
+            <button type="button" onClick={startCreate} data-testid="collectible-new">
+              New collectible
+            </button>
+          </div>
+
+          {list.isLoading && <p>Loading collectibles…</p>}
+          {list.isError && (
+            <AdminNotice tone="error">
+              Could not load collectibles: {list.error.message}
+            </AdminNotice>
+          )}
+
+          {list.data && (
+            <AdminTable headers={['Name', 'Month', 'Image', 'Actions']}>
+              {list.data.items.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="hk-empty">
+                    No collectibles yet.
+                  </td>
+                </tr>
+              )}
+              {list.data.items.map((item) => (
+                <tr key={item.id} data-testid={`collectible-row-${item.id}`}>
+                  <td>{item.name}</td>
+                  <td>{formatMonthYear(item.time)}</td>
+                  <td>{item.image}</td>
+                  <td className="hk-actions">
+                    <button type="button" onClick={() => startEdit(item)}>
+                      Edit
+                    </button>{' '}
+                    <button
+                      type="button"
+                      className="hk-secondary"
+                      onClick={() => void onDelete(item)}
+                      data-testid={`collectible-delete-${item.id}`}
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </AdminTable>
+          )}
+        </>
+      ) : (
         <form
           className="hk-form"
           onSubmit={(e) => void onSubmit(e)}
@@ -170,68 +251,14 @@ export default function AdminCollectiblesPage() {
           </Field>
 
           <div className="hk-actions">
-            <button
-              type="submit"
-              disabled={mutations.createCollectible.isPending}
-              data-testid="collectible-save"
-            >
-              {mutations.createCollectible.isPending ? 'Saving…' : 'Save'}
+            <button type="submit" disabled={saving} data-testid="collectible-save">
+              {saving ? 'Saving…' : 'Save'}
             </button>
-            <button type="button" className="hk-secondary" onClick={() => setCreating(false)}>
+            <button type="button" className="hk-secondary" onClick={reset}>
               Cancel
             </button>
           </div>
         </form>
-      ) : (
-        <>
-          <div className="hk-toolbar">
-            <button type="button" onClick={startCreate} data-testid="collectible-new">
-              New collectible
-            </button>
-          </div>
-
-          {list.isLoading && <p>Loading collectibles…</p>}
-          {list.isError && (
-            <AdminNotice tone="error">
-              Could not load collectibles: {list.error.message}
-            </AdminNotice>
-          )}
-
-          {list.data && (
-            <>
-              <AdminNotice testId="collectible-no-edit">
-                Collectibles can be created and deleted here, but not edited: the admin API
-                exposes no update endpoint for this resource yet.
-              </AdminNotice>
-              <AdminTable headers={['Name', 'Month', 'Image', 'Actions']}>
-                {list.data.items.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="hk-empty">
-                      No collectibles yet.
-                    </td>
-                  </tr>
-                )}
-                {list.data.items.map((item) => (
-                  <tr key={item.id} data-testid={`collectible-row-${item.id}`}>
-                    <td>{item.name}</td>
-                    <td>{formatMonthYear(item.time)}</td>
-                    <td>{item.image}</td>
-                    <td className="hk-actions">
-                      <button
-                        type="button"
-                        className="hk-secondary"
-                        onClick={() => void onDelete(item.id)}
-                        data-testid={`collectible-delete-${item.id}`}
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </AdminTable>
-            </>
-          )}
-        </>
       )}
     </AdminPage>
   );

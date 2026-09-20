@@ -15,7 +15,121 @@ commit `77f7c87`. Plan installed at
 `7f01bcd7bc3c58070ffdfcb7f2208c0701ddcab48ebd310ac3bdb421d609e5a7` (verified
 byte-for-byte against the supplied attachment).
 
+## Update — 2026-09-21 (second pass): CI failure recorded, Phase 4 claim corrected
+
+**Why this pass exists.** The previous entry marked Phase 4's exit condition met
+and left the CI steps unproven. Both were wrong to leave as they were:
+
+1. **CI run `35519492373` (commit `869a4ef`) has now been inspected and it
+   FAILED.** Recorded in full below.
+2. **The Phase 4 exit condition was marked MET while `/api/admin/collectibles`
+   had no update endpoint.** The plan's Phase 4 bullet requires admin "CRUD with
+   validation, audit history, and role gates" and the legacy page had an update
+   branch, so editing collectables was in scope and missing. That claim has been
+   withdrawn in the inventory and the operation is now implemented and verified.
+
+### CI run `35519492373` — terminal result and diagnosis
+
+| Job | Result |
+| --- | --- |
+| `C++ Drogon (Sanitizers + Tests)` | **success** (all steps) |
+| `Phase 3 Integration Smoke (live stack)` | **failure** |
+
+The failing job passed everything up to and including both Phase 4 smoke suites
+and then failed at exactly one step — **"Build the React frontend (TypeScript +
+Vite)"** — so all four downstream steps (proxy restart, Playwright browser
+install, admin UI flow, visual parity) were skipped. The failing step was
+confirmed from the job's annotations; the raw log could not be downloaded
+because this environment holds no GitHub token that can fetch it (`actions/jobs/
+{id}/logs` redirects to a signed URL that was not retrievable).
+
+**Diagnosis, by reasoning from the workflow and then reproducing it.** The step
+runs as the unprivileged `runner` user, after `docker compose up -d --build` has
+already started the stack. `frontend/dist` is a **bind-mount source** in
+`compose.yaml`, and Docker auto-creates a missing bind-mount source directory as
+**root**. On the checkout there was no `frontend/dist` (it is gitignored), so
+Docker created it root-owned, and Vite — which empties the output directory
+before writing — then failed with EACCES. The same command passes locally only
+because `frontend/dist` already exists and is owned by the editing user.
+
+**Fix (three parts).**
+
+- `frontend/dist/.gitignore` is now committed, so on a fresh checkout the
+  directory exists, is runner-owned, and is therefore reused by the bind mount
+  instead of being created by the Docker daemon. Its contents remain untracked.
+- The proxy step changed from `docker compose restart proxy` to
+  `docker compose exec -T proxy nginx -s reload`. Static files do not require a
+  restart, and a restart changes the container address that the variable-based
+  `proxy_pass` has already resolved (the reason `proxy/nginx.conf` has no
+  `upstream` block) — that would have left a 502 window immediately before the
+  browser tests.
+- The exact frontend-build sequence was re-run locally against a tree with
+  `frontend/dist` and `node_modules` deleted: `npm ci` then `npm run build`
+  succeeded, and `nginx -s reload` kept `/health` and the SPA route at 200.
+
+**Unproven, and stated as such:** no CI run has yet executed the fixed steps.
+"Cause identified and fixed" is not "green on CI".
+
+### Phase 4 — the withdrawn claim and the operation that falsified it
+
+`AdminContentController` exposed list/create/delete for collectables only.
+`housekeeping/collectables.php` updated rows, the plan's Phase 4 bullet requires
+CRUD, and the panel therefore could not manage them. Added and verified:
+
+- `ContentService::updateCollectible` (named method, parameterised SQL,
+  `AuditService` record `content_collectible_update`), with the required-field
+  set shared with create via a new `validateCollectible` — name, description,
+  image and a positive month, which is what the legacy page enforced on insert
+  *and* update.
+- `PUT /api/admin/collectibles/{id}` at staff rank ≥ 5 with `CsrfFilter`.
+- An Edit action in the panel, so the resource now has create, edit and delete.
+
+**A real defect this surfaced.** `phpretro_collectibles.time` is a signed `INT`,
+so it cannot hold Unix seconds at or beyond 2038-01-19. Writing a 2038-era month
+fails with MariaDB 1264 "Out of range value", and the port reported every
+database error as "a collectible may already exist for that month" — sending the
+operator after the wrong problem. Errors are now distinguished, and the
+out-of-range case says why. The bound was found by writing such a row, not
+assumed, and the first version of the check keyed on the numeric code alone,
+which Drogon does not always include in the message text; it now matches the
+server's wording too. Both paths are asserted in the smoke suite.
+
+### Verification run for this pass (all local, live stack unless noted)
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Admin UI browser flow | `PLAYWRIGHT_ADMIN=1 npx playwright test admin.spec.ts` | **10 passed** (was 9; + collectible create→edit→collision→delete) |
+| Public page visual parity | `npx playwright test visual-parity.spec.ts` | **6 passed** |
+| Phase 3 smoke | `sh scripts/smoke_phase3.sh http://proxy` | **12 passed, 0 failed** |
+| Phase 4 admin CMS API | `sh scripts/smoke_phase4_admin.sh http://proxy` | **33 passed, 0 failed** (was 23; +10 collectibles CRUD) |
+| Phase 4 public API + RSS | `python3 scripts/smoke_phase4_public.py http://proxy` | **17 passed, 0 failed** |
+| CSRF route lint | `python3 scripts/check_csrf_rules.py` | exit 0 — 48 routes, 25 mutating, all protected |
+| PolarIS isolation lint | `python3 scripts/check_polaris_access.py` | exit 0 |
+| Admin API↔UI agreement lint | `python3 scripts/check_admin_ui_coverage.py` | exit 0 — 26 routes, 27 client calls, 23 wired |
+| Frontend build | `npm run build` in `frontend/` | clean |
+| C++ sanitizer build + CTest | `-DENABLE_SANITIZERS=ON`, Debug, GCC/Ninja, `-Werror` | no warnings from this repository's sources, **1/1 passed** |
+
+**Fixture hygiene.** After a full run: 1 collectible (the seeded 2023 row),
+0 banners, 2 seeded news articles — the suites clean up everything they create,
+including the collectible collision fixture and an out-of-range month.
+
+### What remains outstanding (unchanged by this pass)
+
+- **Phase 1's OpenAPI document** — still does not exist. This is the next work
+  unit, and Phase 5 stays gated on it.
+- **Phase 2b** — cutover/rollback undemonstrable, Sentry unwired, preflight host
+  checks unrecorded, the vcpkg/Conan deviation unresolved, and now the CI
+  frontend/browser steps pending a green re-run.
+- **The active phase stays 2b.** Phase 4's exit condition is met, but 2b is the
+  gate the plan places before later phases may be trusted, and its own exit
+  condition is still unmet.
+
+
 ## Update — 2026-09-21: the admin UI is built and verified
+
+*(Superseded in part by the second pass above, which withdrew the Phase 4 "met"
+claim until collectible editing existed and recorded the CI failure. Kept for
+the build/verification detail.)*
 
 The third item of the authorised sequence below is complete. Phase 4's exit
 condition is now met on both halves; Phase 2b is **still** incomplete and is
@@ -97,20 +211,21 @@ operation, stop and ask instead.
 
 ## Why 2b is the selected phase
 
-*(Reconciled 2026-09-21 after the admin UI work. The earlier note here said Phase
-4 also had an unmet exit check; that is no longer true, see the update at the top
-of this file. Phase 2b remains active.)*
+*(Reconciled 2026-09-21, second pass. Phase 4's exit condition **is** met — see
+the top of this file — but Phase 4 is not the gating phase: Phase 2b is what the
+plan places before later phases may be trusted, and Phase 1's OpenAPI deliverable
+is a prerequisite the authorised sequence names next.)*
 
 Phase 2b's exit condition has four parts. The build, warnings-as-errors and
-sanitizer parts are met and locally re-verified. What remains is not "the build
-is broken": it is that **cutover/rollback is undemonstrable, Sentry is unwired,
-the preflight host checks were never recorded, the vcpkg/Conan deviation was
-never resolved or explicitly accepted, and the CI steps added for the frontend
-and browser tests have not yet run on CI.** Phase 2b is also the gate the plan
-places before Phases 3–4 may be trusted.
+sanitizer parts are met and locally re-verified. What remains is: **cutover and
+rollback are undemonstrable, Sentry is unwired, the preflight host checks were
+never recorded, the vcpkg/Conan deviation was never resolved or explicitly
+accepted, and the CI steps added for the frontend build and browser tests failed
+on their first run for a reason that is fixed but not yet re-observed green.**
 
-Work already completed in Phases 3 and 4 is **not** being restarted, and Phase 4's
-exit condition is now met on both halves.
+Phase 4 is complete: the admin UI exists and drives every implemented
+`/api/admin/*` resource, including collectible editing, and both the browser flow
+and the screenshot parity suites pass.
 
 ## Phase 2b — verification matrix
 
@@ -125,9 +240,8 @@ exit condition is now met on both halves.
 | Async MariaDB + Redis clients, proven against real data | **Yes** | Live stack serves real queries; smoke suites exercise them |
 | Compose services (backend, MariaDB, Redis, worker, nginx, frontend build) | **Partial** | All present except a frontend build service; `frontend/dist` is built out-of-band and bind-mounted locally and in CI |
 | CI covers CMake + sanitizers + tests | **Yes** | `.github/workflows/ci.yml` job `cpp-build-and-test` |
-| CI covers TypeScript build | **Added, not yet run on CI** | `integration-smoke` now runs `npm ci && npm run build` in `frontend/` and restarts the proxy. Local build clean; no CI run has exercised it |
-| CI covers Playwright | **Added, not yet run on CI** | The same job installs Chromium and runs `admin.spec.ts` (`PLAYWRIGHT_ADMIN=1`) then `visual-parity.spec.ts`, uploading `test-results` on failure. Local results 9/9 and 6/6 |
-| **CI passes** | **Green, and the flake's mechanism is now fixed** | Passed on `9684e3a` and `b933abf`; failed on the identically-coded `77f7c87`. The readiness window behind the flake is closed and verified deterministically — see below. The newly added steps have not yet run on CI |
+| CI covers TypeScript build and Playwright | **Added; first CI run failed, cause fixed, re-run pending** | `integration-smoke` now runs `npm ci && npm run build` in `frontend/`, reloads the proxy, installs Chromium and runs `admin.spec.ts` then `visual-parity.spec.ts`, uploading `test-results` on failure. The first run (`35519492373`) failed at the frontend build because the Docker-created `frontend/dist` bind-mount source was root-owned; `frontend/dist/.gitignore` is now committed and the proxy is reloaded rather than restarted. Local results 10/10 and 6/6 |
+| **CI passes** | **FAILED on the latest run, cause fixed, not yet re-verified** | Run `35519492373` (commit `869a4ef`): `cpp-build-and-test` **success**, `integration-smoke` **failure** at "Build the React frontend (TypeScript + Vite)", with every step after it skipped. The `77f7c87` readiness flake did not recur — Phase 3 and both Phase 4 smoke suites passed in that run. Green on `9684e3a` and `b933abf` remains the last confirmed pass |
 | Route switch/proxy map with cutover **and rollback** demonstrated | **Not done** | `proxy/cutover.map` is orphaned: `nginx.conf` never includes it, has its own inline map, and `compose.yaml` has no legacy PHP upstream. `cutover.map` says `default legacy` while nginx actually defaults to the SPA. Rollback is not demonstrable |
 | Sentry wired | **Not wired** | `cfg.sentry_dsn` is read from env into `AppConfig` but no SDK is linked and nothing is reported. The inventory's "Sentry DSN configuration wired into AppConfig" overstates this |
 | Basic metrics endpoint | **Yes** | `/metrics` serves Prometheus text |
@@ -223,12 +337,20 @@ actually engages, rather than the probe merely starting late.
 **Regression check after the change:** Phase 3 smoke 12/12, Phase 4 admin 19/19,
 Phase 4 public+RSS 17/17, visual parity 6/6, both linters exit 0.
 
+*(These figures are from that commit. The current suites assert 12/12, 33/33,
+17/17 and 6/6 — see the second-pass update at the top of this file.)*
+
 **Caveat, stated plainly:** this removes the *mechanism* behind the intermittent
 CI failure and proves the readiness invariant holds locally and deterministically.
 It does not by itself prove the CI job will never fail again — that needs green
 runs on CI. First post-fix CI run: `6ab4127` (run `35516423156`) — both jobs
 **success**. Encouraging, but one green run is not proof of stability; watch the
 job over the next few commits.
+
+*(Later data: `824f634` and `869a4ef` both had `cpp-build-and-test` success, and
+the readiness flake never recurred. The failure on `869a4ef` was a different,
+unrelated defect in a step added after this note — the frontend build. See the
+second-pass update at the top of this file.)*
 
 **Also discovered (evidence for the warnings-as-errors item).** A clean compile
 emits exactly **7 warnings**, all `-Wunused-parameter` in
@@ -249,12 +371,13 @@ UI, and converted public pages match legacy screenshots within tolerance."*
 
 | Half | State |
 | --- | --- |
-| Converted public pages match legacy screenshots within tolerance | **Met** — 6/6 pages pass at a 2% pixel tolerance, re-run after the admin UI landed |
-| Staff can manage public content through the new **admin UI** | **Met** — `frontend/src/pages/admin/*` drives every implemented `/api/admin/*` resource; 9/9 browser assertions in `tests/e2e/admin.spec.ts` |
+| Converted public pages match legacy screenshots within tolerance | **Met** — 6/6 pages pass at a 2% pixel tolerance, re-run after the admin UI landed and again after collectible editing was added |
+| Staff can manage public content through the new **admin UI** | **Met** — `frontend/src/pages/admin/*` drives every implemented `/api/admin/*` resource, each with create, edit and delete where the API supports it; 10/10 browser assertions in `tests/e2e/admin.spec.ts` |
 
-Residual note, not a gap in the exit condition: the API exposes no update
-endpoint for collectibles, so the panel creates and deletes them but cannot edit
-them. Recorded in the inventory and shown as a notice in the UI.
+This was claimed once before and **withdrawn**: at that point collectables could
+be created and deleted but not edited, while the legacy page and the plan's CRUD
+requirement both called for editing. `PUT /api/admin/collectibles/{id}` now
+exists and is covered by both a Playwright and a smoke assertion.
 
 ## Phase 1 — exit condition
 
@@ -276,15 +399,15 @@ foundation gap, and the plan's rules require an API contract before page work.
 | Visual parity (6 pages) | `npx playwright test` in `tests/e2e` | **6 passed** |
 | Admin UI flow (9 assertions) | `PLAYWRIGHT_ADMIN=1 npx playwright test admin.spec.ts` | **9 passed** |
 | Phase 3 auth/session/authz | `scripts/smoke_phase3.sh http://proxy` | **12 passed, 0 failed** |
-| Phase 4 admin CMS | `scripts/smoke_phase4_admin.sh http://proxy` | **23 passed, 0 failed** |
+| Phase 4 admin CMS | `scripts/smoke_phase4_admin.sh http://proxy` | **33 passed, 0 failed** |
 | Phase 4 public API + RSS | `scripts/smoke_phase4_public.py http://proxy` | **17 passed, 0 failed** |
-| CSRF route lint | `scripts/check_csrf_rules.py` | exit 0 — 47 routes, 24 mutating, all protected |
+| CSRF route lint | `scripts/check_csrf_rules.py` | exit 0 — 48 routes, 25 mutating, all protected |
 | PolarIS isolation lint | `scripts/check_polaris_access.py` | exit 0 — zero direct access outside `src/services/` |
-| Admin API↔UI agreement lint | `scripts/check_admin_ui_coverage.py` | exit 0 — 25 routes, 22 wired, 3 explicitly unwired |
+| Admin API↔UI agreement lint | `scripts/check_admin_ui_coverage.py` | exit 0 — 26 routes, 23 wired, 3 explicitly unwired |
 | Frontend build | `npm run build` in `frontend/` | clean |
 | C++ build + sanitizers + CTest | `cmake -DENABLE_SANITIZERS=ON` + `ctest`, GCC/Debug, `-Werror` | 0 warnings, 1/1 test passed |
-| CI job `cpp-build-and-test` | CI on the last pushed commit | success as of `824f634`; unchanged by this work |
-| CI job `integration-smoke` | CI on the last pushed commit | **New steps not yet exercised on CI** — the TypeScript build, admin Playwright and visual-parity steps were added in this change and have only run locally |
+| CI job `cpp-build-and-test` | CI on the last pushed commit (`869a4ef`) | **success** |
+| CI job `integration-smoke` | CI on the last pushed commit (`869a4ef`) | **failure** at the frontend-build step; cause fixed, re-run pending — see the second-pass update at the top of this file |
 
 Parity requires two data preconditions, both documented in
 `tests/e2e/README.md`: both apps must hold identical content
@@ -307,12 +430,13 @@ a deterministic probe shows 503-then-200 with login succeeding at the first 200
 — versus a violated invariant on the pre-fix image. *Remaining in this item:*
 confirm on CI that the job is now stable (green runs), since the fix removes the
 mechanism but only CI can confirm the flake is gone. Then the rest of the Phase
-2b matrix: **the TypeScript-build and Playwright CI steps are now written** (see
-the update above) but have not run on CI, so confirm them there; make the cutover
-map real (include it in `nginx.conf`, add a legacy upstream, and demonstrate
-cutover **and** rollback for one route) or delete it and correct the inventory;
-Sentry either wired or its claim downgraded; the vcpkg/Conan deviation either
-resolved or explicitly accepted; the preflight host-check results recorded.
+2b matrix: **the TypeScript-build and Playwright CI steps are written, ran once,
+and failed for an environmental reason that is now fixed** — the next CI run must
+confirm them; make the cutover map real (include it in `nginx.conf`, add a legacy
+upstream, and demonstrate cutover **and** rollback for one route) or delete it and
+correct the inventory; Sentry either wired or its claim downgraded; the
+vcpkg/Conan deviation either resolved or explicitly accepted; the preflight
+host-check results recorded.
 
 *Warnings-as-errors: DONE* — `-Werror` enabled and the 7 known findings cleared;
 clean builds are warning-free in both the Release and the sanitizer
@@ -326,8 +450,8 @@ justified decision to supersede the requirement. Nothing in this change touched
 it, so it is still exactly as described.
 
 **3. Return to Phase 4 and implement and verify the missing admin UI. — DONE.**
-The panel is built and verified (9/9 browser assertions, 6/6 parity re-run,
-23/23 admin API smoke). See the 2026-09-21 update at the top of this file.
+The panel is built and verified (10/10 browser assertions, 6/6 parity re-run,
+33/33 admin API smoke). See the 2026-09-21 updates at the top of this file.
 
 **4. Do not advance to Phase 5 until 1–3 are complete.**
 Item 3 is now complete. Items 1 (the residual Phase 2b items) and 2 (the OpenAPI

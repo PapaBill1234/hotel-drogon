@@ -23,6 +23,7 @@ import {
   setSetting,
   updateBanner,
   updateCampaign,
+  updateCollectible,
   updateFaq,
   updateNews,
 } from '../services/apiAdmin';
@@ -212,6 +213,11 @@ export function useAdminMutations() {
 
     createCollectible: useMutation({
       mutationFn: createCollectible,
+      onSuccess: () => invalidate(adminKeys.collectibles),
+    }),
+    updateCollectible: useMutation({
+      mutationFn: (vars: { id: number; payload: Parameters<typeof updateCollectible>[1] }) =>
+        updateCollectible(vars.id, vars.payload),
       onSuccess: () => invalidate(adminKeys.collectibles),
     }),
     deleteCollectible: useMutation({

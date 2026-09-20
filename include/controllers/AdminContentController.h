@@ -33,6 +33,7 @@ public:
     // --- collectibles ---
     ADD_METHOD_TO(AdminContentController::listCollectibles,   "/api/admin/collectibles",      drogon::Get);
     ADD_METHOD_TO(AdminContentController::createCollectible,  "/api/admin/collectibles",      drogon::Post, "hotel::filters::CsrfFilter");
+    ADD_METHOD_TO(AdminContentController::updateCollectible,  "/api/admin/collectibles/{id}", drogon::Put, "hotel::filters::CsrfFilter");
     ADD_METHOD_TO(AdminContentController::deleteCollectible,  "/api/admin/collectibles/{id}", drogon::Delete, "hotel::filters::CsrfFilter");
 
     // --- banners (high-trust on raw `html`) ---
@@ -64,6 +65,7 @@ public:
 
     void listCollectibles(const drogon::HttpRequestPtr& req, std::function<void(const drogon::HttpResponsePtr&)>&& cb);
     void createCollectible(const drogon::HttpRequestPtr& req, std::function<void(const drogon::HttpResponsePtr&)>&& cb);
+    void updateCollectible(const drogon::HttpRequestPtr& req, std::function<void(const drogon::HttpResponsePtr&)>&& cb, const std::string& id);
     void deleteCollectible(const drogon::HttpRequestPtr& req, std::function<void(const drogon::HttpResponsePtr&)>&& cb, const std::string& id);
 
     void listBanners(const drogon::HttpRequestPtr& req, std::function<void(const drogon::HttpResponsePtr&)>&& cb);
