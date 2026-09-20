@@ -88,9 +88,9 @@ reload_proxy() {
 
 # Wait until the route actually answers before probing it.
 #
-# Without this, a recreate-mode run probes during the window when the proxy is
-# still coming up, gets an empty body, and reports a failure that says nothing
-# about the map. Bounded, so a genuinely broken proxy still fails the run.
+# Without this, a run can probe during the window when the proxy is still coming
+# up, get an empty body, and report a failure that says nothing about the map.
+# Bounded, so a genuinely broken proxy still fails the run.
 wait_for_route() {
     i=0
     while [ "$i" -lt 30 ]; do
@@ -102,6 +102,26 @@ wait_for_route() {
         sleep 1
     done
     return 0  # let probe() report what it actually saw
+}
+
+# Wait until the route serves the expected side, up to a bound.
+#
+# A fixed sleep after reload is not enough on a slower runner: measured on CI,
+# `nginx -s reload` plus the 10s DNS re-resolution window meant a three-second
+# wait still observed the OLD side, and the check reported
+# "expected legacy, got app" — a false failure about the map. Polling for the
+# expected side removes the timing guesswork while keeping the assertion real:
+# if the switch never happens, this still fails.
+wait_for_side() { # SIDE
+    i=0
+    while [ "$i" -lt 20 ]; do
+        if [ "$(probe)" = "$1" ]; then
+            return 0
+        fi
+        i=$((i + 1))
+        sleep 1
+    done
+    return 0
 }
 
 # --- locate the committed configuration ------------------------------------
@@ -183,7 +203,7 @@ else
 fi
 
 reload_proxy
-wait_for_route
+wait_for_side legacy
 check "after cutover, route resolves to the legacy stack" legacy "$(probe)"
 
 # --- 3. rollback: put it back ----------------------------------------------
@@ -191,7 +211,7 @@ say
 say "[3] Rollback — restore the committed map"
 mv -f "$BACKUP" "$MAP"
 reload_proxy
-wait_for_route
+wait_for_side app
 check "after rollback, route resolves to the new stack again" app "$(probe)"
 
 say
