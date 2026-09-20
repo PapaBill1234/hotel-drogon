@@ -64,7 +64,7 @@ porting any page content.
 | Area | Choice | Why |
 | --- | --- | --- |
 | Backend framework | **Drogon** | Async C++ framework closest to Laravel's shape: routing, ORM, sessions, filters (middleware), JSON, WebSockets, a code generator (`drogon_ctl`). The only C++ option complete enough to avoid hand-building most of the stack. |
-| Build system | CMake + vcpkg (or Conan) | Standard, reproducible dependency management; Drogon ships CMake integration. |
+| Build system | **CMake + Ninja against Ubuntu 24.04 archive packages, from a base image pinned by digest, with direct dependency versions pinned** | Reproducible without a dependency manager, and the only source that supplies Drogon **1.8.7**, the version this code is written and built against. Chosen 2026-09-21 over vcpkg/Conan on evidence: both registries now resolve Drogon **1.9.13**, against which this code does not pass its required `-Werror` build, and a vcpkg dependency/toolchain resolution alone measured 317s against a 41s full CI build. Supplying 1.8.7 through either manager would need a historical baseline, overlay port or custom recipe with ongoing maintenance. Pins make a build repeatable; they do **not** remove the need for security updates — updating is a documented, deliberate step. Procedure: `docs/dependency-policy.md`. |
 | Database access | Typed data-access structs behind named-method service classes (e.g. `ContentService`, `UserAccountService`), backed by parameterized SQL or Drogon's lightweight query builder | One consistent access idiom for all tables, not just PolarIS-owned ones. Do not generate `drogon::orm::DrogonModel` subclasses and expose them directly to controllers — that introduces a second, inconsistent data-access pattern. PolarIS tables are accessed only through named service classes (see Phase 3); `phpretro_*` CMS tables follow the same pattern for consistency, even though their risk profile is lower. |
 | Sessions/cache/queues/locks | Redis (Drogon's built-in async Redis client) | Same role as in the Laravel plan — sessions, cache, rate-limit counters, job queue, distributed locks for Homes edits. |
 | Background jobs | Hand-built worker process(es) consuming a Redis list/stream, or a lightweight library (e.g. Taskflow for in-process concurrency) | No Horizon equivalent exists; build a minimal worker binary that dequeues jobs (mail, media processing, cleanup) — small, but must be built, not adopted. |
@@ -77,7 +77,7 @@ porting any page content.
 | Object storage | S3-compatible (MinIO locally) | Unchanged; Drogon doesn't need to touch this directly if the frontend/CDN handles delivery and only presigned URLs are generated server-side. |
 | Search | Meilisearch, called directly over its HTTP API | Unchanged intent; no Laravel Scout equivalent, so the backend calls Meilisearch's REST API directly — a thin wrapper, not a big lift. |
 | Tests | Catch2 or GoogleTest (C++ backend), Vitest (React), Playwright (browser flows) | Replaces Pest; conceptually equivalent coverage. |
-| Monitoring | Sentry (has a C++ SDK), Prometheus-format metrics (Drogon supports exposing these) | Same intent as before. |
+| Monitoring | Sentry, Prometheus-format metrics (Drogon supports exposing these) | Same intent as before. Sentry does ship a C/C++ SDK (`sentry-native`), but **no such package exists in the Ubuntu 24.04 archive**, so obtaining it is a dependency decision — see the Phase 10 observability gate. Metrics are already implemented. |
 | Delivery | Docker Compose when supported; otherwise native systemd services + nginx; GitHub Actions for CMake build/tests | Preserve the same service boundaries on either host path; the backend runs as a compiled binary rather than PHP-FPM. |
 
 ## Rules that apply to every phase
@@ -180,9 +180,16 @@ actual host environment, with accumulated write-first defects made explicit.
   Report the results before infrastructure changes. If virtualization is
   OpenVZ/LXC or Docker cannot access its socket, stop Docker work and use the
   native path; do not spend the phase trying to bypass host restrictions.
-- Choose vcpkg or Conan, explain the choice, set up CMake, and compile all
+- Choose the dependency strategy and explain it, then set up CMake and compile all
   existing code. Syntax-only fixes may proceed; stop for a real behavior or
-  design decision.
+  design decision. **Decided 2026-09-21: pinned Ubuntu 24.04 archive packages**,
+  with the base image pinned by digest and direct dependencies pinned by version
+  (`docs/dependency-policy.md` carries the procedure and the measurements, and
+  the "Build system" row above carries the rationale). vcpkg and Conan are not
+  used for the toolchain: both resolve Drogon 1.9.13, against which this code does
+  not pass the required `-Werror` build. Migrating to 1.9.13 is a separate,
+  currently unjustified work unit, not an impossibility. Do not mix package
+  ecosystems by adding vcpkg for individual libraries.
 - Enable warnings-as-errors plus ASan/UBSan for the test build. Fix every
   warning and sanitizer finding, and report the complete list rather than
   absorbing it silently.
@@ -197,7 +204,9 @@ actual host environment, with accumulated write-first defects made explicit.
   and Playwright smoke tests. CI runs on hosted runners even when the VPS
   cannot run Docker.
 - Implement a route-switch/proxy map and demonstrate both cutover and rollback
-  for one real test route. Wire Sentry and a basic metrics endpoint.
+  for one real test route. Wire a basic metrics endpoint (done:
+  `/metrics`). **Sentry is a Phase 10 decision gate**, not a Phase 2b
+  deliverable — see that phase for why.
 
 **Exit condition:** everything written so far compiles without warnings under
 the sanitizer configuration, passes CI, runs through either Compose or native
@@ -401,6 +410,21 @@ admin UI, every action attributed and reversible where possible.
 - Accessibility, performance, cache, queue, backup/recovery, and
   observability checks, reported with measured latency, memory, and error
   rates rather than qualitative claims.
+- **Observability decision gate — Sentry.** Moved here from Phase 2b on
+  2026-09-21, because it is a dependency decision rather than build verification,
+  and because it cannot be satisfied the way Phase 2b's other items were. State of
+  the evidence: `/metrics` (Prometheus text) is already implemented;
+  `AppConfig::sentry_dsn` exists but is inert, with no SDK linked and nothing ever
+  reported; **no Sentry C++ SDK was found in the Ubuntu 24.04 archive** (the
+  archive carries Go, Python, Rust and JavaScript clients only); and a measured
+  x64-linux `sentry-native` vcpkg probe failed while building `libunwind`. That
+  probe does not establish that the port is universally broken — only that it did
+  not build in this environment on this date. Resolve it deliberately at cutover:
+  either approve a dependency source for `sentry-native` (a pinned vcpkg baseline
+  is the obvious candidate, and it is the one place mixing ecosystems would be
+  considered on its merits), or downgrade the requirement and record the
+  resulting observability gap. Do not infer a pass from the fact that the config
+  field exists.
 - Gradual cutover via the proxy map, tested rollback path, legacy PHP
   archived only after stable operation.
 - Publish/update the unsupported-feature register (Trax, native Club
