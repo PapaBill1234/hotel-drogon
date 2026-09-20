@@ -1,0 +1,172 @@
+# Isolated harness for the route cutover / rollback demonstration.
+#
+# ── Why this exists ──────────────────────────────────────────────────────────
+#
+# The plan's Phase 2b exit condition asks for "a route-switch/proxy map and
+# demonstrate both cutover and rollback for one real test route". Doing that
+# needs BOTH implementations of one route reachable from one proxy at the same
+# time, plus the ability to flip the map and reload the proxy.
+#
+# The primary compose.yaml cannot host that: it has no legacy PHP service, and
+# adding one there would put an unused PHP runtime into the production stack just
+# to satisfy a demonstration. This file is deliberately separate — the same
+# trade-off tools/legacy-stack/compose.yaml already makes for baseline capture.
+#
+# It runs the proxy with the REAL proxy/nginx.conf and proxy/cutover.map, so what
+# is demonstrated is the deployed configuration, not a stand-in.
+#
+# ── Usage ────────────────────────────────────────────────────────────────────
+#
+#   docker compose -p ci-cutover -f tools/ci-repro/compose-cutover.yaml up -d --build
+#   # seed both databases with the shared fixtures, then:
+#   COMPOSE_ARGS="-p ci-cutover -f tools/ci-repro/compose-cutover.yaml" \
+#     sh scripts/check_cutover.sh http://localhost:3500
+#   docker compose -p ci-cutover -f tools/ci-repro/compose-cutover.yaml down -v
+#
+# ── Isolation ────────────────────────────────────────────────────────────────
+#
+# `name:` namespaces every container, network and volume as `ci-cutover_*`; no
+# `container_name:` is set, so nothing collides with the primary stack or the
+# legacy capture stack. The proxy publishes 3500 — not 3000 (primary) or 8081
+# (legacy capture). `down -v` here can only destroy this project's throwaway
+# volumes; never run a bare `docker compose down -v` from the repo root.
+
+name: ci-cutover
+
+services:
+  proxy:
+    image: nginx:alpine
+    restart: "no"
+    ports:
+      - "3500:80"
+    volumes:
+      # The REAL routing configuration under test.
+      - ../../proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../../proxy/cutover.map:/etc/nginx/cutover.map:ro
+      - ../../../legacy/phpretro-pdo/web-gallery:/var/www/web-gallery:ro
+      - ../../../legacy/phpretro-pdo/housekeeping/images:/var/www/housekeeping-images:ro
+      - ../../frontend/dist:/usr/share/nginx/html:ro
+    depends_on:
+      - app
+      - legacy
+    networks:
+      - cutover-net
+
+  # The new stack. Named `app` because that is the service key the cutover map
+  # refers to (`app:8080`); see the comment in the primary compose.yaml about the
+  # equivalent network alias.
+  app:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: "no"
+    environment:
+      APP_ENV: development
+      APP_PORT: 8080
+      LOG_LEVEL: debug
+      LOG_JSON: "false"
+      DB_HOST: mariadb
+      DB_PORT: 3306
+      DB_DATABASE: polaris
+      DB_USERNAME: hotel
+      DB_PASSWORD: hotel_secret
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - cutover-net
+
+  # The legacy PHP stack, reachable as `legacy:80` exactly as the map says.
+  legacy:
+    build:
+      context: ../legacy-stack
+      dockerfile: web.Dockerfile
+    restart: "no"
+    environment:
+      # Host is this harness's own database, not the legacy capture stack's, so
+      # the harness never depends on or disturbs `legacy_db`.
+      DB_DSN: "mysql:host=legacy-db;dbname=polaris;charset=utf8mb4"
+      DB_USER: hotel
+      DB_PASS: hotel_secret
+    volumes:
+      - ../../../legacy/phpretro-pdo:/var/www/html
+      - ./cutover-legacy.env:/var/www/html/.env:ro
+    depends_on:
+      legacy-db:
+        condition: service_healthy
+    networks:
+      - cutover-net
+
+  mariadb:
+    image: mariadb:10.11
+    restart: "no"
+    environment:
+      MYSQL_ROOT_PASSWORD: root_secret
+      MYSQL_DATABASE: polaris
+      MYSQL_USER: hotel
+      MYSQL_PASSWORD: hotel_secret
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    networks:
+      - cutover-net
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: "no"
+    networks:
+      - cutover-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Same schema import order as tools/legacy-stack, so the legacy RSS endpoint
+  # reads the same table shape it does in the capture stack.
+  legacy-db:
+    image: mariadb:10.11
+    restart: "no"
+    environment:
+      MYSQL_ROOT_PASSWORD: root_secret
+      MYSQL_DATABASE: polaris
+      MYSQL_USER: hotel
+      MYSQL_PASSWORD: hotel_secret
+    volumes:
+      - legacy_db_data:/var/lib/mysql
+      - ../../../legacy/phpretro-pdo/references/schema/CleanDB.sql:/docker-entrypoint-initdb.d/01-clean.sql:ro
+      - ../../../legacy/phpretro-pdo/migrations/001_custom_tables.sql:/docker-entrypoint-initdb.d/02-m001.sql:ro
+      - ../../../legacy/phpretro-pdo/migrations/002_admin_features.sql:/docker-entrypoint-initdb.d/03-m002.sql:ro
+      - ../../../legacy/phpretro-pdo/migrations/003_web_minimail.sql:/docker-entrypoint-initdb.d/04-m003.sql:ro
+      - ../../../legacy/phpretro-pdo/migrations/004_web_homes.sql:/docker-entrypoint-initdb.d/05-m004.sql:ro
+      - ../../../legacy/phpretro-pdo/migrations/005_web_group_urls.sql:/docker-entrypoint-initdb.d/06-m005.sql:ro
+      - ../../../legacy/phpretro-pdo/migrations/006_restore_remaining.sql:/docker-entrypoint-initdb.d/07-m006.sql:ro
+      - ../../../legacy/phpretro-pdo/migrations/007_restore_remaining_501s.sql:/docker-entrypoint-initdb.d/08-m007.sql:ro
+      - ../../../legacy/phpretro-pdo/migrations/008_phase10_website_content.sql:/docker-entrypoint-initdb.d/09-m008.sql:ro
+      - ../../../legacy/phpretro-pdo/migrations/009_guild_tags.sql:/docker-entrypoint-initdb.d/10-m009.sql:ro
+    networks:
+      - cutover-net
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+networks:
+  cutover-net:
+    driver: bridge
+
+volumes:
+  mariadb_data:
+  redis_data:
+  legacy_db_data:

@@ -1,15 +1,77 @@
-# Route cutover map
-# Maps request URI patterns to upstream backends:
-# 'drogon' = new C++/Drogon async backend (backend:8080)
-# 'legacy' = legacy PHPRetro PHP stack
+# Route cutover map — the single source of truth for which upstream serves a URI.
+#
+# This file IS included by proxy/nginx.conf. It used to be orphaned: nginx.conf
+# kept its own private inline map and never included this one, so the two could
+# disagree and nothing noticed (they did: this file said `default legacy` while
+# nginx actually sent unmatched routes to the SPA). Editing it now changes
+# routing, which is the point — and it is also why it is mounted read-only into
+# the proxy rather than left as documentation.
+#
+# ## How to route a page
+#
+#   1. find or add a `location` for the URI in proxy/nginx.conf (locations still
+#      own how a request is handled);
+#   2. point it at the `$cutover_*_backend` variable for its area;
+#   3. set the route's side in the matching `map $uri` below:
+#        app:8080     the new C++/Drogon stack
+#        legacy:80    the legacy PHPRetro PHP stack
+#   4. `nginx -s reload` in the proxy container — no restart, no rebuild.
+#
+# Rollback is the same edit in the other direction. Neither direction removes the
+# other implementation; both stay deployed for the whole migration, which is what
+# makes the switch instant and reversible.
+#
+# ## Why every value is a literal host:port
+#
+# nginx resolves a *variable* proxy_pass target by searching declared server
+# groups (upstream blocks) before falling back to a resolver, and a name that
+# matches a group is resolved once at startup and cached forever — which is how
+# recreating a backend container once produced permanent 502s here. Literal
+# `host:port` strings cannot match a server group, so they always go through
+# `resolver 127.0.0.11 valid=10s`. Do not replace these with bare names.
+#
+# ## Defaults
+#
+# Every area defaults to `app:8080`, i.e. exactly the behaviour this stack had
+# before the map was wired up. Deploying this file therefore changes NO routing.
+# Routes are switched deliberately, one at a time, by editing a line below.
+#
+# `default legacy` would be the conventional choice for a partially migrated site
+# and it is wrong *here*: un-migrated routes are raw PHP entry points
+# (`/account`, `/client`, `/register`, …) which the legacy app serves directly.
+# Cutting the whole server over to `legacy` would send the already-converted
+# paths (`/community`, `/articles`, `/help`, `/credits/collectables`) there too,
+# and the legacy app no longer owns those URLs. Routing is therefore per-route,
+# with the converted routes already on `app`.
 
-# Default: un-migrated routes stay on legacy PHP
-default legacy;
+# --- content --------------------------------------------------------------
+# Public content pages. /articles/rss.xml is a REAL cutover candidate: both
+# implementations exist and both are correct, so the switch can be demonstrated
+# and rolled back without touching data. The new side (Drogon) fixes the legacy
+# double-escaping defect described in the inventory.
+map $uri $cutover_content_backend {
+    default app:8080;
+    ~^/articles/rss\.xml$ app:8080;
+}
 
-# Infrastructure & health endpoints
-~^/health drogon;
-~^/api/health drogon;
-~^/metrics drogon;
+# --- infrastructure -------------------------------------------------------
+# Health, metrics and the JSON API are new-stack-only; there is no legacy
+# implementation to cut back to, so these are not cutover candidates.
+map $uri $cutover_infra_backend {
+    default app:8080;
+}
 
-# Modern JSON APIs (Phase 3+)
-~^/api/ drogon;
+# --- application ----------------------------------------------------------
+# The public pages and the guest-facing app shell. Default `app`, because the
+# converted pages live at the new app's routes; a page that has not been
+# converted yet is an explicit exception here, not a default.
+map $uri $cutover_app_backend {
+    default app:8080;
+}
+
+# --- staff ----------------------------------------------------------------
+# Housekeeping. The React panel is served by the new app; the legacy PHP
+# housekeeping entry points are retired.
+map $uri $cutover_staff_backend {
+    default app:8080;
+}

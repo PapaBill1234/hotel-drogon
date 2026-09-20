@@ -38,7 +38,7 @@ says Filament) before it compounds.
 | --- | --- | --- |
 | Docker Compose (backend binary, MariaDB, Redis, worker binary, nginx proxy) | Yes | **Done.** `compose.yaml` running Drogon C++ server, MariaDB 10.11, Redis 7, worker process, and nginx reverse proxy. |
 | `web-gallery` served without copying/hashing | Yes | **Done.** nginx `alias` mount directly in `proxy/nginx.conf`. |
-| Route switch/proxy with instant rollback | Yes | **NOT DONE — the previous "Done, tested and verified live" claim was wrong.** `proxy/cutover.map` is **orphaned**: `proxy/nginx.conf` never includes it and defines its own inline `map $uri $target_backend`. The two disagree — `cutover.map` says `default legacy`, while nginx actually sends unmatched routes to the React SPA. There is no legacy PHP service in `compose.yaml`, so no `legacy` upstream exists and **rollback cannot be demonstrated**. Either wire the map up with a real legacy upstream and prove cutover + rollback, or delete it and correct this row. |
+| Route switch/proxy with instant rollback | Yes | **DONE — the earlier "NOT DONE" was right at the time, and the gap is now closed.** `proxy/cutover.map` is no longer orphaned: `proxy/nginx.conf` `include`s it and the inline duplicate map is gone, so there is exactly one place routing is decided. Route variables are now `$cutover_{content,infra,app,staff}_backend`, all defaulting to `app:8080` — deploying the map changes **no** routing, and routes are switched one at a time. `/articles/rss.xml` is the demonstrated route (both stacks implement it). `scripts/check_cutover.sh` flips that route to `legacy:80`, asserts the legacy implementation answered, restores the map, and asserts the new one answered again — 6/6 locally, and run as the `cutover-check` CI job against an isolated stack (`tools/ci-repro/compose-cutover.yaml`) that runs the **real** `proxy/nginx.conf` and `proxy/cutover.map` alongside both applications. See "Cutover and rollback" below. |
 | CI (CMake build with ASan/UBSan, Catch2 unit tests) | Yes | **Green.** Run `35524678557` (commit `66ba2d8`): both jobs success. `cpp-build-and-test` builds with GCC, ASan/UBSan, `-Werror` and CTest. `integration-smoke` runs the Python lints, all three smoke suites, a TypeScript frontend build, the admin UI suite on the runner's Chromium, and the parity suite in the pinned container — which now passes because the legacy `web-gallery` is sparse-cloned into the workspace the Compose project directory expects. |
 | Redis cache/sessions/queues/locks | Yes | **Done.** Async Redis client configured with database routing, health check verified. |
 | Background Worker | Minimal worker binary | **Done.** `hotel_worker` binary building and running in container. |
@@ -57,7 +57,7 @@ should be read as claiming it is.
 | Warnings-as-errors enabled, all warnings cleared | **Yes** — `-Werror`; the 7 `-Wunused-parameter` findings in `PublicContentController.cpp` cleared; clean builds warning-free in both Release and Debug+ASan/UBSan |
 | CI covers TypeScript build and Playwright | **Added; first CI run failed and the cause is fixed, not yet re-observed** — the steps were added and run `35519492373` failed at exactly one step, **"Build the React frontend (TypeScript + Vite)"**, so every Playwright step was skipped. Cause: `frontend/dist` is a bind-mount source that Docker auto-creates as **root** on a fresh checkout, so Vite's output-directory emptying hit EACCES as the unprivileged runner. Fixed three ways: `frontend/dist/.gitignore` is committed so the directory exists and is runner-owned before `docker compose up`; the proxy is now **reloaded** (`nginx -s reload`) instead of restarted, because a restart briefly moved the container address that the variable-based `proxy_pass` had resolved; and a check for the exact failure re-runs locally against a fresh tree. **Unproven until the next CI run.** |
 | **CI passes** | **FAILED on the last run, cause fixed, re-verification pending** — run `35519492373` (commit `869a4ef`) concluded `failure`: job `cpp-build-and-test` **success**, job `integration-smoke` **failure** at the frontend-build step above. The readiness flake from `77f7c87` remains fixed and did not recur (Phase 3 and both Phase 4 smoke suites passed in that run). |
-| Cutover **and rollback** demonstrated for a real route | **No** — see the cutover row above |
+| Cutover **and rollback** demonstrated for a real route | **Yes** | `scripts/check_cutover.sh` against the isolated harness: baseline `app`, flip the map to `legacy:80`, assert the legacy implementation answered, restore, assert `app` again — 6/6 locally, and the `cutover-check` CI job runs the same script. The map is the real committed one, not a stand-in |
 | Sentry wired | **No** — inert config field only |
 | Compose services incl. a frontend build | **Partial** — no frontend build service; `frontend/dist` is built out-of-band and bind-mounted (locally and now in CI). The proxy additionally mounts the legacy `housekeeping/images/` tree read-only so `/housekeeping/images/…` resolves instead of being answered with the SPA shell. |
 | Preflight host checks recorded | **Yes** — `docs/phase2b-preflight.md`, produced by `scripts/preflight.sh`, which CI now also runs as a visible first step. It records the Windows 11 development host, the Ubuntu 24.04 Linux build environment (g++ 13.3.0, cmake 3.28.3, git 2.43.0, ninja 1.11.1, python 3.12.3, systemd-detect-virt `wsl`) and that the Docker daemon is reachable, so the plan's "stop Docker work" branch does not apply |
@@ -427,6 +427,45 @@ Baseline provenance is unchanged and was **not** re-captured: all six were
 captured from the legacy application in the pinned container, and inspection
 confirms they are the fully styled legacy renders. Capturing from the new
 application is prohibited and did not happen.
+
+#### Cutover and rollback — how a route is switched, and how it is switched back
+
+Routing lives in one file, `proxy/cutover.map`, which `proxy/nginx.conf`
+`include`s. Each area has a `map $uri` whose values are the upstream to serve:
+
+```
+map $uri $cutover_content_backend {
+    default app:8080;                  # the new C++/Drogon stack
+    ~^/articles/rss\.xml$ app:8080;    # <- flip this line to legacy:80 to cut over
+}
+```
+
+To cut a route over: edit that line to `legacy:80`, then `docker compose exec -T
+proxy nginx -s reload`. To roll back: put the line back and reload again. No
+rebuild, no restart, and neither implementation is removed — that is what makes
+the switch instant and reversible.
+
+Two deliberate choices, both recorded because the obvious alternatives are worse:
+
+- **Every value is a literal `host:port`, never a bare name.** nginx resolves a
+  variable `proxy_pass` target by searching declared server groups first and
+  caching the result forever, which is how recreating a backend once produced
+  permanent 502s here (see the nginx note above). Literals cannot match a group,
+  so they always go through `resolver 127.0.0.11 valid=10s`.
+- **Every area defaults to `app:8080`, not `legacy`.** `default legacy` is the
+  conventional partially-migrated choice and it is wrong here: the un-migrated
+  routes are raw PHP entry points, while the converted paths (`/community`,
+  `/articles`, `/help`, `/credits/collectables`) are now owned by the new app and
+  the legacy app no longer serves them. Defaulting to legacy would break every
+  converted page. Deploying the map therefore changes no routing at all.
+
+`/articles/rss.xml` is the demonstrated route because both stacks implement it,
+so the switch is real rather than a redirect. `scripts/check_cutover.sh` asserts
+the sequence end to end: route on `app`, map flipped, route on `legacy`, map
+restored, route on `app` again — 6/6 locally. It runs against
+`tools/ci-repro/compose-cutover.yaml`, an isolated project that runs the **real**
+`proxy/nginx.conf` and `proxy/cutover.map` with both applications behind one
+proxy, and the `cutover-check` CI job runs the same script on every push.
 
 #### Reference screenshots are not baselines
 

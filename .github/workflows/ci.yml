@@ -309,3 +309,65 @@ jobs:
         if: failure()
         run: docker compose logs --tail=200
 
+  # Phase 2b's "route-switch/proxy map with cutover AND rollback" exit condition.
+  #
+  # Separate job on purpose: it needs the legacy PHP stack running alongside the
+  # new one, which the production compose.yaml deliberately does not provide, and
+  # a failure here must not hide the smoke results (or vice versa).
+  cutover-check:
+    name: Route Cutover and Rollback (isolated stack)
+    runs-on: ubuntu-24.04
+    needs: cpp-build-and-test
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # Same reference the proxy mounts for /web-gallery/; see the note in the
+      # integration-smoke job. The harness proxy uses the REAL proxy/nginx.conf,
+      # so an empty mount here would 404 that alias — harmless for the RSS route
+      # under test, but the guard keeps the two jobs consistent about the trap.
+      - name: Fetch the legacy web-gallery reference (sparse, read-only)
+        run: |
+          for root in "$GITHUB_WORKSPACE/.." "$GITHUB_WORKSPACE"; do
+            dest="$root/legacy/phpretro-pdo"
+            [ -d "$dest/web-gallery/v2/styles" ] && continue
+            rm -rf "$dest"
+            mkdir -p "$(dirname "$dest")"
+            git clone --filter=blob:none --no-checkout --depth=1 \
+              https://github.com/PapaBill1234/PHPRetro-PDO.git "$dest"
+            git -C "$dest" sparse-checkout set --no-cone web-gallery housekeeping/images
+            git -C "$dest" checkout
+          done
+
+      - name: Build the cutover harness (new stack + legacy stack + proxy)
+        run: docker compose -p ci-cutover -f tools/ci-repro/compose-cutover.yaml up -d --build
+
+      - name: Wait for the harness proxy
+        run: |
+          for i in $(seq 1 90); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3500/health || true)
+            [ "$code" = "200" ] && { echo "harness healthy after ${i} attempt(s)"; exit 0; }
+            sleep 2
+          done
+          echo "::error::cutover harness did not become healthy"
+          docker compose -p ci-cutover -f tools/ci-repro/compose-cutover.yaml logs --tail=200
+          exit 1
+
+      # Both sides get the shared fixtures so the two RSS implementations differ
+      # in content (that is what identifies which one answered) rather than one
+      # of them serving an empty feed.
+      - name: Seed both harness databases
+        run: |
+          docker exec -i ci-cutover-mariadb-1 mysql -uhotel -photel_secret polaris < tools/legacy-stack/init/99-seed.sql
+          docker exec -i ci-cutover-legacy-db-1 mysql -uhotel -photel_secret polaris < tools/legacy-stack/init/99-seed.sql
+
+      - name: Verify cutover and rollback for /articles/rss.xml
+        env:
+          COMPOSE_ARGS: -p ci-cutover -f tools/ci-repro/compose-cutover.yaml
+        run: sh scripts/check_cutover.sh http://localhost:3500
+
+      - name: Tear the harness down
+        if: always()
+        run: docker compose -p ci-cutover -f tools/ci-repro/compose-cutover.yaml down -v
+

@@ -24,7 +24,12 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - hotel-network
+      hotel-network:
+        # `app` is the name the cutover map uses for the new stack
+        # (proxy/cutover.map). Aliasing it here keeps the map independent of the
+        # Compose service key, so a rename cannot silently invalidate it.
+        aliases:
+          - app
 
   worker:
     build:
@@ -87,6 +92,10 @@ services:
       - "3000:80"
     volumes:
       - ./proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      # Routing lives in the map, and nginx.conf `include`s it, so the proxy must
+      # have it mounted or it will not start. Read-only on purpose: the cutover
+      # procedure is "edit the file in the repo, then reload", not "edit it
+      # inside the container", so the change is always reviewable in Git.
       - ./proxy/cutover.map:/etc/nginx/cutover.map:ro
       # Legacy web-gallery assets: the stylesheets and imagery the converted
       # pages must reuse verbatim (nginx aliases /web-gallery/ to this path).

@@ -389,9 +389,9 @@ including the collectible collision fixture and an out-of-range month.
 
 - **Phase 1's OpenAPI document** — still does not exist. This is the next work
   unit, and Phase 5 stays gated on it.
-- **Phase 2b** — cutover/rollback undemonstrable, Sentry unwired, the vcpkg/Conan
-  deviation unresolved, no Compose frontend build service. The preflight checks
-  are recorded and the CI steps are green on two consecutive runs.
+- **Phase 2b** — Sentry unwired, the vcpkg/Conan deviation unresolved, no
+  Compose frontend build service. The preflight checks are recorded, the CI steps
+  are green on four consecutive runs, and cutover/rollback is demonstrated.
 - **The active phase stays 2b.** Phase 4's exit condition is met, but 2b is the
   gate the plan places before later phases may be trusted, and its own exit
   condition is still unmet.
@@ -489,12 +489,11 @@ plan places before later phases may be trusted, and Phase 1's OpenAPI deliverabl
 is a prerequisite the authorised sequence names next.)*
 
 Phase 2b's exit condition has four parts. The build, warnings-as-errors,
-sanitizer and preflight-reporting parts are met, and the CI frontend-build and
-browser-test steps are now green on two consecutive runs. What remains is:
-**cutover and rollback are undemonstrable, Sentry is unwired, the vcpkg/Conan
-deviation was never resolved or explicitly accepted, and there is no frontend
-build service in Compose** (`frontend/dist` is built out-of-band and
-bind-mounted).
+sanitizer, preflight-reporting and cutover/rollback parts are met, and the CI
+frontend-build and browser-test steps are green on four consecutive runs. What
+remains is: **Sentry is unwired, the vcpkg/Conan deviation was never resolved or
+explicitly accepted, and there is no frontend build service in Compose**
+(`frontend/dist` is built out-of-band and bind-mounted).
 
 Phase 4 is complete: the admin UI exists and drives every implemented
 `/api/admin/*` resource, including collectible editing, and both the browser flow
@@ -515,7 +514,7 @@ and the screenshot parity suites pass.
 | CI covers CMake + sanitizers + tests | **Yes** | `.github/workflows/ci.yml` job `cpp-build-and-test` |
 | CI covers TypeScript build and Playwright | **Added; first CI run failed, cause fixed, re-run pending** | `integration-smoke` now runs `npm ci && npm run build` in `frontend/`, reloads the proxy, installs Chromium and runs `admin.spec.ts` then `visual-parity.spec.ts`, uploading `test-results` on failure. The first run (`35519492373`) failed at the frontend build because the Docker-created `frontend/dist` bind-mount source was root-owned; `frontend/dist/.gitignore` is now committed and the proxy is reloaded rather than restarted. Local results 10/10 and 6/6 |
 | **CI passes** | **FAILED on the latest run, cause fixed, not yet re-verified** | Run `35519492373` (commit `869a4ef`): `cpp-build-and-test` **success**, `integration-smoke` **failure** at "Build the React frontend (TypeScript + Vite)", with every step after it skipped. The `77f7c87` readiness flake did not recur — Phase 3 and both Phase 4 smoke suites passed in that run. Green on `9684e3a` and `b933abf` remains the last confirmed pass |
-| Route switch/proxy map with cutover **and rollback** demonstrated | **Not done** | `proxy/cutover.map` is orphaned: `nginx.conf` never includes it, has its own inline map, and `compose.yaml` has no legacy PHP upstream. `cutover.map` says `default legacy` while nginx actually defaults to the SPA. Rollback is not demonstrable |
+| Route switch/proxy map with cutover **and rollback** demonstrated | **DONE** | `proxy/cutover.map` is included by `nginx.conf` (the duplicate inline map is gone), route variables are `$cutover_{content,infra,app,staff}_backend` and all default to `app:8080`, so deploying the map changes no routing. `scripts/check_cutover.sh` flips `/articles/rss.xml` to `legacy:80`, asserts the legacy implementation answered, restores, and asserts the new one answered again — **6/6 locally**. New CI job `cutover-check` runs it against an isolated stack (`tools/ci-repro/compose-cutover.yaml`) using the real `proxy/nginx.conf` and `proxy/cutover.map`. Primary stack re-verified unchanged: Phase 3 12/12, Phase 4 admin 33/33, Phase 4 public 17/17 |
 | Sentry wired | **Not wired** | `cfg.sentry_dsn` is read from env into `AppConfig` but no SDK is linked and nothing is reported. The inventory's "Sentry DSN configuration wired into AppConfig" overstates this |
 | Basic metrics endpoint | **Yes** | `/metrics` serves Prometheus text |
 
@@ -705,11 +704,11 @@ confirm on CI that the job is now stable (green runs), since the fix removes the
 mechanism but only CI can confirm the flake is gone. Then the rest of the Phase
 2b matrix: **the frontend-build and Playwright CI steps are green** (runs
 `35524678557` and `35524944450`) and **the preflight host checks are recorded**
-(`docs/phase2b-preflight.md`, also run as a CI step). Still outstanding here:
-make the cutover map real (include it in `nginx.conf`, add a legacy upstream, and
-demonstrate cutover **and** rollback for one route) or delete it and correct the
-inventory; Sentry either wired or its claim downgraded; the vcpkg/Conan deviation
-either resolved or explicitly accepted; add a frontend build service to Compose.
+(`docs/phase2b-preflight.md`, also run as a CI step). **Cutover and rollback are
+now demonstrated** — see the Phase 2b verification matrix above and
+`scripts/check_cutover.sh`. Still outstanding here: Sentry either wired or its
+claim downgraded; the vcpkg/Conan deviation either resolved or explicitly
+accepted; add a frontend build service to Compose.
 
 *Warnings-as-errors: DONE* — `-Werror` enabled and the 7 known findings cleared;
 clean builds are warning-free in both the Release and the sanitizer

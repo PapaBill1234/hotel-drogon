@@ -7,6 +7,23 @@ reproduction runs in its own project with its own throwaway volumes.
 | --- | --- |
 | `compose.yaml` | Reproduces the **smoke job's** fresh-runner conditions. Deliberately omits the `frontend/dist` and `web-gallery` mounts, because a fresh runner has neither. |
 | `compose-parity.yaml` | Reproduces the **visual-parity job's** conditions instead: it mounts everything the real stack mounts (so pages render at all) but still uses a disposable project, network, volumes and port (3200), so a genuinely fresh database can be created safely. Added while diagnosing why parity failed on CI and passed locally. |
+| `compose-cutover.yaml` | Hosts the **cutover/rollback demonstration**: the new stack and the legacy PHP stack behind one proxy running the REAL `proxy/nginx.conf` and `proxy/cutover.map`, on port 3500. Separate because the production `compose.yaml` deliberately has no legacy PHP service, and adding one there would put an unused runtime in the deployed stack just to satisfy a test. |
+| `compose-no-webgallery.yaml` | Reproduces the **empty-`web-gallery` defect** that broke parity: the proxy mounts no legacy assets, exactly as a CI runner that never cloned them. Kept so the failure can be reproduced on demand rather than re-derived. |
+
+### The cutover harness
+
+```sh
+docker compose -p ci-cutover -f tools/ci-repro/compose-cutover.yaml up -d --build
+# seed both databases with the shared fixtures, then:
+COMPOSE_ARGS="-p ci-cutover -f tools/ci-repro/compose-cutover.yaml" \
+  sh scripts/check_cutover.sh http://localhost:3500
+docker compose -p ci-cutover -f tools/ci-repro/compose-cutover.yaml down -v
+```
+
+The CI job `cutover-check` runs exactly this. `scripts/check_cutover.sh` rewrites
+`proxy/cutover.map` (the committed file, restored on exit even if it fails),
+reloads the proxy, and asserts that `/articles/rss.xml` is served by the new
+stack, then by the legacy stack, then by the new stack again.
 
 ## Why they are separate from `compose.yaml` (the repo root one)
 
