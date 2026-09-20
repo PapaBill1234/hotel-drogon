@@ -136,15 +136,22 @@ jobs:
           # the mount Docker ACTUALLY resolved rather than the path we expected.
           # A checkout in the wrong place and a broken mount look identical from a
           # bare 404, which is exactly what made the first fix look correct.
+          #
+          # Deliberately plain shell: an earlier version of this step piped
+          # `docker inspect` through an inline python one-liner and died on its own
+          # quoting under `bash -e`, which is a self-inflicted way to lose a run.
           echo "== diagnostics =="
           echo "pwd: $(pwd)"
           echo "workspace: ${GITHUB_WORKSPACE:-unset}"
-          docker inspect hotel_proxy --format '{{json .Mounts}}' \
-            | python3 -c 'import json,sys; [print(f"{m[\"Type\"]} {m[\"Source\"]} -> {m[\"Destination\"]}") for m in json.load(sys.stdin)]'
+          echo "mounts:"
+          docker inspect hotel_proxy --format '{{json .Mounts}}' | tr '{' '\n' | grep -o '"Source":"[^"]*","Destination":"[^"]*"'
           src=$(docker inspect hotel_proxy --format '{{json .Mounts}}' \
-            | python3 -c 'import json,sys; print(next((m["Source"] for m in json.load(sys.stdin) if m["Destination"]=="/var/www/web-gallery"), ""))')
+            | tr '{' '\n' \
+            | grep '/var/www/web-gallery' \
+            | sed -n 's/.*"Source":"\([^"]*\)".*/\1/p' \
+            | head -1)
           echo "web-gallery mount source: ${src:-<none>}"
-          echo "files there: $(find "${src:-/nonexistent}" -type f 2>/dev/null | wc -l)"
+          echo "files at that source: $(find "${src:-/nonexistent}" -type f 2>/dev/null | wc -l)"
           echo "files inside the container: $(docker exec hotel_proxy sh -c 'find /var/www/web-gallery -type f | wc -l' || echo '?')"
 
           code=$(curl -s -o /tmp/style.css -w '%{http_code}' \
