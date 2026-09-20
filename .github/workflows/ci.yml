@@ -90,6 +90,19 @@ jobs:
       - name: Run Phase 3 smoke suite
         run: sh scripts/smoke_phase3.sh http://localhost:3000
 
+      - name: Seed rank-5 staff account (high-trust boundary test)
+        run: |
+          # sha1('password123' . 'staff5') — the legacy scheme is username-dependent
+          docker exec hotel_mariadb mysql -uhotel -photel_secret polaris -e \
+            "INSERT IGNORE INTO users (id, username, real_name, password, mail, rank, motto) \
+             VALUES (3,'staff5','Rank Five Staff','d4f40b90b8bf7283b744efbc8b02cc5041f70e3d','staff5@hotel.local',5,'Rank 5');"
+
+      - name: Run Phase 4 admin CMS smoke suite
+        run: sh scripts/smoke_phase4_admin.sh http://localhost:3000
+
+      - name: Run Phase 4 public API and RSS smoke suite
+        run: python3 scripts/smoke_phase4_public.py http://localhost:3000
+
       - name: Dump service logs on failure
         if: failure()
         run: docker compose logs --tail=200
