@@ -102,9 +102,11 @@ bool ContentService::bannerRequiresHighTrust(const Banner& b) {
 
 // ---------------------------------------------------------------- schema
 
-void ContentService::ensureSchema(const DbClientPtr& db) {
+void ContentService::ensureSchema(const DbClientPtr& db,
+                                  std::function<void()> onComplete) {
     if (!db) {
         HOTEL_LOG_WARN("ContentService::ensureSchema called without a DbClient");
+        if (onComplete) onComplete();
         return;
     }
     // Column definitions mirror legacy migrations 001 and 008 exactly, so the
@@ -171,7 +173,7 @@ void ContentService::ensureSchema(const DbClientPtr& db) {
     // table existing, so everything runs strictly in sequence — fire-and-forget
     // let the INSERT race ahead of the CREATE and fail with error 1146.
     auto run = std::make_shared<std::function<void(size_t)>>();
-    *run = [db, run](size_t index) {
+    *run = [db, run, onComplete](size_t index) {
         if (index < statements.size()) {
             *db << statements[index]
                 >> [run, index](const Result&) { (*run)(index + 1); }
@@ -194,11 +196,15 @@ void ContentService::ensureSchema(const DbClientPtr& db) {
                "('site_name','PHPRetro',NULL,UNIX_TIMESTAMP()),"
                "('site_url','',NULL,UNIX_TIMESTAMP()),"
                "('site_promo_phrases','Welcome to the hotel|Hey there!|Come on in!',NULL,UNIX_TIMESTAMP())"
-            >> [](const Result&) {
+            >> [onComplete](const Result&) {
                    HOTEL_LOG_INFO("ContentService: content schema ready.");
+                   if (onComplete) onComplete();
                }
-            >> [](const DrogonDbException& e) {
+            >> [onComplete](const DrogonDbException& e) {
                    HOTEL_LOG_WARN("ContentService settings seed: {}", e.base().what());
+                   // Still report completion: a schema bootstrap that failed is
+                   // a loud error, not something to hang readiness on forever.
+                   if (onComplete) onComplete();
                };
     };
     (*run)(0);

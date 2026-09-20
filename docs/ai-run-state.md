@@ -57,7 +57,7 @@ papered over, and the phase label can be switched to 4 if preferred.
 | Preflight: compiler/cmake/git/docker versions reported | **Not recorded** | No artifact in the repo |
 | vcpkg or Conan chosen and explained | **Deviation** | Dependencies come from Ubuntu 24.04 apt packages, not vcpkg/Conan. Works, but the plan's choice was never made or explained |
 | Everything compiles | **Yes** | CMake + Ninja build succeeds; CI job "C++ Drogon (Sanitizers + Tests)" success on `77f7c87` |
-| Warnings-as-errors enabled | **Not done** | `CMakeLists.txt` sets `-Wall -Wextra` but no `-Werror`; CI does not fail on warnings |
+| Warnings-as-errors enabled | **Not done** | `CMakeLists.txt` sets `-Wall -Wextra` but no `-Werror`; CI does not fail on warnings. Complete inventory obtained: exactly **7 warnings**, all `-Wunused-parameter` in `PublicContentController.cpp` (168, 191, 213, 235, 257, 281, 300). `-Werror` will fail on precisely these |
 | ASan/UBSan on every test run | **Yes** | CI configures `-DENABLE_SANITIZERS=ON`; CTest passes |
 | Structured logging, `/health`, graceful shutdown, env config | **Yes** | spdlog JSON logging, `HealthController`, SIGTERM handler, `AppConfig::loadFromEnv` |
 | Async MariaDB + Redis clients, proven against real data | **Yes** | Live stack serves real queries; smoke suites exercise them |
@@ -65,7 +65,7 @@ papered over, and the phase label can be switched to 4 if preferred.
 | CI covers CMake + sanitizers + tests | **Yes** | `.github/workflows/ci.yml` job `cpp-build-and-test` |
 | CI covers TypeScript build | **No** | No npm/vite/tsc step anywhere in CI |
 | CI covers Playwright | **No** | The visual-parity suite exists but never runs in CI |
-| **CI passes** | **Green now — but the job is FLAKY** | Green on `9684e3a`: every step of both jobs succeeded, including all three smoke suites. The *identically-coded* `77f7c87` FAILED. See below |
+| **CI passes** | **Green, and the flake's mechanism is now fixed** | Passed on `9684e3a` and `b933abf`; failed on the identically-coded `77f7c87`. The readiness window behind the flake is closed and verified deterministically — see below |
 | Route switch/proxy map with cutover **and rollback** demonstrated | **Not done** | `proxy/cutover.map` is orphaned: `nginx.conf` never includes it, has its own inline map, and `compose.yaml` has no legacy PHP upstream. `cutover.map` says `default legacy` while nginx actually defaults to the SPA. Rollback is not demonstrable |
 | Sentry wired | **Not wired** | `cfg.sentry_dsn` is read from env into `AppConfig` but no SDK is linked and nothing is reported. The inventory's "Sentry DSN configuration wired into AppConfig" overstates this |
 | Basic metrics endpoint | **Yes** | `/metrics` serves Prometheus text |
@@ -123,15 +123,54 @@ instant it turns 200 — CI's exact pattern):
   nginx-vs-seed race usually allows, but it is a race, and passing twice does
   not prove it cannot be lost.
 
-**Fix identified, deliberately NOT implemented.** The correct fix is to make
-readiness mean readiness — `/health` (or a dedicated endpoint) must not report
-ready until the schema and seed have completed — and, separately, to make
-`main.cpp`'s bootstrap sequentially ordered like `ContentService::ensureSchema`.
-Neither is implemented here because the failure **cannot be reproduced on
-demand**: a fix that cannot be shown to remove a flake is an unverified claim,
-and plan rule 10 forbids reporting an unverified change as a pass. The next unit
-is to reproduce the losing ordering deterministically (e.g. by delaying the
-seed), then fix and prove it.
+**Fix IMPLEMENTED and VERIFIED.** Readiness is now signalled explicitly rather
+than inferred, and the bootstrap is strictly ordered:
+
+- `utils/Readiness` (new) — a process-wide atomic, defaulting to **not ready**.
+- `main.cpp` — the Phase 3 `CREATE TABLE` statements and the user seed now run
+  through a sequential driver (each statement chains the next from its own
+  callback) instead of being fired asynchronously and unordered. The user seed
+  is last, and only its success callback calls `Readiness::markReady()`. A failed
+  seed deliberately leaves the process unready, so a broken bootstrap surfaces
+  as unhealthy rather than as a stack that claims to be up but cannot log anyone
+  in.
+- `ContentService::ensureSchema` — gained an `onComplete` callback so the core
+  tables and seed chain *after* the content tables, giving one ordered pipeline.
+- `HealthController::healthCheck` — returns **503 with `"ready":false`** until the
+  bootstrap completes, then 200 with `"ready":true`. The `database`/`redis`
+  fields are unchanged but are explicitly documented as NOT a readiness signal,
+  since they only reflect whether the client objects exist.
+
+**Deterministic verification.** A probe polls the backend **directly**, bypassing
+nginx — going through the proxy was what hid the defect, because nginx's own
+startup (~1s) usually exceeds the seed window (~620ms). On a fresh database:
+
+```
+t=0 status=000   <- not listening
+t=4 status=503   <- listening, gate CLOSED
+t=7 status=200   <- ready
+first 200 after 503: login HTTP 200
+RESULT: PASS - gate engaged (503 seen) and readiness implies login works
+```
+
+The same probe against the **pre-fix** image produced `first 200 (ready) at poll
+3` -> `login HTTP 401` -> **INVARIANT VIOLATED**. Same probe, opposite result:
+the fix is what closed the window. The intervening 503 is what proves the gate
+actually engages, rather than the probe merely starting late.
+
+**Regression check after the change:** Phase 3 smoke 12/12, Phase 4 admin 19/19,
+Phase 4 public+RSS 17/17, visual parity 6/6, both linters exit 0.
+
+**Caveat, stated plainly:** this removes the *mechanism* behind the intermittent
+CI failure and proves the readiness invariant holds locally and deterministically.
+It does not by itself prove the CI job will never fail again — that needs green
+runs on CI. The next CI run is the confirmation.
+
+**Also discovered (evidence for the warnings-as-errors item).** A clean compile
+emits exactly **7 warnings**, all `-Wunused-parameter` in
+`src/controllers/PublicContentController.cpp` (lines 168, 191, 213, 235, 257,
+281, 300 — the handlers that take `req` but do not read it). Enabling `-Werror`
+will fail on precisely these; no other compiler warnings were emitted.
 
 **Isolation harness added:** `tools/ci-repro/compose.yaml`. It runs the stack
 under its own Compose project (`ci-repro`), own network, own disposable volumes
@@ -199,19 +238,19 @@ superseded — both are now in scope.
 
 **1. Complete every Phase 2b exit condition, beginning with isolating the CI
 integration-smoke failure.**
-*Isolation: DONE* — see "The CI integration-smoke failure" above. The job is
-green on the current commit but flaky, and the defect behind it is a ~620ms
-readiness window (`/health` reports ready before the schema/seed completes)
-compounded by `main.cpp`'s unordered async bootstrap. *Remaining in this item:*
-reproduce the losing ordering deterministically, then make readiness mean
-readiness and make the bootstrap sequential, and prove the fix against the
-reproduction. Then the rest of the Phase 2b matrix:
-warnings-as-errors enabled and all findings cleared; a TypeScript-build job and
-a Playwright job added to CI; the cutover map made real (include it in
-`nginx.conf`, add a legacy upstream, and demonstrate cutover **and** rollback
-for one route) or deleted and the inventory corrected; Sentry either wired or
-its claim downgraded; the vcpkg/Conan deviation either resolved or explicitly
-accepted; the preflight host-check results recorded.
+*Isolation: DONE. Fix: DONE and verified.* The job was flaky, not broken; the
+cause was a ~620ms readiness window (`/health` reported ready before the
+schema/seed completed). Readiness is now explicit and the bootstrap ordered, and
+a deterministic probe shows 503-then-200 with login succeeding at the first 200
+— versus a violated invariant on the pre-fix image. *Remaining in this item:*
+confirm on CI that the job is now stable (green runs), since the fix removes the
+mechanism but only CI can confirm the flake is gone. Then the rest of the Phase
+2b matrix: enable warnings-as-errors and clear the 7 known `-Wunused-parameter`
+findings; add a TypeScript-build job and a Playwright job to CI; make the cutover
+map real (include it in `nginx.conf`, add a legacy upstream, and demonstrate
+cutover **and** rollback for one route) or delete it and correct the inventory;
+Sentry either wired or its claim downgraded; the vcpkg/Conan deviation either
+resolved or explicitly accepted; the preflight host-check results recorded.
 
 **2. Close the missing Phase 1 OpenAPI deliverable.**
 Phase 1's exit condition requires "an OpenAPI document for the first slice".

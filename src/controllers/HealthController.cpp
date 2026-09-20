@@ -1,5 +1,6 @@
 #include "controllers/HealthController.h"
 #include "utils/Logger.h"
+#include "utils/Readiness.h"
 #include <drogon/drogon.h>
 #include <json/json.h>
 #include <atomic>
@@ -24,7 +25,6 @@ void HealthController::healthCheck(
     auto uptimeSeconds = std::chrono::duration_cast<std::chrono::seconds>(now - m_startTime).count();
 
     Value root;
-    root["status"] = "ok";
     root["service"] = "hotel-drogon";
     root["uptime_seconds"] = static_cast<Json::UInt64>(uptimeSeconds);
 
@@ -49,6 +49,29 @@ void HealthController::healthCheck(
         redisOk = false;
     }
     root["redis"] = redisOk ? "connected" : "idle";
+
+    // Readiness gate. The server accepts connections well before the schema and
+    // seed have finished — measured at ~620ms on a fresh database — so a client
+    // that treats this endpoint as readiness (the CI integration-smoke job)
+    // could issue its first request while `testuser` did not yet exist. That is
+    // the intermittent failure this reports instead: 503 until the bootstrap
+    // has actually completed, which is what a readiness poll should wait on.
+    //
+    // Note the DB/Redis fields above reflect only whether the client objects
+    // exist, so they are NOT a readiness signal on their own.
+    if (!hotel::utils::Readiness::isReady()) {
+        root["status"] = "starting";
+        root["ready"] = false;
+        auto resp = drogon::HttpResponse::newHttpJsonResponse(root);
+        resp->setStatusCode(drogon::k503ServiceUnavailable);
+        resp->addHeader("Access-Control-Allow-Origin", "*");
+        resp->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        callback(resp);
+        return;
+    }
+
+    root["status"] = "ok";
+    root["ready"] = true;
 
     auto resp = drogon::HttpResponse::newHttpJsonResponse(root);
     resp->addHeader("Access-Control-Allow-Origin", "*");

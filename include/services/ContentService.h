@@ -103,7 +103,12 @@ struct ContentResult {
 class ContentService {
 public:
     // --- schema bootstrap (idempotent; called once at startup) ---
-    static void ensureSchema(const drogon::orm::DbClientPtr& db);
+    // Runs the CREATE statements and the settings seed strictly in order, then
+    // invokes `onComplete` (if given) once everything has finished. Callers use
+    // this to order dependent work — notably the readiness signal, which must
+    // not fire before the schema exists.
+    static void ensureSchema(const drogon::orm::DbClientPtr& db,
+                             std::function<void()> onComplete = nullptr);
 
     // --- news ---------------------------------------------------------
     static void listNews(

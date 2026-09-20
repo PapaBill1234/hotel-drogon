@@ -55,7 +55,7 @@ fourth is unproven. **Verification is incomplete, so Phase 2b is not complete.**
 | Compiles; sanitizers on every test run | **Yes** — CI `cpp-build-and-test` green; CTest passes under ASan/UBSan |
 | Warnings-as-errors enabled, all warnings cleared | **No** — no `-Werror`; warnings are not gating |
 | CI covers TypeScript build and Playwright | **No** — neither exists in CI |
-| **CI passes** | **Green, but the job is FLAKY** — passed on `9684e3a`, failed on the identically-coded `77f7c87` |
+| **CI passes** | **Green, and the flake's mechanism is fixed** — passed on `9684e3a` and `b933abf`, failed on the identically-coded `77f7c87`; the readiness window behind it is closed and verified deterministically |
 | Cutover **and rollback** demonstrated for a real route | **No** — see the cutover row above |
 | Sentry wired | **No** — inert config field only |
 | Compose services incl. a frontend build | **Partial** — no frontend build service; `frontend/dist` is built out-of-band and bind-mounted |
@@ -91,9 +91,20 @@ itself, shell compatibility, and client latency — an in-network client detecte
 health after 3 polls (~150ms) and still passed.
 
 The fix (make readiness mean readiness; make the bootstrap sequential) is
-**deliberately not implemented**: the flake cannot be reproduced on demand, and
-plan rule 10 forbids reporting an unverified change as a pass. Next unit is to
-reproduce the losing ordering deterministically, then fix and prove it.
+**implemented and verified**: `utils/Readiness` signals readiness explicitly,
+`main.cpp`'s CREATE statements and user seed run strictly in order with
+`markReady()` only on successful seed, and `/health` returns **503** until then.
+A probe polling the backend directly — bypassing nginx, whose startup was
+masking the window — shows `000 -> 503 -> 200` with login succeeding at the
+first 200, against a violated invariant on the pre-fix image.
+
+Caveat: this removes the mechanism and proves the invariant locally; only green
+CI runs confirm the flake is gone.
+
+**Warning inventory for the warnings-as-errors item:** a clean compile emits
+exactly 7 warnings, all `-Wunused-parameter` in
+`src/controllers/PublicContentController.cpp` (168, 191, 213, 235, 257, 281,
+300). No other compiler warnings.
 
 ### Phase 1 gap
 
