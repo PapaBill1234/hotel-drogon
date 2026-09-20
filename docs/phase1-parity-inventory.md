@@ -38,12 +38,53 @@ says Filament) before it compounds.
 | --- | --- | --- |
 | Docker Compose (backend binary, MariaDB, Redis, worker binary, nginx proxy) | Yes | **Done.** `compose.yaml` running Drogon C++ server, MariaDB 10.11, Redis 7, worker process, and nginx reverse proxy. |
 | `web-gallery` served without copying/hashing | Yes | **Done.** nginx `alias` mount directly in `proxy/nginx.conf`. |
-| Route switch/proxy with instant rollback | Yes | **Done.** `proxy/cutover.map` with live reload routing `/health`, `/metrics`, `/api/*` to Drogon and remaining routes to legacy PHP. Tested and verified live. |
-| CI (CMake build with ASan/UBSan, Catch2 unit tests) | Yes | **Done.** `.github/workflows/ci.yml` building on Ubuntu 24.04 with GCC, sanitizers, and CTest suite. |
+| Route switch/proxy with instant rollback | Yes | **NOT DONE — the previous "Done, tested and verified live" claim was wrong.** `proxy/cutover.map` is **orphaned**: `proxy/nginx.conf` never includes it and defines its own inline `map $uri $target_backend`. The two disagree — `cutover.map` says `default legacy`, while nginx actually sends unmatched routes to the React SPA. There is no legacy PHP service in `compose.yaml`, so no `legacy` upstream exists and **rollback cannot be demonstrated**. Either wire the map up with a real legacy upstream and prove cutover + rollback, or delete it and correct this row. |
+| CI (CMake build with ASan/UBSan, Catch2 unit tests) | Yes | **Partial.** Job `cpp-build-and-test` builds on Ubuntu 24.04 with GCC, ASan/UBSan and CTest — green. But there is **no warnings-as-errors** (`-Wall -Wextra` only, no `-Werror`), **no TypeScript build job** and **no Playwright job**; the visual-parity suite never runs in CI. The live-stack job `integration-smoke` was **FAILING** on `77f7c87` — see Phase 2b below. |
 | Redis cache/sessions/queues/locks | Yes | **Done.** Async Redis client configured with database routing, health check verified. |
 | Background Worker | Minimal worker binary | **Done.** `hotel_worker` binary building and running in container. |
 | Structured logging, /health, /metrics | Yes | **Done.** spdlog JSON logging, `/health` and `/metrics` controllers verified live. |
-| Sentry / Metrics | Before public cutover | **In progress.** `/metrics` prometheus endpoint live; Sentry DSN configuration wired into `AppConfig`. |
+| Sentry / Metrics | Before public cutover | **Not wired (previous claim overstated).** `/metrics` Prometheus endpoint is live. `AppConfig` reads `SENTRY_DSN` into `cfg.sentry_dsn`, but no Sentry SDK is linked and nothing is ever reported — the field is inert. |
+
+### Phase 2b — build, containerize, verify (status at `77f7c87`)
+
+The plan's Phase 2b exit condition has four parts; three are unmet and the
+fourth is unproven. **Verification is incomplete, so Phase 2b is not complete.**
+
+| Requirement | State |
+| --- | --- |
+| Compiles; sanitizers on every test run | **Yes** — CI `cpp-build-and-test` green; CTest passes under ASan/UBSan |
+| Warnings-as-errors enabled, all warnings cleared | **No** — no `-Werror`; warnings are not gating |
+| CI covers TypeScript build and Playwright | **No** — neither exists in CI |
+| **CI passes** | **No** — `integration-smoke` FAILED at "Run Phase 3 smoke suite" |
+| Cutover **and rollback** demonstrated for a real route | **No** — see the cutover row above |
+| Sentry wired | **No** — inert config field only |
+| Compose services incl. a frontend build | **Partial** — no frontend build service; `frontend/dist` is built out-of-band and bind-mounted |
+| Preflight host checks recorded | **No artifact** |
+| vcpkg/Conan chosen and explained | **Deviation** — dependencies come from Ubuntu apt packages; the plan's choice was never made or explained |
+
+**CI failure detail.** Run `35512912865` on `77f7c87`: the C++ job succeeded;
+`integration-smoke` failed at step "Run Phase 3 smoke suite", and every later
+step (both Phase 4 suites) was skipped. The check-run annotation gives only
+`Process completed with exit code 1.` at `.github/workflows/ci.yml:39` with no
+assertion text, and job logs are not retrievable through the API.
+
+**Root cause not isolated.** Ruled out locally: fresh-database behaviour
+(reproduced CI exactly — `down -v`, `up -d --build`, health-poll, immediate
+smoke — Phase 3 passed **12/12** on a clean volume) and the schema/seed race
+observed earlier in this project for the content tables (six backend restarts
+against a fresh database produced zero `1146` errors). The same script passed on
+earlier commits, so it is not a shell-compatibility problem.
+
+**Latent defect worth noting regardless:** `main.cpp` still dispatches its
+Phase 3 `CREATE TABLE` statements and the user seed **asynchronously and
+unordered**, unlike `ContentService::ensureSchema`, which was made sequential
+precisely because that race had already been seen.
+
+### Phase 1 gap
+
+The plan's Phase 1 exit condition also requires **an OpenAPI document for the
+first slice**. No OpenAPI document exists anywhere in the repository. Recorded
+here as an outstanding foundation gap; Phase 1 is not being restarted.
 
 
 ## Phase 3 — Auth, authorization, Polaris access layer
@@ -151,6 +192,12 @@ use `Json::Value`/`isMember`/`asString`.
 
 ### Phase 4b — Drogon C++ implementation (current stack)
 
+**Exit condition status: NOT MET.** The plan requires *"staff can manage public
+content through the new admin UI, and converted public pages match legacy
+screenshots within tolerance."* The screenshot half is fully met (6/6). The
+admin-UI half is not: the API exists and is verified, but there is no UI. See
+the "Admin CMS UI" row below.
+
 Ported from `legacy/phpretro-pdo` at the reviewed commit. The Laravel rows above
 are historical; these are the live statuses.
 
@@ -158,6 +205,7 @@ are historical; these are the live statuses.
 | --- | --- | --- |
 | Content models (`phpretro_*`) | `migrations/001`, `008` | **Done.** Typed structs + `ContentService` named methods (not Drogon ORM classes — one data-access idiom with Phase 3). Schema bootstrapped at startup for `phpretro_news`, `phpretro_collectibles`, `phpretro_faq`, `phpretro_banners`, `phpretro_campaigns`, `phpretro_site_settings`. |
 | Admin CMS API | legacy `housekeeping/*` | **Done.** `/api/admin/{news,faq,collectibles,banners,campaigns,settings}`, staff rank ≥ 5, per-field validation, audit-logged, CSRF-enforced. 19/19 smoke assertions. |
+| Admin CMS **UI** | legacy `housekeeping/*` | **NOT STARTED — this is the unmet half of the Phase 4 exit condition.** The plan requires staff to manage content "through the new admin UI" and calls the admin section "real UI + backend work, not configuration". The frontend contains only the six public pages: no admin route, page or component, and nothing under `frontend/src` references admin. The API is complete and tested; the UI that would let staff use it does not exist. |
 | High-trust raw-HTML gating | not gated in legacy | **Done.** `AuthPolicy::requireHighTrust` (rank ≥ 7), enforced in controller *and* service, visible warning in responses, `X-High-Trust-Required` on denial, high-trust writes distinctly audit-labelled. Public API never exposes `html`. |
 | Public content API | the `*.php` pages | **Done.** `/api/public/{landing,news,news/{id},faq,collectibles,banners,campaigns,maintenance,settings}`. |
 | RSS | `xml/rss.php` | **Done, with bug fixed.** See "RSS double-escaping" below. |
@@ -302,8 +350,11 @@ against a running legacy stack.
 
 ## What this inventory says, plainly
 
-- **Genuinely reusable now:** routing map, middleware boundary (`hotel.auth`/`optional`/`staff`/`guest`), `PolarisAuthService`, the Homes/Hotel data-layer logic, Docker/nginx/cutover scaffolding, the `phpretro_*` migrations, reports/help-desk (the one fully-functional admin feature).
+- **Genuinely reusable now:** middleware boundary (`hotel.auth`/`optional`/`staff`/`guest`), `PolarisAuthService`, the Homes/Hotel data-layer logic, Docker/nginx scaffolding, the `phpretro_*` migrations, reports/help-desk (the one fully-functional Laravel-era admin feature). The "routing map" and "cutover scaffolding" are **not** reusable as they stand — `cutover.map` is orphaned and rollback is undemonstrable.
 - **Needs replacing, not extending:** every Blade template for a hotel page (→ Inertia+React), `HousekeepingController`/`HousekeepingToolsController` (→ Filament), the CSRF exemption list (→ real token bridging). `HolodbWriteGuard` has been **replaced in the C++ stack** by named service classes; the Laravel-era guard is now historical.
 - **Done in the C++ stack (Phase 3b):** the named Polaris service layer, explicit authorization policy functions, CSRF enforcement on mutating routes, Redis sessions with separate public/staff cookies, audit logging. These were the "not started" items in the Laravel-era read.
-- **Still not started:** Reverb/live notifications, dnd-kit/TanStack Query Homes rebuild, screenshot parity testing, monitoring/Sentry, the versioned JSON layout API, and any actual cutover.
-- **The next blocker:** the Phase 3 service layer now exists but is **narrow**. It covers identity, bans, guilds, and reports. Registration, credit/pixel edits, badge saves, and group create/purchase are still unimplemented, so the "refused" rows in Phases 5–9 stay refused until each gets its own named, audited service method. The pattern is established; the breadth is not.
+- **Done in the C++ stack (Phase 4b):** the content service layer, the `/api/admin/*` CMS API, high-trust gating for raw-HTML banner fields, the public `/api/public/*` API, the RSS feed (with the `xml/rss.php` double-escaping defect fixed), and all six public pages as React components — visually verified 6/6 against captured legacy baselines.
+- **Still not started:** Reverb/live notifications, the dnd-kit/TanStack Query Homes rebuild, monitoring/Sentry (the config field is inert), the versioned JSON layout API, and any actual cutover. Screenshot parity testing is **no longer** on this list — it is done.
+- **The next blocker is verification, not features.** Phase 2b's exit condition is unmet: CI does not pass (the `integration-smoke` job failed on `77f7c87`), warnings-as-errors is not enabled, CI has no TypeScript or Playwright job, Sentry is unwired, and the cutover/rollback path cannot be demonstrated. Rules 7 and 10 make an unverified foundation an explicit gap rather than a pass, so this comes before new feature work.
+- **The Phase 4 exit condition is only half met.** Screenshot parity passes 6/6, but the plan requires staff to manage content *through the new admin UI* and no admin UI exists — only the API. The plan also names an OpenAPI document in Phase 1's exit condition and none exists. Both are missing implementation, not verification, and neither should be started without a decision.
+- **The service layer remains narrow in breadth:** it covers identity, bans, guilds, reports and CMS content. Registration, credit/pixel edits, badge saves, and group create/purchase are still unimplemented, so the "refused" rows in Phases 5–9 stay refused until each gets its own named, audited service method. The pattern is established; the breadth is not.
