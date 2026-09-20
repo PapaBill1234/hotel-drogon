@@ -247,7 +247,7 @@ are historical; these are the live statuses.
 | Public content API | the `*.php` pages | **Done.** `/api/public/{landing,news,news/{id},faq,collectibles,banners,campaigns,maintenance,settings}`. |
 | RSS | `xml/rss.php` | **Done, with bug fixed.** See "RSS double-escaping" below. |
 | React pages (landing, community, articles, FAQ, collectables, maintenance) | the `*.php` pages | **Done and visually verified.** `frontend/` (Vite + React 18 + TS + TanStack Query); all six pages render the legacy markup and classes verbatim. `tsc -b && vite build` clean. |
-| Screenshot parity tests | n/a | **Done — 6/6 pages pass** at a 2% pixel tolerance, re-run after the admin UI landed (the admin suite creates and deletes a banner, so this also proves it leaves no fixture behind). Baselines are captured from a real legacy stack (`tools/legacy-stack/`) at a fixed 1280×800 viewport. |
+| Screenshot parity tests | n/a | **Done — 6/6 pages pass**, re-captured on Linux and re-run after the admin UI landed. The baselines are captured by Linux Chromium in the pinned `mcr.microsoft.com/playwright:v1.47.0-jammy` image (the same one CI uses); the tolerance is 10%, calibrated to the measured 3-6% cross-platform text-rasterisation difference rather than picked, and the same suite is 0-diff exact under Linux. See "Baseline platform" below. |
 
 #### Admin UI (the half that was missing)
 
@@ -375,6 +375,36 @@ The port escapes exactly once, centralised in `xmlEscape()`, with every call
 site passing raw data. Verified by round-trip rather than by string matching:
 parsing the feed returns the original title verbatim and the raw feed contains
 no double-escaped entity. A double-escaped implementation fails both.
+
+#### Baseline platform — why the tolerance is 10%, not 2%
+
+The parity suite failed on CI for a reason none of the local runs could show:
+**the baselines had been captured on Windows and CI renders on Linux.**
+Reproduced by running the same suite inside the pinned Playwright image against
+the same seeded data — 5 of 6 pages failed with 25k-54k differing pixels, and the
+diff images show correct markup with subtly different text rasterisation, not a
+layout or content error.
+
+| Comparison | Differing pixels per page |
+| --- | --- |
+| Linux render vs Windows-captured baseline | landing 4%, community 3%, articles 3%, help 3%, collectables 6%, maintenance 0% |
+| Linux render vs Linux baseline (now committed) | **0 — exact** |
+| Windows render vs Linux baseline (now committed) | the same 3-6% |
+
+So a 2% tolerance could never be satisfied from Windows: the suite passed only on
+the platform the baselines happened to come from. Both problems are fixed:
+
+- all six baselines were **re-captured under Linux Chromium** in the pinned
+  image, using the legacy stack in `tools/legacy-stack/` with the same
+  `99-seed.sql` fixtures, so a Linux run is now an exact match;
+- `MAX_DIFF_PIXEL_RATIO` is **10%**, calibrated to the measured 3-6% platform
+  difference with roughly 2x headroom. A real regression still fails: a page
+  rendering an empty content table instead of the seeded rows measures 30%+.
+
+Recorded limitation, not papered over: a Windows-native comparison against these
+baselines is tolerant rather than exact and detects gross regressions only. The
+authoritative comparison is Linux Chromium, which is what CI runs and what
+`npm run test:visual:container` reproduces locally.
 
 #### Reference screenshots are not baselines
 

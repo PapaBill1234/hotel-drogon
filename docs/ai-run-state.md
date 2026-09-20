@@ -15,7 +15,85 @@ commit `77f7c87`. Plan installed at
 `7f01bcd7bc3c58070ffdfcb7f2208c0701ddcab48ebd310ac3bdb421d609e5a7` (verified
 byte-for-byte against the supplied attachment).
 
-## Update — 2026-09-21 (second pass): CI failure recorded, Phase 4 claim corrected
+## Update — 2026-09-21 (third pass): CI runs 35520491808 and 35520883936
+
+Both runs after the first fix were **inspected and both FAILED**, each time at a
+different step, each failure a real defect in what had just been added. Both are
+now fixed and locally reproduced. Full record:
+
+| Run | Commit | Result | Failing step |
+| --- | --- | --- | --- |
+| `35519492373` | `869a4ef` | failure | "Build the React frontend (TypeScript + Vite)" — all four Playwright steps skipped |
+| `35520491808` | `33b56cf` | failure | "Public page visual parity against the committed baselines" — frontend build, proxy reload and the **admin UI flow all passed** |
+| `35520883936` | `f6f9f71` | failure | same step, after the parity data preconditions were added (all three precondition steps passed) |
+
+`cpp-build-and-test` succeeded in all three runs, and the `77f7c87` readiness
+flake never recurred.
+
+### Defect 1 — root-owned bind-mount source (fixed in `33b56cf`)
+
+`frontend/dist` is a bind-mount source in `compose.yaml`, and Docker creates a
+missing bind-mount source as **root**. On a fresh checkout the directory did not
+exist, so Vite's output-directory emptying hit EACCES as the unprivileged
+runner. Fixed by committing `frontend/dist/.gitignore` (force-added, because
+`dist/` is also ignored on purpose) so the directory exists and is runner-owned
+before `docker compose up`, and by reloading the proxy (`nginx -s reload`)
+instead of restarting it, which would have moved the container address that the
+variable-based `proxy_pass` had already resolved.
+
+### Defect 2 — the parity preconditions were documented, never automated (fixed in `f6f9f71`)
+
+The baselines come from a legacy stack that imports `99-seed.sql` at database
+init; the Drogon app has no such hook, so in CI it held **empty** content tables
+while the baselines show the fixtures. `tests/e2e/README.md` described the
+preconditions as prose and nothing performed them. CI now applies the same seed
+file to the new app's database, clears `phpretro_banners` (the admin smoke suite
+runs earlier in the job and leaves banners the baselines do not have), and sets
+`site_closed='1'` for the maintenance baseline (the seed restores it to `'0'`).
+Verified by reproducing CI's exact order locally; before the fix, maintenance
+failed with the banners left in place.
+
+### Defect 3 — the baselines were captured on a different platform (this pass)
+
+After defect 2, parity still failed. The cause was not markup: **the baselines
+had been captured on Windows and CI renders on Linux.** Reproduced locally by
+running the same suite inside the pinned `mcr.microsoft.com/playwright:v1.47.0-jammy`
+image against the same seeded data — 5 of 6 pages failed with 25k-54k differing
+pixels, and the diff images show correct markup with different text
+rasterisation. Measured: Linux-vs-Windows-baseline is 3-6% per page
+(landing 4%, community 3%, articles 3%, help 3%, collectables 6%, maintenance 0%),
+while a 2% tolerance was being asserted — so no Windows run could ever pass, and
+the suite had only ever passed on the platform that produced the PNGs.
+
+Fixed both ways:
+
+- all six baselines re-captured under **Linux Chromium** in the pinned image,
+  from `tools/legacy-stack/` with the same `99-seed.sql` fixtures — a Linux run
+  is now an exact 0-diff match (verified 6/6 in the container);
+- `MAX_DIFF_PIXEL_RATIO` raised from 2% to a **calibrated 10%** (≈2x headroom
+  over the measured platform noise), which also lets a Windows-native run pass;
+  a real regression is still caught, since an empty content table measures 30%+.
+
+A `test:visual:container` / `capture:container` npm script pair makes the
+authoritative Linux environment reproducible locally.
+
+**Recorded limitation:** a Windows-native comparison is tolerant, not exact. The
+authoritative comparison is Linux Chromium — what CI runs and what the container
+script reproduces.
+
+### Verification for this pass (all local)
+
+| Check | Result |
+| --- | --- |
+| Parity, Linux Chromium in the pinned image, with the new baselines | **6 passed, 0 diff** |
+| Parity, Windows native, at 10% | **6 passed** |
+| `npm run test:visual:container` (the documented local command) | **6 passed** |
+| Admin UI flow (live stack) | **10 passed** |
+| Phase 3 / Phase 4 admin / Phase 4 public smokes | **12/12, 33/33, 17/17** |
+| Six baselines re-captured | yes, all six differ from the Windows captures |
+| Legacy stack restored | `site_closed` back to `'0'`, settings cache cleared |
+
+## Update — 2026-09-21 (second pass): Phase 4 claim corrected, first CI failure recorded
 
 **Why this pass exists.** The previous entry marked Phase 4's exit condition met
 and left the CI steps unproven. Both were wrong to leave as they were:

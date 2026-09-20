@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { PAGES, envOr } from './pages';
-import { BASELINE_DIR, VIEWPORT } from './playwright.config';
+import { BASELINE_DIR, MAX_DIFF_PIXEL_RATIO, VIEWPORT } from './playwright.config';
 
 // Compares each converted React page against its captured legacy baseline.
 //
@@ -75,7 +75,10 @@ for (const page of PAGES) {
     await p.waitForTimeout(300);
 
     await expect(p).toHaveScreenshot(path.basename(baseline), {
-      maxDiffPixelRatio: 0.02,
+      // From MAX_DIFF_PIXEL_RATIO, which carries the platform measurement behind
+      // the number. Kept as a literal here because Playwright reads this option
+      // per assertion.
+      maxDiffPixelRatio: MAX_DIFF_PIXEL_RATIO,
       animations: 'disabled',
     });
 

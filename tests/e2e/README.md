@@ -7,17 +7,47 @@ converted housekeeping (admin) panel end to end.
 ## 1. Visual parity — status: 6/6 pages passing
 
 `visual-parity.spec.ts` compares all six converted public pages against
-baselines captured from a real legacy stack, within a 2% pixel tolerance. All
-six pass.
+baselines captured from a real legacy stack within a pixel tolerance. All six
+pass under Linux Chromium (CI and `npm run test:visual:container`), and on
+Windows native at the same tolerance.
 
 ```sh
-BASE_NEW=http://localhost:3000 npm run test:visual   # 6 passed
+npm run test:visual:container     # authoritative: Linux Chromium, what CI runs
+BASE_NEW=http://localhost:3000 npm run test:visual   # Windows/other native
 ```
 
 Baselines live in `../../docs/reference-screenshots/baseline/` and are committed.
-To re-capture them, bring up `tools/legacy-stack/` and run `npm run capture`.
+To re-capture them, bring up `tools/legacy-stack/` and run
+`npm run capture:container`.
 
-### Data preconditions (both are wired into CI)
+### Baselines are platform-specific, and that is why the tolerance is 10%
+
+The baselines are captured by **Linux Chromium**, in the same
+`mcr.microsoft.com/playwright:v1.47.0-jammy` image that CI uses. This matters
+because text rasterisation differs between platforms, and the tolerance has to
+reflect that rather than pretend it away.
+
+Measured, on the same markup and the same seeded data:
+
+| Comparison | Differing pixels per page |
+| --- | --- |
+| Linux render vs Linux baseline (CI, `test:visual:container`) | 0 (exact) |
+| **Windows** render vs Linux baseline | landing 4%, community 3%, articles 3%, help 3%, collectables 6%, maintenance 0% |
+
+The tolerance was previously 2%, which no Windows run could satisfy — the suite
+passed only on the machine whose rendering matched the capture. That is a real
+defect in the harness, not a markup regression: the earlier run of this suite in
+CI failed on exactly this. `MAX_DIFF_PIXEL_RATIO` in `playwright.config.ts` is
+now 10%: enough headroom over the 3-6% platform noise, and still well below the
+30%+ a real regression costs (a page rendering an empty content table instead of
+the seeded rows measures in that range).
+
+**Consequence, stated plainly:** the Linux comparison is the precise one and it
+is what CI runs. A Windows-native run detects gross regressions only. If precise
+Windows parity is wanted, the baselines would have to be captured on Windows and
+would then fail in CI — the two cannot both be exact with one set of PNGs.
+
+### Data preconditions (all three are wired into CI)
 
 1. **The shared content fixtures must be applied to the NEW app too.** The
    legacy stack imports `tools/legacy-stack/init/99-seed.sql` at database init;
@@ -113,28 +143,39 @@ single fixed `VIEWPORT` (1280×800, scale factor 1, scrollbars hidden).
 
 ## Capturing baselines
 
-Requires a running legacy stack (the reviewed instance was XAMPP serving
-`C:\xampp\htdocs\PHPRetro-PDO` on port 80, with MySQL and the legacy schema
-applied). From this directory:
+Requires a running legacy stack — `docker compose -f tools/legacy-stack/compose.yaml
+up -d --build`, answering on port 8081, with the same fixtures the new app is
+given. **Capture under Linux Chromium**, in the pinned image, so the baselines
+are platform-consistent:
 
 ```sh
-npm install
-npx playwright install chromium
+# landing, community, articles, help, collectables (site open)
+docker exec -i legacy_db mysql -uhotel -photel_secret polaris -e "UPDATE phpretro_site_settings SET setting_value='0' WHERE setting_key='site_closed';"
+docker exec legacy_web sh -c 'rm -f /var/www/html/cache/*.cache'   # the app caches settings on disk
+npm run capture:container
 
-BASE_LEGACY=http://127.0.0.1 npm run capture
+# maintenance, in its own pass (legacy redirects every other page while closed)
+docker exec -i legacy_db mysql -uhotel -photel_secret polaris -e "UPDATE phpretro_site_settings SET setting_value='1' WHERE setting_key='site_closed';"
+docker exec legacy_web sh -c 'rm -f /var/www/html/cache/*.cache'
+# same command with CAPTURE_ONLY=maintenance
 ```
 
-That writes `../../docs/reference-screenshots/baseline/<page>.png`.
+That writes `../../docs/reference-screenshots/baseline/<page>.png`. The
+`capture:container` script runs the capture inside the pinned Playwright image
+and copies the PNGs back into the tree.
 
 The capture spec refuses to save a baseline when the legacy app returns >= 400
-or an empty body, so a misconfigured URL fails loudly instead of silently
-writing blank baselines that everything would later "pass" against.
+or an empty body, and refuses when the page redirected, so a misconfigured URL
+fails loudly instead of silently writing wrong baselines that later comparisons
+would "pass" against.
 
 ## Running the comparison
 
 ```sh
-BASE_NEW=http://localhost:3000 npm run test:visual
+npm run test:visual:container                         # Linux Chromium (authoritative)
+BASE_NEW=http://localhost:3000 npm run test:visual     # native, platform-tolerant
 ```
+
 
 Failures write expected/actual/diff images into `test-results/`.
 

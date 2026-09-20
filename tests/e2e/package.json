@@ -6,6 +6,8 @@
   "scripts": {
     "capture": "playwright test --config=playwright.capture.config.ts",
     "test:visual": "playwright test",
+    "test:visual:container": "docker run --rm --network host -v \"%cd%/../..:/w:ro\" -w /tmp/repo mcr.microsoft.com/playwright:v1.47.0-jammy bash -lc \"mkdir -p /tmp/repo/docs && cp -r /w/tests /tmp/repo/tests && cp -r /w/docs/reference-screenshots /tmp/repo/docs/reference-screenshots && cd /tmp/repo/tests/e2e && npm install --no-save --no-audit --no-fund @playwright/test@1.47.0 >/dev/null 2>&1 && BASE_NEW=http://localhost:3000 npx playwright test visual-parity.spec.ts\"",
+    "capture:container": "docker run --rm --network host -v \"%cd%/../..:/w:ro\" -w /tmp/repo mcr.microsoft.com/playwright:v1.47.0-jammy bash -lc \"mkdir -p /tmp/repo/docs/reference-screenshots/baseline && cp -r /w/tests /tmp/repo/tests && cd /tmp/repo/tests/e2e && npm install --no-save --no-audit --no-fund @playwright/test@1.47.0 >/dev/null 2>&1 && BASE_LEGACY=http://localhost:8081 npx playwright test --config=playwright.capture.config.ts && cp /tmp/repo/docs/reference-screenshots/baseline/*.png /w/docs/reference-screenshots/baseline/\"",
     "test:admin": "playwright test admin.spec.ts",
     "report": "playwright show-report"
   },
