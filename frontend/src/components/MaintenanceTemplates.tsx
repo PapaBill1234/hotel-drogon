@@ -14,15 +14,44 @@ import { LEGACY_ALIGN_LEFT, LEGACY_BORDER_ZERO } from '../services/jsxLegacy';
  */
 
 /** Legacy `$lang->loc['text.1']` and `['text.2']`. */
+// Verified against the legacy locale output (templates/maintenance_header.php
+// renders $lang->loc['text.1'] and ['text.2'] from the "maintenance" locale).
+// The previous values were invented copy, which alone accounted for most of the
+// screenshot difference on this page.
 const CLASSIC_STRINGS = {
-  text1: 'The hotel is closed for maintenance.',
-  text2: 'We are working hard to get everything back up and running. Please check back soon!',
+  text1: 'I think you hit the wrong switch Greggers! Retro just vanished!',
+  text2:
+    'Oh, calm down Frank. Sparky and I are just in the process of fixing something ' +
+    'in Retro and had to take the website down while we work. We will return soon ' +
+    'so check back in a little while.',
 };
 
 export default function MaintenanceClassic() {
   return (
     <>
       <title>PHPRetro</title>
+      {/*
+        The maintenance page has its OWN stylesheet set — templates/
+        maintenance_header.php loads only these three, and none of the
+        community_header.css files. Without them the page inherits the
+        community CSS and every box is mis-sized (measured: #page-container 8px
+        higher than legacy, #content-container 20px wider).
+      */}
+      <link
+        href="/web-gallery/maintenance/style.css"
+        type="text/css"
+        rel="stylesheet"
+      />
+      <link
+        href="/web-gallery/maintenance/ie-all.css"
+        type="text/css"
+        rel="stylesheet"
+      />
+      <link
+        href="/web-gallery/maintenance/ie6.css"
+        type="text/css"
+        rel="stylesheet"
+      />
       <link href="/web-gallery/maintenance/style.css" type="text/css" rel="stylesheet" />
 
       <div id="page-container">

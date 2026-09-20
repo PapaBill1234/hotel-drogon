@@ -20,7 +20,13 @@ import type { Collectible } from '../types/api';
  * the visitor branch is rendered.
  */
 
-const COLLECTABLES_DESC_FALLBACK = '';
+// Legacy `$lang->loc['collectables.desc']` (locale file credits.collectables).
+// It is a LOCALE string, not a site setting, so there is nothing to fetch from
+// /api/public/settings — the previous empty fallback rendered this paragraph
+// blank on every load.
+const COLLECTABLES_DESC_FALLBACK =
+  'Collectables are special furniture sold only for a limited and set period of time. ' +
+  'Experienced Retros would know them as rares. They always cost the same - 25 Credits.';
 
 export default function CollectablesPage() {
   const { data } = useCollectibles();
@@ -45,8 +51,8 @@ export default function CollectablesPage() {
 
   const row: Collectible = currentItem ?? {
     id: 0,
-    name: 'No collectables available',
-    description: 'There are no collectables available at the moment.',
+    name: 'No collectable',
+    description: 'There is currently no collectable',
     image: '',
     time: currentMonthStart,
   };
@@ -75,7 +81,7 @@ export default function CollectablesPage() {
             <div id="column1" className="column">
               <div className="habblet-container " id="collectible-current">
                 <div className="cbb clearfix gray ">
-                  <h2 className="title">Current collectables</h2>
+                  <h2 className="title">Current Collectable</h2>
                   <div id="collectible-current-content" className="clearfix">
                     <div
                       id="collectibles-current-img"
@@ -101,7 +107,7 @@ export default function CollectablesPage() {
 
               <div className="habblet-container ">
                 <div className="cbb clearfix red ">
-                  <h2 className="title">Showroom</h2>
+                  <h2 className="title">Collectable Showroom</h2>
                   <ul id="collectibles-list">
                     {showroom.map((showroomRow, index) => (
                       <li
@@ -126,7 +132,7 @@ export default function CollectablesPage() {
             <div id="column2" className="column">
               <div className="habblet-container ">
                 <div className="cbb clearfix red ">
-                  <h2 className="title">What are collectables?</h2>
+                  <h2 className="title">What are Collectables?</h2>
                   <div id="collectibles-instructions" className="box-content">
                     {collectablesDesc}
                   </div>
@@ -135,7 +141,7 @@ export default function CollectablesPage() {
 
               <div className="habblet-container ">
                 <div className="cbb clearfix red ">
-                  <h2 className="title">Invest in collectables</h2>
+                  <h2 className="title">Invest in Collectables</h2>
                   <div className="box-content">
                     <p className="collectibles-value-intro">
                       <img
@@ -144,7 +150,10 @@ export default function CollectablesPage() {
                         width="79"
                         height="47"
                       />
-                      Collect collectables and trade them with your friends.
+                      Collect your way to the riches! Collectables not only make a great piece
+                      of Furni but also come with an amazing trade value. As collectables will
+                      never be sold again (that&apos;s a promise), the value will keep increasing
+                      in time.
                     </p>
                     <p className="clear last">
                       <img

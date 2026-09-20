@@ -41,6 +41,24 @@
   </head>
   <body>
     <div id="root"></div>
+    <!--
+      The legacy page scripts, loaded in the same order as the PHP templates.
+
+      These are required for visual parity, not just behaviour: common.js
+      defines Rounder, which rewrites `.rounded` elements into the nested
+      .rounded-container gradient divs the legacy markup actually renders.
+      Without it the port emits a flat <div class="rounded"> and every rounded
+      box is ~16px short, which shows up as a layout diff on every page.
+
+      They are classic scripts, so they execute in order before the deferred
+      module bundle below.
+    -->
+    <script src="/web-gallery/static/js/libs2.js"></script>
+    <script src="/web-gallery/static/js/visual.js"></script>
+    <script src="/web-gallery/static/js/libs.js"></script>
+    <script src="/web-gallery/static/js/common.js"></script>
+    <script src="/web-gallery/static/js/fullcontent.js"></script>
+    <script src="/web-gallery/static/js/pngfix.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

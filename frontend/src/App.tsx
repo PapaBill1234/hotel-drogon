@@ -15,7 +15,8 @@ import MaintenancePage from './pages/MaintenancePage';
  *
  *   templates/community_header.php -> <body id="<?= $page['bodyid'] ?>"
  *                                            class="<?= guest ? 'anonymous' : '' ?>">
- *   templates/login_header.php     -> <body id="frontpage">   (new_landing, no class)
+ *   templates/login_header.php     -> <body id="<?= $page['bodyid'] ?>"
+ *                                            class="<?= $page['new_landing'] != true ? 'process-template' : '' ?>">
  *   templates/maintenance_header.php -> <body>                (no id, no class)
  *
  * Without this the imported CSS largely does not apply and the pages render
@@ -23,7 +24,11 @@ import MaintenancePage from './pages/MaintenancePage';
  * screenshot diff. Values below are taken from each page's `$page['bodyid']`.
  */
 const BODY_BY_PATH: Record<string, { id: string; className: string }> = {
-  '/': { id: 'frontpage', className: '' }, // landing.php: bodyid=frontpage, new_landing=true
+  // index.php: bodyid=landing. login_header.php adds class="process-template"
+  // (it is skipped only on the `new_landing` frontpage), and every landing
+  // layout rule in process.css is scoped to `body.process-template`:
+  // #container 766px, #column1 404px, #column2 310px, #content padding.
+  '/': { id: 'landing', className: 'process-template' },
   '/community': { id: 'home', className: 'anonymous' }, // community.php
   '/articles': { id: 'news', className: 'anonymous' }, // articles.php
   '/help': { id: 'home', className: 'anonymous' }, // help.php
@@ -41,6 +46,35 @@ function LegacyBodyAttributes() {
     const cfg = BODY_BY_PATH[key] ?? { id: '', className: '' };
     document.body.id = cfg.id;
     document.body.className = cfg.className;
+  }, [pathname]);
+
+  useEffect(() => {
+    // The legacy templates call these after the DOM exists (see
+    // templates/community_footer.php). They are loaded as classic scripts from
+    // index.html, so they are defined by the time this effect runs.
+    //
+    // Rounder.init() is the important one for parity: it rewrites `.rounded`
+    // elements into the nested .rounded-container gradient markup that the
+    // legacy pages actually render. HabboView.run() flushes callbacks that
+    // templates registered. Both are wrapped because a failure in legacy code
+    // must not take the React tree down with it.
+    const w = window as unknown as {
+      Rounder?: { init?: () => void };
+      HabboView?: { run?: () => void };
+    };
+    const timer = window.setTimeout(() => {
+      try {
+        w.Rounder?.init?.();
+      } catch (err) {
+        console.warn('Rounder.init() failed', err);
+      }
+      try {
+        w.HabboView?.run?.();
+      } catch (err) {
+        console.warn('HabboView.run() failed', err);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [pathname]);
 
   return null;

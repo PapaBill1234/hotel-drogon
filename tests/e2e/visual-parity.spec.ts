@@ -52,6 +52,21 @@ for (const page of PAGES) {
         'into the proxy? (see tests/e2e/README.md)',
     ).toHaveCount(1);
 
+    // Wait for every stylesheet to be APPLIED, not merely requested.
+    // Page-specific sheets are injected by React after mount (maintenance and
+    // landing use different sets from the community pages), so `networkidle`
+    // can fire while they are still parsing. Screenshotting then captures
+    // half-styled DOM and reports phantom layout differences.
+    await p.waitForFunction(
+      () =>
+        Array.from(document.querySelectorAll('link[rel="stylesheet"]')).every(
+          (l) => (l as HTMLLinkElement).sheet !== null,
+        ),
+      undefined,
+      { timeout: 10_000 },
+    );
+    await p.evaluate(() => document.fonts.ready);
+
     for (const sel of page.mask) {
       await p.locator(sel).evaluateAll((els) =>
         els.forEach((el) => ((el as HTMLElement).style.visibility = 'hidden')),
