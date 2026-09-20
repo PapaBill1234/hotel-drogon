@@ -109,11 +109,23 @@ Static enforcement (both exit 0):
    (`admin` → `688a8dac…`, `testuser` → `023f158f…`). Because the seed is
    `INSERT IGNORE`, pre-existing volumes keep the bad row — a fresh volume now
    seeds correctly, verified by wiping `users` and letting the app re-seed.
-2. **Stale upstream DNS in nginx.** `proxy_pass` uses a variable, so nginx must
-   resolve at request time; without a `resolver` it cached the backend IP at
-   startup and every request 502'd after the backend was recreated. Added
-   `resolver 127.0.0.11 valid=10s ipv6=off;`. Verified by force-recreating the
-   backend without touching the proxy.
+2. **Stale upstream DNS in nginx.** Recreating the backend container made every
+   request 502 permanently. The cause is subtler than "nginx caches DNS": the
+   cutover map returns the name `drogon_backend`, which **matched a declared
+   `upstream` block**, and nginx resolves a variable `proxy_pass` target by
+   searching server groups *before* falling back to a resolver — so the address
+   pinned at startup was used forever regardless of resolver config. Adding
+   `resolver 127.0.0.11 valid=10s ipv6=off;` alone did **not** fix it; the
+   `upstream` block had to be removed and the map values changed to literal
+   `backend:8080`, which cannot match a server group and therefore always goes
+   through the resolver. The `/ws` location was converted to the same
+   variable-based form.
+   *Verified properly:* the first attempt at proof was worthless because Docker
+   handed the recreated container the same IP. The real test parks a blocker
+   container on the backend's old address to force a genuine IP change
+   (`.7` → `.8`) with the proxy left running — nginx then serves 200. Trade-off:
+   no `upstream keepalive` pooling, since Open-Source nginx cannot re-resolve a
+   server group at runtime. Dynamic routing was worth more than the pooling.
 3. **Removed a debug endpoint.** `/api/test/echo` (added while wrongly
    diagnosing a JSON failure) was an unauthenticated POST surface; the CSRF
    lint correctly flagged it. Deleted along with the stray `test_debug.cpp`.

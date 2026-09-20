@@ -33,9 +33,11 @@ The seed only runs when the account is absent (`INSERT IGNORE`), so changing a
 password in code will not rewrite an existing volume. Wipe the volume or update
 the row directly if you need to re-seed.
 
-> If you recreate just the backend container, nginx re-resolves it on the next
-> request (see the `resolver` directive in `proxy/nginx.conf`). No proxy restart
-> is needed.
+> Recreating the backend container does not require restarting the proxy: the
+> cutover map returns literal `host:port` values resolved through Docker's
+> embedded DNS on each request (see the `resolver` note in `proxy/nginx.conf`).
+> Do not reintroduce an `upstream` block — a variable `proxy_pass` target that
+> matches a server group is pinned at startup and will 502 after a recreate.
 
 ## Verifying
 
