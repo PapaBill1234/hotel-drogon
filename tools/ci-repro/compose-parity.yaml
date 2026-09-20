@@ -1,0 +1,134 @@
+# Isolated FRESH-DATABASE reproduction for the visual-parity suite.
+#
+# Sibling of compose.yaml in this directory, and bound by the same safety
+# constraint quoted in docs/ai-run-state.md: any CI reproduction must run in its
+# own Compose project with its own throwaway volumes.
+#
+# ## Why this one exists when compose.yaml here already does "CI-like"
+#
+# compose.yaml above deliberately omits the `frontend/dist` and `web-gallery`
+# mounts, because those are absent on a fresh runner for the *smoke* job's
+# purposes. That makes it useless for reproducing the parity suite, which needs
+# both. This file is the opposite trade: it mounts everything the real stack
+# mounts (so pages render) while keeping the disposable, namespaced
+# project/volumes/port that makes a fresh database safe to create.
+#
+# ## Isolation guarantees
+#
+#   * project name `ci-parity` -> containers, network and volumes are all
+#     `ci-parity_*`; nothing collides with or mutates `hotel-drogon_*` or
+#     `legacy-stack_*`;
+#   * no `container_name:` anywhere, so the primary stack's pinned names are
+#     never reused;
+#   * proxy publishes 3200, not 3000 (primary) or 8081 (legacy).
+#
+# ## Usage
+#
+#   docker compose -p ci-parity -f tools/ci-repro/compose-parity.yaml up -d --build
+#   docker compose -p ci-parity -f tools/ci-repro/compose-parity.yaml down -v
+#
+# The `-v` above destroys ONLY ci-parity's throwaway volumes. Never run a bare
+# `docker compose down -v` from the repo root, and never `docker volume prune`.
+
+name: ci-parity
+
+services:
+  backend:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: "no"
+    environment:
+      APP_ENV: development
+      APP_PORT: 8080
+      LOG_LEVEL: debug
+      LOG_JSON: "false"
+      DB_HOST: mariadb
+      DB_PORT: 3306
+      DB_DATABASE: polaris
+      DB_USERNAME: hotel
+      DB_PASSWORD: hotel_secret
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - ci-parity-net
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    entrypoint: ["/app/hotel_worker"]
+    restart: "no"
+    environment:
+      APP_ENV: development
+      LOG_LEVEL: debug
+      LOG_JSON: "false"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - ci-parity-net
+
+  mariadb:
+    image: mariadb:10.11
+    restart: "no"
+    environment:
+      MYSQL_ROOT_PASSWORD: root_secret
+      MYSQL_DATABASE: polaris
+      MYSQL_USER: hotel
+      MYSQL_PASSWORD: hotel_secret
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    networks:
+      - ci-parity-net
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: "no"
+    volumes:
+      - redis_data:/data
+    networks:
+      - ci-parity-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  proxy:
+    image: nginx:alpine
+    restart: "no"
+    ports:
+      - "3200:80"
+    volumes:
+      - ../../proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../../proxy/cutover.map:/etc/nginx/cutover.map:ro
+      - ../../../legacy/phpretro-pdo/web-gallery:/var/www/web-gallery:ro
+      - ../../../legacy/phpretro-pdo/housekeeping/images:/var/www/housekeeping-images:ro
+      - ../../frontend/dist:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+    networks:
+      - ci-parity-net
+
+networks:
+  ci-parity-net:
+    driver: bridge
+
+volumes:
+  mariadb_data:
+  redis_data:

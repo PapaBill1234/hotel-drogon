@@ -189,7 +189,13 @@ jobs:
         working-directory: tests/e2e
         env:
           BASE_NEW: http://localhost:3000
-        run: npx playwright test visual-parity.spec.ts
+        run: |
+          # Failure diagnosis has to travel in the LOG. Artifacts are uploaded
+          # but are not always reachable (they were not, the first time this step
+          # failed), which left "exit code 1" as the only evidence. The JSON
+          # reporter writes to stdout and carries each comparison's failure text,
+          # so a mismatch names the page and the magnitude instead of only failing.
+          npx playwright test visual-parity.spec.ts --reporter=list,json
 
       - name: Upload Playwright artefacts on failure
         if: failure()
