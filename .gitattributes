@@ -1,0 +1,22 @@
+# Normalize line endings on checkout.
+#
+# The repo is edited on Windows but built and tested on Linux (Docker, CI), so
+# shell scripts and Dockerfiles MUST keep LF endings — a stray CR breaks `sh`
+# with a "not found" error on the shebang or on every command line.
+* text=auto
+
+# Keep this file LF too: a trailing CR would corrupt the patterns below.
+.gitattributes  text eol=lf
+*.sh            text eol=lf
+*.py            text eol=lf
+Dockerfile      text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.conf          text eol=lf
+*.map           text eol=lf
+*.md            text eol=lf
+
+*.png           binary
+*.jpg           binary
+*.gif           binary
+*.ico           binary

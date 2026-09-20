@@ -48,6 +48,8 @@ says Filament) before it compounds.
 
 ## Phase 3 — Auth, authorization, Polaris access layer
 
+### 3a — Laravel attempt (superseded; kept for history)
+
 | Item | Plan asks for | Status |
 | --- | --- | --- |
 | Login/logout/remember/reset for hotel identity | Yes | **Ported (Blade).** `HotelController::login/logout/forgot/forgotSubmit`. Uses `PolarisAuthService` — password_verify with sha1 legacy upgrade, matches PHPRetro's own approach. |
@@ -57,6 +59,74 @@ says Filament) before it compounds.
 | Explicit Polaris service layer, "behind a service with explicit allowed operations" | **Central requirement of this phase** | **Not built.** What exists is `HolodbWriteGuard`: a regex blocklist on the DB connection, not named service methods. Controllers call `$this->holodb()->table('users')->...` directly. This is the single largest gap between the plan and the repo — nearly everything else in Phases 4–9 depends on this existing first. |
 | Client SSO handoff from verified fields only | Yes | `HotelController::client`, `clientUtils` exist; not independently verified against "documented emulator behavior" in this read. |
 | Audit logging for staff/sensitive actions | Yes | `Support/AdminAudit.php` exists (29 lines) — present but thin; only wired into a couple of write paths (report status changes), not staff logins or bulk actions generally. |
+
+### 3b — Drogon C++ implementation (current stack)
+
+Phase 3 is re-implemented in the C++ service. The Laravel gaps above are the
+exact failures the C++ layer was built to avoid — note in particular that the
+service layer is named methods, **not** a write blocklist.
+
+| Item | Plan asks for | Status |
+| --- | --- | --- |
+| Redis-backed sessions | Yes | **Done.** `SessionManager` uses `session:user:<token>` and `session:staff:<token>` keys, distinct TTLs (user 7d / staff 2h). |
+| Separate cookies for public vs staff | Yes | **Done.** `hotel_session` (HttpOnly, SameSite=Lax) and `hotel_staff_session` (HttpOnly, SameSite=Strict). Verified distinct on the wire. |
+| Password verification incl. legacy upgrade | Yes | **Done.** `Crypto::verifyPassword` handles bcrypt/`$2y$` via `crypt_r` plus legacy `sha1(password . strtolower(username))`, flagging `needsRehash`. Verified: a legacy-hashed user migrated to `$2y$12$...` on first login and still authenticates afterwards. |
+| Staff step-up auth (2FA/TOTP) | Yes | **Partial.** `hotel_staff_session` is separate and rank-gated; `Crypto::verifyTotp` implements RFC 6238. The step-up gate currently requires a 6-digit code *format* when supplied but does not yet enforce a per-staff TOTP secret from the database — that needs a `phpretro_staff`-style secret column. |
+| Policies per role, as explicit functions | Yes | **Done.** `filters::AuthPolicy::{requireUser, requireStaff, requireGroupOwner, requireGroupAdmin}` — explicit functions, no ad hoc inline checks in controllers. |
+| Explicit Polaris service layer with named methods | **Central requirement of this phase** | **Done.** `UserAccountService`, `GuildService`, `BanService`, `ReportService` expose only named operations (`updateMotto`, `banUser`, `joinGuild`, …). There is deliberately **no** generic `update(table, column, value)`. Enforced by `scripts/check_polaris_access.py`, which passes. |
+| CSRF on all mutating endpoints | Yes | **Done.** `filters::CsrfFilter` validates a double-submit token against the Redis session; `XSRF-TOKEN` is issued as a non-HttpOnly cookie for the frontend. Enforced by `scripts/check_csrf_rules.py`, which passes. |
+| Audit logging for staff/sensitive actions | Yes | **Done.** `AuditService::logAction` writes to `phpretro_admin_action_log`; wired into login and ban/unban paths. |
+
+### 3c — Verification (run 2026-09-20)
+
+`scripts/smoke_phase3.sh` — 12/12 assertions pass:
+
+| Check | Result |
+| --- | --- |
+| `POST /api/auth/login` (valid) | 200 |
+| login rejects wrong password / unknown user | 401, 401 |
+| `GET /api/me` with session / without | 200 / 401 |
+| `GET /api/admin/test-gate` as non-staff | 403 |
+| `POST /api/auth/staff-login` as admin | 200 |
+| staff cookie is `hotel_staff_session` | distinct from `hotel_session` |
+| `GET /api/admin/test-gate` as staff | 200 |
+| `POST /api/account/motto` without CSRF token | 403 |
+| removed debug route | 404 |
+
+Static enforcement (both exit 0):
+
+- `scripts/check_csrf_rules.py` — 14 routes, 9 mutating, all protected or on the
+  verified auth exemption list.
+- `scripts/check_polaris_access.py` — 11 non-service files scanned, zero direct
+  Polaris table access outside `src/services/`.
+
+### 3d — Defects found and fixed during verification
+
+1. **Username-dependent password hashing seeded wrong.** PHPRetro's scheme is
+   `sha1(password . strtolower(username))`, so each account needs its *own*
+   digest. The seed initially gave `admin` and `testuser` the same hash, which
+   only validates for one of them. Corrected to per-user digests
+   (`admin` → `688a8dac…`, `testuser` → `023f158f…`). Because the seed is
+   `INSERT IGNORE`, pre-existing volumes keep the bad row — a fresh volume now
+   seeds correctly, verified by wiping `users` and letting the app re-seed.
+2. **Stale upstream DNS in nginx.** `proxy_pass` uses a variable, so nginx must
+   resolve at request time; without a `resolver` it cached the backend IP at
+   startup and every request 502'd after the backend was recreated. Added
+   `resolver 127.0.0.11 valid=10s ipv6=off;`. Verified by force-recreating the
+   backend without touching the proxy.
+3. **Removed a debug endpoint.** `/api/test/echo` (added while wrongly
+   diagnosing a JSON failure) was an unauthenticated POST surface; the CSRF
+   lint correctly flagged it. Deleted along with the stray `test_debug.cpp`.
+
+A note on that misdiagnosis, because it cost the most time: the original
+symptom was `getJsonObject()` returning null. The actual causes were (a) the
+Windows PowerShell `curl` alias and `docker exec` stripping quotes out of JSON
+literals before they left the shell — so the body arrived as `{test:hello}` —
+and (b) failing to attach a body at all in later attempts. The request layer was
+never at fault. The real, permanent constraint discovered along the way is that
+**Drogon 1.8.7 on Ubuntu 24.04 links jsoncpp, not nlohmann** — controllers must
+use `Json::Value`/`isMember`/`asString`.
+
 
 ## Phase 4 — CMS and public content
 
@@ -134,6 +204,7 @@ says Filament) before it compounds.
 ## What this inventory says, plainly
 
 - **Genuinely reusable now:** routing map, middleware boundary (`hotel.auth`/`optional`/`staff`/`guest`), `PolarisAuthService`, the Homes/Hotel data-layer logic, Docker/nginx/cutover scaffolding, the `phpretro_*` migrations, reports/help-desk (the one fully-functional admin feature).
-- **Needs replacing, not extending:** every Blade template for a hotel page (→ Inertia+React), `HousekeepingController`/`HousekeepingToolsController` (→ Filament), the CSRF exemption list (→ real token bridging), `HolodbWriteGuard` (→ named Polaris service classes).
-- **Not started at all:** policies-as-code, staff step-up auth, Reverb, dnd-kit/TanStack Query Homes rebuild, screenshot parity testing, CI, monitoring, the JSON layout API, and any actual cutover.
-- **The one blocker everything else sits on:** Phase 3's Polaris service layer. Registration, bans, credit edits, group join/leave, and badge saves are all "refused" for the same underlying reason — there's no audited, named write path yet, just a blocklist. Building that service layer (even narrow, feature-by-feature) is what turns the "refused" rows in this table into real ones.
+- **Needs replacing, not extending:** every Blade template for a hotel page (→ Inertia+React), `HousekeepingController`/`HousekeepingToolsController` (→ Filament), the CSRF exemption list (→ real token bridging). `HolodbWriteGuard` has been **replaced in the C++ stack** by named service classes; the Laravel-era guard is now historical.
+- **Done in the C++ stack (Phase 3b):** the named Polaris service layer, explicit authorization policy functions, CSRF enforcement on mutating routes, Redis sessions with separate public/staff cookies, audit logging. These were the "not started" items in the Laravel-era read.
+- **Still not started:** Reverb/live notifications, dnd-kit/TanStack Query Homes rebuild, screenshot parity testing, monitoring/Sentry, the versioned JSON layout API, and any actual cutover.
+- **The next blocker:** the Phase 3 service layer now exists but is **narrow**. It covers identity, bans, guilds, and reports. Registration, credit/pixel edits, badge saves, and group create/purchase are still unimplemented, so the "refused" rows in Phases 5–9 stay refused until each gets its own named, audited service method. The pattern is established; the breadth is not.

@@ -175,11 +175,13 @@ int main(int argc, char* argv[]) {
                         HOTEL_LOG_WARN("Schema init table 'phpretro_user_reports': {}", e.base().what());
                     };
 
-                // Seed test user 'testuser' (pass: 'password123', legacy sha1) and 'admin' (rank 7) if missing
-                // sha1('password123' . 'testuser') = 81b6aa6b1892520bb291a27e025ec15ec834c7ef
+                // Seed 'admin' (rank 7) and 'testuser' (rank 1), password 'password123' for both.
+                // PHPRetro/PolarIS legacy scheme is username-dependent: sha1(password . strtolower(username)).
+                //   admin    -> sha1('password123admin')    = 688a8dacaad619c69b4091eb624dae82004c3afd
+                //   testuser -> sha1('password123testuser') = 023f158f3fa0cfe32dfdd8a9884b8e1b1f07a1bd
                 *db << "INSERT IGNORE INTO users (id, username, real_name, password, mail, rank, motto) VALUES "
-                       "(1, 'admin', 'Hotel Administrator', '81b6aa6b1892520bb291a27e025ec15ec834c7ef', 'admin@hotel.local', 7, 'Hotel Administrator'), "
-                       "(2, 'testuser', 'Test User', '81b6aa6b1892520bb291a27e025ec15ec834c7ef', 'test@hotel.local', 1, 'Exploring the hotel!')"
+                       "(1, 'admin', 'Hotel Administrator', '688a8dacaad619c69b4091eb624dae82004c3afd', 'admin@hotel.local', 7, 'Hotel Administrator'), "
+                       "(2, 'testuser', 'Test User', '023f158f3fa0cfe32dfdd8a9884b8e1b1f07a1bd', 'test@hotel.local', 1, 'Exploring the hotel!')"
                     >> [](const drogon::orm::Result&) {
                         HOTEL_LOG_INFO("Default test user and admin seeded successfully.");
                     }

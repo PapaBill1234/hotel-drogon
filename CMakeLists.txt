@@ -62,9 +62,6 @@ file(GLOB_RECURSE CORE_SOURCES
     "src/utils/*.cpp"
 )
 
-# Explicitly list test controller for debugging JSON
-list(APPEND CORE_SOURCES "src/controllers/TestController.cpp")
-
 add_library(hotel_core OBJECT
     ${CORE_SOURCES}
 )

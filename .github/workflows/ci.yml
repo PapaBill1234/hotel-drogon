@@ -60,3 +60,37 @@ jobs:
       - name: Run Catch2 test suite with Sanitizers
         run: |
           ctest --test-dir build --output-on-failure
+
+  integration-smoke:
+    name: Phase 3 Integration Smoke (live stack)
+    runs-on: ubuntu-24.04
+    needs: cpp-build-and-test
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build and start the stack
+        run: docker compose up -d --build
+
+      - name: Wait for the stack to become healthy through the proxy
+        run: |
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/health || true)
+            if [ "$code" = "200" ]; then
+              echo "stack healthy after ${i} attempt(s)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::stack did not become healthy in time"
+          docker compose logs --tail=200
+          exit 1
+
+      - name: Run Phase 3 smoke suite
+        run: sh scripts/smoke_phase3.sh http://localhost:3000
+
+      - name: Dump service logs on failure
+        if: failure()
+        run: docker compose logs --tail=200
+
