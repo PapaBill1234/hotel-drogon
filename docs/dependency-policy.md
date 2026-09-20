@@ -53,18 +53,39 @@ human step on the other.
 | File | What is pinned |
 | --- | --- |
 | `Dockerfile` | base image by digest (both stages) + 23 builder and 14 runtime packages |
-| `.github/workflows/ci.yml` | the same 21 of the builder's packages that the runner does not already ship |
+| `.github/workflows/ci.yml` | the same 21 of the builder's packages that the runner does not already ship, in one job-level `PINS` variable that both the install step and the failure-diagnosis step read |
 
 `scripts/check_dependency_pins.py` fails the build when:
 
 - a pinned version is no longer the archive's candidate (the pin has rotted);
 - the Dockerfile builder stage and CI disagree about which packages are installed;
 - they agree on the name but not the version;
-- the index could not be read at all — an unverified pin is a failure, not a pass.
+- CI installs anything other than `$PINS`, which would let the shared list be
+  bypassed by a hand-written install elsewhere in the workflow;
+- the `PINS` variable or the apt index could not be read at all — an unverified
+  pin is a failure, not a pass.
 
 Packages the two paths deliberately differ on are listed in the script with a
 reason (`CI_ONLY`, `BUILDER_NOT_IN_CI`), so the exception is reviewable rather
 than implicit.
+
+### Diagnosing a failed pinned install
+
+Exact-version pins fail fast and say little: apt exits 100 and the job log is the
+only place the reason appears. Two different causes look identical from outside —
+a pin that has left the archive, and an index that is not the one the pins were
+read from (mirrors lag the archive by hours) — so CI carries an
+`if: failure()` step that re-runs the install, then reports the apt error, the
+sources actually in use, and every pin whose candidate disagrees, as check-run
+annotations. That makes the failure readable from the API without the job log,
+which matters because the log archive is not reachable with a read-only
+credential.
+
+A failing `apt-get update` from a repository unrelated to this build (the runner
+image carries several third-party lists) is downgraded to a warning annotation
+rather than aborting the step. That is not a weakening: the pinned install still
+has to succeed against the index that exists, and the linter re-reads the index
+afterwards and fails on any pin the archive no longer offers.
 
 ## Update procedure
 

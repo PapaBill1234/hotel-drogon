@@ -16,10 +16,11 @@ It asserts:
    `apt-cache` and a populated index; if either is unavailable the check reports
    that it could not verify and FAILS, rather than passing vacuously — an
    unverified pin is exactly the rot this is meant to catch.
-3. CI's `Install system dependencies` step installs exactly the BUILDER stage's
-   packages, neither more nor fewer. The runtime stage is deliberately different
-   (runtime libraries instead of -dev packages) and is not compared; every package
-   in it is checked to exist as a pin.
+3. CI's `PINS` variable names exactly the BUILDER stage's packages, neither more
+   nor fewer, and CI installs with `$PINS` rather than naming packages of its
+   own. The runtime stage is deliberately different (runtime libraries instead
+   of -dev packages) and is not compared; every package in it is checked to
+   exist as a pin.
 
 Usage:
     python3 scripts/check_dependency_pins.py          # from the repo root
@@ -79,27 +80,59 @@ def dockerfile_stages() -> dict[str, dict[str, str]]:
 
 
 def ci_packages(pinned: bool = False) -> "dict[str, str] | set[str]":
-    """Dependencies named in CI's apt install step.
+    """Dependencies named in CI's job-level `PINS` variable.
 
-    `pinned=False` returns just the names; `pinned=True` returns {name: version}
-    for the ones CI pins, so the two build paths can be compared version by
-    version rather than merely by name.
+    CI keeps its pins in one folded-scalar variable that both the install step
+    and the failure-diagnosis step read, so those two cannot disagree. This reads
+    that variable rather than the `run:` block: the block is shell, and a parser
+    that scrapes shell for package names also scrapes `fi`, `done` and `exit` out
+    of it. `pinned=False` returns the names; `pinned=True` returns
+    {name: version} for the ones CI pins, so the two build paths can be compared
+    version by version rather than merely by name.
     """
-    text = read(CI)
-    block = re.search(
-        r"- name: Install system dependencies\s*\n\s*run: \|\s*\n(.*?)\n\n",
-        text,
-        re.DOTALL,
-    )
-    if not block:
+    text = ci_pins_text()
+    if not text:
         return {} if pinned else set()
 
-    tokens = re.findall(
-        r"^\s*([A-Za-z0-9][A-Za-z0-9.+-]*(?:=[^\s\\]+)?)\s*\\?$", block.group(1), re.MULTILINE
-    )
+    tokens = text.split()
     if pinned:
         return {tok.split("=", 1)[0]: tok.split("=", 1)[1] for tok in tokens if "=" in tok}
     return {tok.split("=", 1)[0] for tok in tokens}
+
+
+def ci_pins_text() -> str:
+    """The folded scalar under the workflow's job-level `PINS:` key, as one line.
+
+    Parsed line by line on purpose. A regex over the whole file is what an
+    earlier version of this check did, and because `.` was allowed to match
+    newlines the captured "pin list" silently became the rest of the workflow —
+    every English word in the comments then read as an unpinned CI package.
+    A folded block is exactly the lines more indented than its own key.
+    """
+    lines = read(CI).splitlines()
+    for index, line in enumerate(lines):
+        if not re.match(r"^\s*PINS:\s*>-\s*$", line):
+            continue
+        indent = len(line) - len(line.lstrip())
+        collected: list[str] = []
+        for continuation in lines[index + 1 :]:
+            if not continuation.strip():
+                break
+            if len(continuation) - len(continuation.lstrip()) <= indent:
+                break
+            collected.append(continuation.strip())
+        return " ".join(collected)
+    return ""
+
+
+def ci_installs_shared_pins() -> bool:
+    """True when CI's apt install uses `$PINS` rather than naming packages.
+
+    Without this the shared variable could be bypassed by a hand-written install
+    somewhere else in the workflow, and the comparison above would still pass
+    because it only ever looked at `PINS`.
+    """
+    return "--no-install-recommends $PINS" in read(CI)
 
 
 def candidate_versions(names: list[str]) -> dict[str, str]:
@@ -178,7 +211,15 @@ def main() -> int:
     builder = set(stages["builder"])
     ci = ci_packages()
     if not ci:
-        errors.append("[FAIL] could not parse CI's apt install step; the workflow changed shape.")
+        errors.append(
+            "[FAIL] could not parse CI's `PINS` variable; the workflow changed shape. "
+            "An unreadable pin list must not pass."
+        )
+    elif not ci_installs_shared_pins():
+        errors.append(
+            "[FAIL] CI's apt install does not use `$PINS`, so the shared pin list can be "
+            "bypassed. Install with `--no-install-recommends $PINS`."
+        )
     else:
         for name in sorted(builder - ci - set(BUILDER_NOT_IN_CI)):
             errors.append(

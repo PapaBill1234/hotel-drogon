@@ -55,6 +55,23 @@ build when a pin rots or when the Dockerfile and CI disagree. `vcpkg.json` was
 removed — it had no consumer, and leaving it would have let a future `vcpkg
 install` silently upgrade Drogon.
 
+**First CI run on the pins failed at "Install system dependencies"** — run
+`35536762317`, commit `a09c9ef`, exit 100 after six seconds. Six seconds is fast
+enough that apt rejected a version or the index update itself failed, rather than
+downloading packages and hitting a conflict. The job log is **not reachable with
+the available read-only credential** (the log endpoint returns an archive the
+tooling drops), and the annotation carried only "exit code 100", so the cause
+could not be read. Rather than guess a fix, the workflow now diagnoses itself: a
+single job-level `PINS` variable feeds both the install step and an
+`if: failure()` step that reports the apt error, the sources actually in use, and
+every pin whose candidate disagrees, as check-run annotations — the one channel
+that is readable. A failing `apt-get update` from a repository unrelated to this
+build no longer aborts the step on its own; the pinned install still has to
+succeed, and the linter still fails on a pin the archive no longer offers.
+Pinning is unchanged and still strict. All of this was reproduced locally in a
+clean `ubuntu:24.04` (21 packages install, 0 pin mismatches) and the new
+assertions were negative-tested.
+
 **Cutover and rollback (green in run `35530042653`).** `proxy/cutover.map` is
 included by `nginx.conf` and every route defaults to `app:8080`, so deploying it
 changed no routing. `/articles/rss.xml` is switched to `legacy:80` and back by
