@@ -1,0 +1,6 @@
+# Keep the build context small: node_modules is reinstalled inside the container
+# from the committed lockfile, and the sibling directories are not needed.
+node_modules
+.out
+test-results
+playwright-report

@@ -93,7 +93,90 @@ script reproduces.
 | Six baselines re-captured | yes, all six differ from the Windows captures |
 | Legacy stack restored | `site_closed` back to `'0'`, settings cache cleared |
 
-## Update — 2026-09-21 (fourth pass): parity still red, and why I stopped
+## Update — 2026-09-21 (fifth pass): the parity failure is root-caused and fixed
+
+**Root cause, proven.** Not a font or rasterisation difference, and not the
+tolerance:
+
+> `legacy/` is gitignored, so a CI workspace contains no
+> `legacy/phpretro-pdo/web-gallery`. `compose.yaml` bind-mounts that path into the
+> proxy, and **Docker creates a missing bind-mount source as an empty
+> directory**, so the mount succeeds and every legacy stylesheet and image 404s.
+> The converted pages reuse the legacy CSS verbatim, so they render as bare
+> unstyled HTML.
+
+Evidence, from the run `35522067386` log and its `playwright-results` artifact
+(fetched with the token the user supplied):
+
+- the proxy logged **162** `open() "/var/www/web-gallery/..." failed (2: No such
+  file or directory)` errors and **zero** successful `/web-gallery/**` responses;
+- `/assets/index-*.css` and `.js` from the `frontend/dist` mount served **200**,
+  so the dist mount was fine and only the legacy mount was empty;
+- the artifact's `*-actual.png` images are the pages with **no CSS at all** —
+  bare text, unstyled lists, missing imagery;
+- per-page diff ratios in the log: landing **0.23**, community **0.19**,
+  collectables **0.22**, maintenance **0.96** — while articles and help passed at
+  **0.00**, because those two pages need no legacy stylesheet.
+
+Reproduced exactly, locally, against an isolated disposable stack with the mount
+deliberately absent (`tools/ci-repro/compose-no-webgallery.yaml`): landing
+**225352** differing pixels — the same number CI reported — community 189007,
+collectables 218971, maintenance 982872. Same numbers, same causes.
+
+**The fix.**
+
+1. CI sparse-clones the legacy `web-gallery` into the workspace before the stack
+   starts (`git clone --filter=blob:none`, `sparse-checkout set --no-cone
+   web-gallery`): 901 files, 7.7 MB, at exactly the path `compose.yaml` mounts.
+   A guard step then fails fast, naming the cause, if the mount is ever empty
+   again.
+2. The parity comparison runs in the **pinned Playwright container**
+   (`mcr.microsoft.com/playwright:v1.63.0-noble`) via
+   `tests/e2e/run-in-container.sh`, so capture, local reproduction and CI share
+   one environment. The image pins the Chromium build (chromium-1243) and the
+   font set, and `npm ci` inside it pins the Playwright package from the
+   lockfile. Viewport, locale (`en-US`), timezone (`UTC`), colour scheme
+   (`light`), device scale factor and animation settings are pinned in
+   `playwright.config.ts` and in the runner's shell environment.
+3. `MAX_DIFF_PIXEL_RATIO` is back to **2%**. The interim 10% was justified by a
+   "platform rendering" measurement that was itself a symptom of the missing CSS,
+   so that justification is withdrawn. Inside the canonical environment the
+   measured difference is 0 pixels on all six pages, so 2% is slack, not
+   headroom.
+4. CI now uploads `test-results` and the HTML report with `if: always()`, and the
+   parity step runs with `--reporter=list,json`, so a failure names the page and
+   the ratio in the log even when artifacts are not retrievable.
+
+**Baseline provenance — no re-capture was performed, deliberately.** All six
+baselines were captured from the **legacy** application (`tools/legacy-stack/`,
+seeded from `99-seed.sql`) in the pinned container, and inspection confirms they
+are the fully styled legacy renders, not unstyled accident: landing shows the
+complete styled frontpage with imagery, maintenance the styled Frank/Sparky page.
+Capturing from the new application is prohibited and would make the suite
+self-comparing; that did not happen. Since the committed baselines are correct,
+re-capturing them "to make CI green" would have been exactly the wrong move.
+
+**Verification (isolated disposable stacks throughout; primary volumes never
+touched).**
+
+| Check | Result |
+| --- | --- |
+| Full CI order against an isolated stack **with the mount absent** (the bug) | parity fails, ratios identical to CI (225352 / 0.19 / 0.22 / 0.96) |
+| Full CI order against an isolated stack **with the legacy assets at the CI path layout** | Phase 3 **12/12**, Phase 4 admin **30/30**, Phase 4 public **17/17**, admin UI **10/10**, parity **6/6 at 2%** |
+| Sparse-checkout command (the literal CI step) against the real legacy repo | 901 files, 7.7 MB, `web-gallery/v2/styles` present |
+| Mount resolution at the CI path layout | proxy mount source = `<workspace>\legacy\phpretro-pdo\web-gallery`; `/web-gallery/...` → 200 |
+| Cleanup | `ci-parity`, `ci-noweb`, `ci-paths` projects and volumes removed; primary DB restored to fixtures (2 news / 3 FAQ / 1 collectible / 0 banners), `site_closed=0`; `legacy_web`+`legacy_db` left running |
+
+**Still to confirm on CI itself:** a green run. "Locally proven" is not "green on
+CI", so this work unit stays open until a run reports success.
+
+
+
+## Update — 2026-09-21 (fourth pass): parity still red, before the token arrived
+
+*(Superseded by the fifth-pass entry above, which root-causes the failure. Kept
+because it records what had been ruled out and why the earlier "font" hypothesis
+was wrong to act on.)*
 
 A fourth CI run was made and inspected, and it **failed at the same step**. This
 pass adds no fix, because the cause is not yet established and the evidence
@@ -123,41 +206,25 @@ long-lived primary stack is the same apart from a JS-computed popup position on 
 `display:none` element; and the parity run does not depend on the legacy app
 being reachable.
 
-### The blocker
+### The blocker (resolved)
 
-The failing step's log and its `playwright-results` artifact both require
-credentials this environment does not have:
+At the time, the failing step's log and its `playwright-results` artifact were
+not retrievable here: `GET /actions/jobs/{id}/logs` answered *"Must have admin
+rights to Repository"*, the artifact *"Requires authentication"*, the public job
+page no longer embeds log text, and there was no token, no `gh` and no stored
+credential. Only "Process completed with exit code 1" was observable.
 
-- `GET /actions/jobs/{id}/logs` -> *"Must have admin rights to Repository."*
-- the uploaded artifact -> *"Requires authentication"*
-- the public job page no longer embeds the log text.
+**Resolved:** the user supplied a token, the run's log and artifact were fetched,
+and they contained the decisive evidence — the proxy's 162 `web-gallery` open
+failures and the unstyled `*-actual.png` images. The fifth-pass entry above
+records the root cause. The lesson kept: a parity failure must be diagnosable
+from the log and the artifacts alone, which is why the step now emits the JSON
+reporter and uploads `test-results` plus the HTML report with `if: always()`.
 
-There is no `GITHUB_TOKEN`, no `gh`, and no retrievable stored credential here.
-Consequently the failing page, the diff ratio and the diff image have never been
-observable — only "Process completed with exit code 1". That is why this pass
-stops: further changes would be guesses, and two of the three fixes so far came
-from being able to see the real failure.
-
-To make the next occurrence diagnosable, the parity step now runs with
-`--reporter=list,json`; the JSON reporter writes the per-test error text to
-stdout, which includes "N pixels (ratio R of all image pixels) are different".
-Verified locally by forcing a mismatch with a temporarily lowered tolerance.
-
-### What is needed to unblock
-
-Either of these, and the fix is probably quick:
-
-1. a token with `actions:read` (then the artifact or the log can be fetched); or
-2. the text of the failing parity step from
-   <https://github.com/PapaBill1234/hotel-drogon/actions/runs/35522067386/job/10610751265>
-   — with the JSON reporter in place it will now name the page and the ratio.
-
-The single most likely remaining explanation, stated as a hypothesis rather than
-a finding: the GitHub runner's font set differs from the pinned Playwright
-image's, which would shift text rasterisation and produce exactly this signature
-(correct markup, consistent per-page diff ratios, Linux-to-Linux otherwise
-matching). It has not been verified, and it is not being fixed on the strength of
-a guess.
+The "font set differs" hypothesis recorded below was **wrong**, and it is
+recorded here as wrong: the per-page ratios were not a rasterisation signature at
+all, they were the size of each page's missing CSS. Acting on that hypothesis is
+what produced the interim 10% tolerance, now withdrawn.
 
 
 

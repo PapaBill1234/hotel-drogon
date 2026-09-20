@@ -39,7 +39,7 @@ says Filament) before it compounds.
 | Docker Compose (backend binary, MariaDB, Redis, worker binary, nginx proxy) | Yes | **Done.** `compose.yaml` running Drogon C++ server, MariaDB 10.11, Redis 7, worker process, and nginx reverse proxy. |
 | `web-gallery` served without copying/hashing | Yes | **Done.** nginx `alias` mount directly in `proxy/nginx.conf`. |
 | Route switch/proxy with instant rollback | Yes | **NOT DONE — the previous "Done, tested and verified live" claim was wrong.** `proxy/cutover.map` is **orphaned**: `proxy/nginx.conf` never includes it and defines its own inline `map $uri $target_backend`. The two disagree — `cutover.map` says `default legacy`, while nginx actually sends unmatched routes to the React SPA. There is no legacy PHP service in `compose.yaml`, so no `legacy` upstream exists and **rollback cannot be demonstrated**. Either wire the map up with a real legacy upstream and prove cutover + rollback, or delete it and correct this row. |
-| CI (CMake build with ASan/UBSan, Catch2 unit tests) | Yes | **Covered; the live-stack job is red and being re-verified.** `cpp-build-and-test` builds on Ubuntu 24.04 with GCC, ASan/UBSan, `-Werror` and CTest (green). `integration-smoke` also runs the three Python lints and all three smoke suites (all passed in run `35519492373`) plus a TypeScript build and both Playwright suites — the frontend build failed there for an environmental reason now fixed; see the Phase 2b table below. The `77f7c87` readiness flake did not recur in that run. |
+| CI (CMake build with ASan/UBSan, Catch2 unit tests) | Yes | **Covered; live-stack job being re-verified after a real fix.** `cpp-build-and-test` builds with GCC, ASan/UBSan, `-Werror` and CTest (green, consistently). `integration-smoke` runs the Python lints, all three smoke suites, a TypeScript frontend build, the admin UI suite on the runner's Chromium, and the parity suite in the pinned container. Recent runs were red at exactly one step — visual parity — because the legacy `web-gallery` bind-mount source was absent; that is fixed, and a green run is pending. |
 | Redis cache/sessions/queues/locks | Yes | **Done.** Async Redis client configured with database routing, health check verified. |
 | Background Worker | Minimal worker binary | **Done.** `hotel_worker` binary building and running in container. |
 | Structured logging, /health, /metrics | Yes | **Done.** spdlog JSON logging, `/health` and `/metrics` controllers verified live. |
@@ -247,7 +247,7 @@ are historical; these are the live statuses.
 | Public content API | the `*.php` pages | **Done.** `/api/public/{landing,news,news/{id},faq,collectibles,banners,campaigns,maintenance,settings}`. |
 | RSS | `xml/rss.php` | **Done, with bug fixed.** See "RSS double-escaping" below. |
 | React pages (landing, community, articles, FAQ, collectables, maintenance) | the `*.php` pages | **Done and visually verified.** `frontend/` (Vite + React 18 + TS + TanStack Query); all six pages render the legacy markup and classes verbatim. `tsc -b && vite build` clean. |
-| Screenshot parity tests | n/a | **Done — 6/6 pages pass**, re-captured on Linux and re-run after the admin UI landed. The baselines are captured by Linux Chromium in the pinned `mcr.microsoft.com/playwright:v1.47.0-jammy` image (the same one CI uses); the tolerance is 10%, calibrated to the measured 3-6% cross-platform text-rasterisation difference rather than picked, and the same suite is 0-diff exact under Linux. See "Baseline platform" below. |
+| Screenshot parity tests | n/a | **Done — 6/6 pages pass at 2%.** Capture, local reproduction and CI all run in the pinned `mcr.microsoft.com/playwright:v1.63.0-noble` container with the lockfile's `@playwright/test`, so one Chromium build and one font set serve all three; measured difference inside it is 0 pixels per page. Baselines are legacy captures, never new-app captures. See "Why the parity suite failed on CI" below. |
 
 #### Admin UI (the half that was missing)
 
@@ -376,35 +376,46 @@ site passing raw data. Verified by round-trip rather than by string matching:
 parsing the feed returns the original title verbatim and the raw feed contains
 no double-escaped entity. A double-escaped implementation fails both.
 
-#### Baseline platform — why the tolerance is 10%, not 2%
+#### Why the parity suite failed on CI: an empty legacy mount, not rendering drift
 
-The parity suite failed on CI for a reason none of the local runs could show:
-**the baselines had been captured on Windows and CI renders on Linux.**
-Reproduced by running the same suite inside the pinned Playwright image against
-the same seeded data — 5 of 6 pages failed with 25k-54k differing pixels, and the
-diff images show correct markup with subtly different text rasterisation, not a
-layout or content error.
+**Root cause, proven from the CI log and artifact.** `legacy/` is gitignored, so
+a CI workspace contains no `legacy/phpretro-pdo/web-gallery`. `compose.yaml`
+bind-mounts that path into the proxy, and **Docker creates a missing bind-mount
+source as an empty directory**, so the mount succeeds and every legacy stylesheet
+and image 404s. The converted pages reuse the legacy CSS verbatim, so they
+rendered as bare unstyled HTML.
 
-| Comparison | Differing pixels per page |
+| Evidence | Value |
 | --- | --- |
-| Linux render vs Windows-captured baseline | landing 4%, community 3%, articles 3%, help 3%, collectables 6%, maintenance 0% |
-| Linux render vs Linux baseline (now committed) | **0 — exact** |
-| Windows render vs Linux baseline (now committed) | the same 3-6% |
+| Proxy log for one run | **162** `open() "/var/www/web-gallery/..." failed (2: No such file or directory)`, and **0** successful `/web-gallery/**` responses |
+| `frontend/dist` mount | `/assets/index-*.css` and `*.js` served **200** — so only the legacy mount was empty |
+| Artifact `*-actual.png` | the pages with no CSS applied at all |
+| Diff ratios | landing **0.23**, community **0.19**, collectables **0.22**, maintenance **0.96**; articles and help **0.00** (those two need no legacy stylesheet) |
+| Local reproduction, isolated stack with the mount deliberately absent | landing **225352** differing pixels — the identical number CI reported |
 
-So a 2% tolerance could never be satisfied from Windows: the suite passed only on
-the platform the baselines happened to come from. Both problems are fixed:
+An earlier diagnosis in this file blamed Windows-versus-Linux text rasterisation
+and raised the tolerance to 10% on that basis. **That was wrong and is
+withdrawn**: the ratios were the size of each page's missing CSS, not a
+rasterisation signature, and no threshold could have fixed or should have hidden
+a page with no stylesheet.
 
-- all six baselines were **re-captured under Linux Chromium** in the pinned
-  image, using the legacy stack in `tools/legacy-stack/` with the same
-  `99-seed.sql` fixtures, so a Linux run is now an exact match;
-- `MAX_DIFF_PIXEL_RATIO` is **10%**, calibrated to the measured 3-6% platform
-  difference with roughly 2x headroom. A real regression still fails: a page
-  rendering an empty content table instead of the seeded rows measures 30%+.
+What is true now:
 
-Recorded limitation, not papered over: a Windows-native comparison against these
-baselines is tolerant rather than exact and detects gross regressions only. The
-authoritative comparison is Linux Chromium, which is what CI runs and what
-`npm run test:visual:container` reproduces locally.
+- CI sparse-clones the legacy `web-gallery` (901 files, 7.7 MB) into the
+  workspace before the stack starts, and a guard step fails fast with a named
+  cause if the mount is ever empty again;
+- the parity comparison runs in the pinned Playwright container, and viewport,
+  locale, timezone, colour scheme, device scale factor and animations are pinned
+  in `playwright.config.ts`, so capture, local reproduction and CI share one
+  environment;
+- `MAX_DIFF_PIXEL_RATIO` is back to **2%**. Inside the canonical environment the
+  measured difference is **0 pixels on all six pages**, so 2% is slack rather
+  than headroom.
+
+Baseline provenance is unchanged and was **not** re-captured: all six were
+captured from the legacy application in the pinned container, and inspection
+confirms they are the fully styled legacy renders. Capturing from the new
+application is prohibited and did not happen.
 
 #### Reference screenshots are not baselines
 

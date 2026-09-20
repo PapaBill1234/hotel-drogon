@@ -71,6 +71,31 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      # The legacy checkout is a documented, read-only reference for the
+      # conversion, and `legacy/` is gitignored, so a CI workspace has none of
+      # it. compose.yaml bind-mounts `../legacy/phpretro-pdo/web-gallery` into the
+      # proxy; when the source does not exist Docker CREATES IT EMPTY, the mount
+      # succeeds, and every legacy stylesheet and image 404s.
+      #
+      # That is not a cosmetic difference: the converted pages reuse the legacy
+      # CSS verbatim, so they render as bare unstyled HTML and the visual-parity
+      # suite fails on styling (measured 0.19-0.96 differing pixels) rather than
+      # on any markup regression. Fetch only the subtree the stack mounts.
+      - name: Fetch the legacy web-gallery reference (sparse, read-only)
+        run: |
+          git clone --filter=blob:none --no-checkout --depth=1 \
+            https://github.com/PapaBill1234/PHPRetro-PDO.git legacy/phpretro-pdo
+          git -C legacy/phpretro-pdo sparse-checkout set --no-cone web-gallery
+          git -C legacy/phpretro-pdo checkout
+
+      - name: Verify the legacy assets the stack mounts are present
+        run: |
+          test -d legacy/phpretro-pdo/web-gallery/v2/styles || {
+            echo "::error::legacy/phpretro-pdo/web-gallery is missing; the proxy mount would be an empty directory and parity would fail on unstyled pages"
+            exit 1
+          }
+          echo "legacy web-gallery files: $(find legacy/phpretro-pdo/web-gallery -type f | wc -l)"
+
       - name: Build and start the stack
         run: docker compose up -d --build
 
@@ -87,6 +112,20 @@ jobs:
           echo "::error::stack did not become healthy in time"
           docker compose logs --tail=200
           exit 1
+
+      - name: Verify the proxy is serving the legacy assets
+        run: |
+          # Guards the failure mode that broke parity: an empty web-gallery mount
+          # still answers, so assert real bytes come back, early and with a
+          # message that names the cause.
+          code=$(curl -s -o /tmp/style.css -w '%{http_code}' \
+            http://localhost:3000/web-gallery/v2/styles/style.css)
+          if [ "$code" != "200" ] || ! grep -qi 'font-family\|color' /tmp/style.css; then
+            echo "::error::/web-gallery/v2/styles/style.css returned ${code} without CSS content; the legacy mount is empty and parity will fail on unstyled pages"
+            docker compose logs --tail=100 proxy
+            exit 1
+          fi
+          echo "legacy stylesheet served: $(wc -c < /tmp/style.css) bytes"
 
       - name: Run Phase 3 smoke suite
         run: sh scripts/smoke_phase3.sh http://localhost:3000
@@ -172,7 +211,10 @@ jobs:
           docker compose logs --tail=200
           exit 1
 
-      - name: Install the Playwright browser
+      # The admin UI suite runs on the runner's own Chromium, so that one still
+      # needs an explicit browser install. The parity suite does not: it runs in
+      # the pinned container, which brings its own matching Chromium.
+      - name: Install the Playwright browser for the admin UI suite
         working-directory: tests/e2e
         run: |
           npm ci
@@ -185,25 +227,41 @@ jobs:
           BASE_NEW: http://localhost:3000
         run: npx playwright test admin.spec.ts
 
+      # The comparison runs in the PINNED Playwright container, not on the
+      # runner's own Chromium. The image pins the Chromium build *and* the font
+      # set, which is what makes the comparison environment genuinely the same as
+      # the one the baselines were captured in; a runner's Chromium plus distro
+      # fonts is a different rendering environment even on the same distro.
+      # `run-in-container.sh` uses `npm ci`, so the committed lockfile pins the
+      # Playwright package version too.
       - name: Public page visual parity against the committed baselines
-        working-directory: tests/e2e
         env:
           BASE_NEW: http://localhost:3000
         run: |
-          # Failure diagnosis has to travel in the LOG. Artifacts are uploaded
-          # but are not always reachable (they were not, the first time this step
-          # failed), which left "exit code 1" as the only evidence. The JSON
-          # reporter writes to stdout and carries each comparison's failure text,
-          # so a mismatch names the page and the magnitude instead of only failing.
-          npx playwright test visual-parity.spec.ts --reporter=list,json
+          mkdir -p tests/e2e/.out
+          docker run --rm -i \
+            --network host \
+            -v "$PWD:/repo:ro" \
+            -v "$PWD/tests/e2e/.out:/out" \
+            -e BASE_NEW=http://localhost:3000 \
+            -e PLAYWRIGHT_ARGS=visual-parity.spec.ts \
+            -e PLAYWRIGHT_REPORTER=list,json \
+            mcr.microsoft.com/playwright:v1.63.0-noble \
+            bash /repo/tests/e2e/run-in-container.sh
 
-      - name: Upload Playwright artefacts on failure
-        if: failure()
+      # `if: always()` so a red parity run still hands back the actual, expected
+      # and diff images. Without them a failure is only "exit code 1", which cost
+      # two earlier runs of this workflow to a wrong diagnosis.
+      - name: Upload visual-parity artefacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-results
-          path: tests/e2e/test-results
+          path: |
+            tests/e2e/.out/test-results
+            tests/e2e/.out/playwright-report
           if-no-files-found: ignore
+          retention-days: 14
 
       - name: Dump service logs on failure
         if: failure()

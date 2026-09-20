@@ -1,0 +1,119 @@
+# Isolated reproduction of the CI workspace condition that broke parity.
+#
+# ── What this reproduces ─────────────────────────────────────────────────────
+#
+# CI checks out `hotel-drogon` only. `legacy/` is gitignored, so the workspace
+# has no `legacy/phpretro-pdo/web-gallery` for compose.yaml to bind-mount. Docker
+# CREATES the missing bind-mount source as an empty directory rather than
+# failing, so `/var/www/web-gallery` exists but is empty, every legacy asset
+# 404s, and the converted pages render as bare unstyled HTML.
+#
+# That is the entire visual-parity CI failure: landing 0.23, community 0.19,
+# collectables 0.22, maintenance 0.96 differing pixels, while articles and help —
+# which need no legacy stylesheet — passed at 0.00. It is not a font or
+# rasterisation difference, and no tolerance value can fix it.
+#
+# ── Usage ────────────────────────────────────────────────────────────────────
+#
+#   # 1. start the stack WITHOUT the web-gallery mount (CI's broken condition)
+#   docker compose -p ci-noweb -f tools/ci-repro/compose-no-webgallery.yaml up -d --build
+#
+#   # 2. apply the parity fixtures and close the site
+#   get-content tools/legacy-stack/init/99-seed.sql -raw | docker exec -i ci-noweb-mariadb-1 mysql -uhotel -photel_secret polaris
+#   docker exec ci-noweb-mariadb-1 mysql -uhotel -photel_secret polaris -e "DELETE FROM phpretro_banners; UPDATE phpretro_site_settings SET setting_value='1' WHERE setting_key='site_closed';"
+#
+#   # 3. compare (expect FAILURE at 2%, matching CI's ratio signature)
+#   npm --prefix tests/e2e run test:visual:container   # with BASE_NEW/port adjusted
+#
+#   # 4. tear down — scoped to this project only
+#   docker compose -p ci-noweb -f tools/ci-repro/compose-no-webgallery.yaml down -v
+#
+# Safety: `name:` below namespaces every container, network and volume as
+# `ci-noweb_*`. No `container_name:` is set, so nothing collides with the primary
+# stack, and `down -v` here can only destroy this project's throwaway volumes.
+# Never run a bare `docker compose down -v` from the repo root.
+
+name: ci-noweb
+
+services:
+  backend:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: "no"
+    environment:
+      APP_ENV: development
+      APP_PORT: 8080
+      LOG_LEVEL: debug
+      LOG_JSON: "false"
+      DB_HOST: mariadb
+      DB_PORT: 3306
+      DB_DATABASE: polaris
+      DB_USERNAME: hotel
+      DB_PASSWORD: hotel_secret
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - ci-noweb-net
+
+  mariadb:
+    image: mariadb:10.11
+    restart: "no"
+    environment:
+      MYSQL_ROOT_PASSWORD: root_secret
+      MYSQL_DATABASE: polaris
+      MYSQL_USER: hotel
+      MYSQL_PASSWORD: hotel_secret
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    networks:
+      - ci-noweb-net
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: "no"
+    volumes:
+      - redis_data:/data
+    networks:
+      - ci-noweb-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  proxy:
+    image: nginx:alpine
+    restart: "no"
+    ports:
+      - "3300:80"
+    volumes:
+      - ../../proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../../frontend/dist:/usr/share/nginx/html:ro
+      # DELIBERATELY ABSENT: ../../../legacy/phpretro-pdo/web-gallery.
+      # This is the reproduction. Docker creates /var/www/web-gallery as an
+      # empty directory, exactly as it does on a CI runner that never cloned the
+      # legacy checkout.
+    depends_on:
+      - backend
+    networks:
+      - ci-noweb-net
+
+networks:
+  ci-noweb-net:
+    driver: bridge
+
+volumes:
+  mariadb_data:
+  redis_data:

@@ -4,48 +4,50 @@ Four suites live here: one that captures legacy reference baselines, one that
 compares the converted public pages against them, and one that drives the
 converted housekeeping (admin) panel end to end.
 
-## 1. Visual parity — status: 6/6 pages passing
+## The canonical environment (one environment, three uses)
 
-`visual-parity.spec.ts` compares all six converted public pages against
-baselines captured from a real legacy stack within a pixel tolerance. All six
-pass under Linux Chromium (CI and `npm run test:visual:container`), and on
-Windows native at the same tolerance.
+Legacy baseline capture, local reproduction and CI all run the parity suite
+through `run-in-container.sh` inside the **same pinned image**:
+
+| Pinned | Value | Why |
+| --- | --- | --- |
+| Package | `@playwright/test` from `package-lock.json` (currently **1.63.0**) | The lockfile decides it, so CI and a workstation cannot drift |
+| Image | `mcr.microsoft.com/playwright:v1.63.0-noble` (`PLAYWRIGHT_IMAGE` in `playwright.config.ts`) | Pins the Chromium build (**chromium-1243**) *and* the font set. A runner's own Chromium plus distro fonts is a different rendering environment even on the same distro |
+| Viewport | 1280×800, `deviceScaleFactor: 1` | framing must not vary |
+| Locale / timezone | `en-US` / `UTC` (config *and* `TZ`/`LANG` in the runner) | date and number formatting reach the page; workstation and runner timezones differ |
+| Colour scheme | `light`, `--force-color-profile=srgb` | otherwise capture and comparison can disagree on colour |
+| Animations | `disabled`; `caret: 'hide'` | non-deterministic otherwise |
+| Args | `--force-device-scale-factor=1 --hide-scrollbars` | scrollbars change layout |
+
+Keep the image tag in step with the `@playwright/test` version. `npm ci` inside
+the runner is what enforces the package half of that.
+
+## 1. Visual parity — status: 6/6 pages passing at 2%
 
 ```sh
-npm run test:visual:container     # authoritative: Linux Chromium, what CI runs
-BASE_NEW=http://localhost:3000 npm run test:visual   # Windows/other native
+npm run test:visual:container     # authoritative: the pinned Linux container
+BASE_NEW=http://localhost:3000 npm run test:visual   # host browser, convenience only
 ```
 
 Baselines live in `../../docs/reference-screenshots/baseline/` and are committed.
-To re-capture them, bring up `tools/legacy-stack/` and run
-`npm run capture:container`.
 
-### Baselines are platform-specific, and that is why the tolerance is 10%
+### The tolerance is 2%, and why it needs no more
 
-The baselines are captured by **Linux Chromium**, in the same
-`mcr.microsoft.com/playwright:v1.47.0-jammy` image that CI uses. This matters
-because text rasterisation differs between platforms, and the tolerance has to
-reflect that rather than pretend it away.
+Inside the canonical environment the measured difference is **0 pixels on all
+six pages**, so 2% is slack, not headroom. The suite previously failed on CI and
+the threshold was briefly raised to 10% on a misdiagnosis — the failure was
+attributed to Windows-versus-Linux text rasterisation. It was not that:
 
-Measured, on the same markup and the same seeded data:
-
-| Comparison | Differing pixels per page |
-| --- | --- |
-| Linux render vs Linux baseline (CI, `test:visual:container`) | 0 (exact) |
-| **Windows** render vs Linux baseline | landing 4%, community 3%, articles 3%, help 3%, collectables 6%, maintenance 0% |
-
-The tolerance was previously 2%, which no Windows run could satisfy — the suite
-passed only on the machine whose rendering matched the capture. That is a real
-defect in the harness, not a markup regression: the earlier run of this suite in
-CI failed on exactly this. `MAX_DIFF_PIXEL_RATIO` in `playwright.config.ts` is
-now 10%: enough headroom over the 3-6% platform noise, and still well below the
-30%+ a real regression costs (a page rendering an empty content table instead of
-the seeded rows measures in that range).
-
-**Consequence, stated plainly:** the Linux comparison is the precise one and it
-is what CI runs. A Windows-native run detects gross regressions only. If precise
-Windows parity is wanted, the baselines would have to be captured on Windows and
-would then fail in CI — the two cannot both be exact with one set of PNGs.
+> **Root cause (proven).** `legacy/` is gitignored, so a CI workspace has no
+> `legacy/phpretro-pdo/web-gallery`. compose.yaml bind-mounts it into the proxy,
+> and Docker **creates a missing bind-mount source as an empty directory**, so the
+> mount succeeds and every legacy stylesheet and image 404s. The converted pages
+> reuse the legacy CSS verbatim, so they render as bare unstyled HTML: measured
+> **landing 0.23, community 0.19, collectables 0.22, maintenance 0.96** differing
+> pixels, against 0.00 for the two pages that need no legacy stylesheet. No
+> tolerance can fix or should hide that. CI now sparse-clones the legacy
+> `web-gallery` (901 files, 7.7 MB) into the workspace the stack expects, and a
+> guard step fails fast with a named cause if the mount is ever empty again.
 
 ### Data preconditions (all three are wired into CI)
 
@@ -63,8 +65,10 @@ would then fail in CI — the two cannot both be exact with one set of PNGs.
    `'0'`, so CI sets it back to `'1'` before running this suite. The comparison
    itself is against captured PNGs, so the flag does not affect the other five
    pages.
+3. **The legacy `web-gallery` must be present in the workspace.** See the root
+   cause above: without it every page renders unstyled.
 
-Locally, reproduce all three steps with:
+Locally, reproduce all of it with:
 
 ```sh
 get-content tools/legacy-stack/init/99-seed.sql -raw | docker exec -i hotel_mariadb mysql -uhotel -photel_secret polaris
@@ -145,8 +149,7 @@ single fixed `VIEWPORT` (1280×800, scale factor 1, scrollbars hidden).
 
 Requires a running legacy stack — `docker compose -f tools/legacy-stack/compose.yaml
 up -d --build`, answering on port 8081, with the same fixtures the new app is
-given. **Capture under Linux Chromium**, in the pinned image, so the baselines
-are platform-consistent:
+given. Capture in the **canonical environment** so the baselines are reproducible:
 
 ```sh
 # landing, community, articles, help, collectables (site open)
@@ -157,23 +160,30 @@ npm run capture:container
 # maintenance, in its own pass (legacy redirects every other page while closed)
 docker exec -i legacy_db mysql -uhotel -photel_secret polaris -e "UPDATE phpretro_site_settings SET setting_value='1' WHERE setting_key='site_closed';"
 docker exec legacy_web sh -c 'rm -f /var/www/html/cache/*.cache'
-# same command with CAPTURE_ONLY=maintenance
+CAPTURE_ONLY=maintenance npm run capture:container
 ```
 
-That writes `../../docs/reference-screenshots/baseline/<page>.png`. The
-`capture:container` script runs the capture inside the pinned Playwright image
-and copies the PNGs back into the tree.
+`capture:container` runs the capture inside the pinned image and copies the PNGs
+back into `../../docs/reference-screenshots/baseline/`.
 
-The capture spec refuses to save a baseline when the legacy app returns >= 400
-or an empty body, and refuses when the page redirected, so a misconfigured URL
-fails loudly instead of silently writing wrong baselines that later comparisons
-would "pass" against.
+**Baselines are captured from the LEGACY application only, never from the new
+one.** Capturing the new app would make the suite compare the new app against
+itself and pass unconditionally. The capture spec enforces what it can: it
+refuses to save when the app returns >= 400, renders an empty body, or redirects
+away from the requested path, so a wrong URL fails loudly instead of writing a
+wrong baseline that later comparisons would "pass" against.
+
+Provenance of the committed baselines: captured from `tools/legacy-stack/`
+(`legacy_web` + `legacy_db`, fixtures from `99-seed.sql`) in the pinned
+Playwright container, at the fixed viewport above, in two passes (site open for
+five pages, `site_closed=1` for maintenance). No baseline has ever been captured
+from the new application.
 
 ## Running the comparison
 
 ```sh
-npm run test:visual:container                         # Linux Chromium (authoritative)
-BASE_NEW=http://localhost:3000 npm run test:visual     # native, platform-tolerant
+npm run test:visual:container                          # canonical (what CI runs)
+BASE_NEW=http://localhost:3000 npm run test:visual      # host browser, convenience only
 ```
 
 
