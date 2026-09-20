@@ -172,7 +172,13 @@ fi
 
 restore() {
     if [ -f "$BACKUP" ]; then
-        mv -f "$BACKUP" "$MAP"
+        # `cp`, never `mv`: a bind-mounted FILE stays pinned to its original
+        # inode, so replacing it with a new one leaves the proxy reading the old
+        # content forever. That is exactly how this check first failed on CI --
+        # "expected legacy, got app" persisted through a reload even though the
+        # host file had changed, because the restore step had swapped the inode.
+        cp "$BACKUP" "$MAP"
+        rm -f "$BACKUP"
         reload_proxy || true
         say "  (map restored)"
     fi
@@ -188,15 +194,14 @@ check "route resolves to the new stack" app "$(probe)"
 say
 say "[2] Cutover — flip /articles/rss.xml to the legacy stack"
 cp "$MAP" "$BACKUP"
-# The single substitution the whole demonstration turns on. If the map ever stops
-# containing this exact line the substitution fails loudly instead of producing a
-# map that silently routes nothing.
-if ! sed -i 's|^\( *~\^/articles/rss\\\.xml\$\) legacy:80;|\1 app:8080;|' "$MAP"; then
-    bad "could not rewrite the map"
-fi
-sed -i 's|^\( *~\^/articles/rss\\\.xml\$\) app:8080;|\1 legacy:80;|' "$MAP"
+# Rewrite IN PLACE (truncate + write) so the file keeps its inode; see the note in
+# restore(). `sed -i` would create a new inode and the mounted copy would not
+# change on Linux, which makes the whole demonstration appear to do nothing.
+# The single substitution the demonstration turns on. If the map stops containing
+# this exact line the check below fails loudly rather than silently routing nothing.
+sed 's|^\( *~\^/articles/rss\\\.xml\$\) app:8080;|\1 legacy:80;|' "$BACKUP" > "$MAP"
 
-if grep -q 'legacy:80' "$MAP"; then
+if grep -q '^ *~\^/articles/rss\\\.xml\$ legacy:80;' "$MAP"; then
     ok "map now routes /articles/rss.xml to legacy:80"
 else
     bad "map rewrite did not take effect"
@@ -209,7 +214,8 @@ check "after cutover, route resolves to the legacy stack" legacy "$(probe)"
 # --- 3. rollback: put it back ----------------------------------------------
 say
 say "[3] Rollback — restore the committed map"
-mv -f "$BACKUP" "$MAP"
+cp "$BACKUP" "$MAP"
+rm -f "$BACKUP"
 reload_proxy
 wait_for_side app
 check "after rollback, route resolves to the new stack again" app "$(probe)"
