@@ -131,8 +131,9 @@ services:
       timeout: 3s
       retries: 5
 
-  # Same schema import order as tools/legacy-stack, so the legacy RSS endpoint
-  # reads the same table shape it does in the capture stack.
+  # Minimal schema, not the full CleanDB import: the harness exercises one
+  # endpoint (/articles/rss.xml), and the ~5.5 MB full import made this
+  # container fail to initialise on a GitHub runner. See the file's header.
   legacy-db:
     image: mariadb:10.11
     restart: "no"
@@ -143,16 +144,7 @@ services:
       MYSQL_PASSWORD: hotel_secret
     volumes:
       - legacy_db_data:/var/lib/mysql
-      - ../../../legacy/phpretro-pdo/references/schema/CleanDB.sql:/docker-entrypoint-initdb.d/01-clean.sql:ro
-      - ../../../legacy/phpretro-pdo/migrations/001_custom_tables.sql:/docker-entrypoint-initdb.d/02-m001.sql:ro
-      - ../../../legacy/phpretro-pdo/migrations/002_admin_features.sql:/docker-entrypoint-initdb.d/03-m002.sql:ro
-      - ../../../legacy/phpretro-pdo/migrations/003_web_minimail.sql:/docker-entrypoint-initdb.d/04-m003.sql:ro
-      - ../../../legacy/phpretro-pdo/migrations/004_web_homes.sql:/docker-entrypoint-initdb.d/05-m004.sql:ro
-      - ../../../legacy/phpretro-pdo/migrations/005_web_group_urls.sql:/docker-entrypoint-initdb.d/06-m005.sql:ro
-      - ../../../legacy/phpretro-pdo/migrations/006_restore_remaining.sql:/docker-entrypoint-initdb.d/07-m006.sql:ro
-      - ../../../legacy/phpretro-pdo/migrations/007_restore_remaining_501s.sql:/docker-entrypoint-initdb.d/08-m007.sql:ro
-      - ../../../legacy/phpretro-pdo/migrations/008_phase10_website_content.sql:/docker-entrypoint-initdb.d/09-m008.sql:ro
-      - ../../../legacy/phpretro-pdo/migrations/009_guild_tags.sql:/docker-entrypoint-initdb.d/10-m009.sql:ro
+      - ./cutover-legacy-min.sql:/docker-entrypoint-initdb.d/01-min.sql:ro
     networks:
       - cutover-net
     healthcheck:

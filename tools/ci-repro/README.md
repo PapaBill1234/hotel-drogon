@@ -14,7 +14,10 @@ reproduction runs in its own project with its own throwaway volumes.
 
 ```sh
 docker compose -p ci-cutover -f tools/ci-repro/compose-cutover.yaml up -d --build
-# seed both databases with the shared fixtures, then:
+# seed both databases (the harness's legacy DB has a minimal schema, so it takes
+# the subset fixtures, not the shared seed):
+get-content tools/ci-repro/cutover-fixtures.sql -raw | docker exec -i ci-cutover-mariadb-1 mysql -uhotel -photel_secret polaris
+get-content tools/ci-repro/cutover-fixtures.sql -raw | docker exec -i ci-cutover-legacy-db-1 mysql -uhotel -photel_secret polaris
 COMPOSE_ARGS="-p ci-cutover -f tools/ci-repro/compose-cutover.yaml" \
   sh scripts/check_cutover.sh http://localhost:3500
 docker compose -p ci-cutover -f tools/ci-repro/compose-cutover.yaml down -v
@@ -24,6 +27,18 @@ The CI job `cutover-check` runs exactly this. `scripts/check_cutover.sh` rewrite
 `proxy/cutover.map` (the committed file, restored on exit even if it fails),
 reloads the proxy, and asserts that `/articles/rss.xml` is served by the new
 stack, then by the legacy stack, then by the new stack again.
+
+Two details of the harness worth knowing before changing it:
+
+- `cutover-legacy-min.sql` creates only `phpretro_news` and
+  `phpretro_site_settings`, the two tables `xml/rss.php` reads. The full
+  `CleanDB.sql` import (~5.5 MB) made `ci-cutover-legacy-db-1` exit 1 on a GitHub
+  runner while the same stack starts fine locally; the harness does not need the
+  rest of the schema. `cutover-fixtures.sql` is the matching subset of the shared
+  seed, with values copied verbatim.
+- `check_cutover.sh` requires the Docker CLI and a proxy it can reach, so it runs
+  on the host or on a CI runner — not from inside a container, where the Compose
+  mount paths resolve to paths that do not exist on the Docker host.
 
 ## Why they are separate from `compose.yaml` (the repo root one)
 

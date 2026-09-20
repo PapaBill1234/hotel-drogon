@@ -354,13 +354,15 @@ jobs:
           docker compose -p ci-cutover -f tools/ci-repro/compose-cutover.yaml logs --tail=200
           exit 1
 
-      # Both sides get the shared fixtures so the two RSS implementations differ
-      # in content (that is what identifies which one answered) rather than one
-      # of them serving an empty feed.
+      # Both sides get the same fixtures, so the two RSS implementations differ in
+      # which one answered rather than one serving an empty feed. Deliberately a
+      # SUBSET of the shared seed: the harness's legacy database creates only the
+      # two tables this endpoint reads (see tools/ci-repro/cutover-legacy-min.sql),
+      # and the full CleanDB import made that container fail to start on a runner.
       - name: Seed both harness databases
         run: |
-          docker exec -i ci-cutover-mariadb-1 mysql -uhotel -photel_secret polaris < tools/legacy-stack/init/99-seed.sql
-          docker exec -i ci-cutover-legacy-db-1 mysql -uhotel -photel_secret polaris < tools/legacy-stack/init/99-seed.sql
+          docker exec -i ci-cutover-mariadb-1 mysql -uhotel -photel_secret polaris < tools/ci-repro/cutover-fixtures.sql
+          docker exec -i ci-cutover-legacy-db-1 mysql -uhotel -photel_secret polaris < tools/ci-repro/cutover-fixtures.sql
 
       - name: Verify cutover and rollback for /articles/rss.xml
         env:
