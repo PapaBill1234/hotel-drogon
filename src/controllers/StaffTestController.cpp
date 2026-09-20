@@ -34,6 +34,32 @@ void StaffTestController::testGate(
     );
 }
 
+void StaffTestController::session(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const drogon::HttpResponsePtr&)>&& callback
+) {
+    // Deliberately requireStaff(5), the same gate the content endpoints use:
+    // reporting a staff session to a caller that does not hold one would turn
+    // this into an account-enumeration surface. rank/username are only ever
+    // returned for the caller's own session cookie.
+    filters::AuthPolicy::requireStaff(
+        req,
+        5,
+        [callback](const services::StaffSessionData& session) {
+            Value root;
+            root["status"] = "ok";
+            root["username"] = session.username;
+            root["rank"] = session.rank;
+            root["2fa_verified"] = session.is_2fa_verified;
+            // Capability mirror of AuthPolicy::requireHighTrust, so the UI can
+            // refuse to *offer* a raw-HTML field instead of only being told no
+            // after submitting it. The server check remains the authority.
+            root["high_trust"] = session.rank >= filters::kHighTrustMinRank;
+            callback(drogon::HttpResponse::newHttpJsonResponse(root));
+        },
+        [callback](const drogon::HttpResponsePtr& denied) { callback(denied); });
+}
+
 void StaffTestController::banUser(
     const drogon::HttpRequestPtr& req,
     std::function<void(const drogon::HttpResponsePtr&)>&& callback

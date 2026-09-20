@@ -108,6 +108,13 @@ if [ -z "$ADMIN_ALL" ]; then
     exit 1
 fi
 
+# The admin UI restores its state from this endpoint on every load, so it is
+# part of the API the UI depends on and is asserted here with the rest.
+do_req GET "$BASE/api/admin/session" "$ADMIN_ALL"
+check "staff session introspection" 200
+contains "session reports the staff rank" '"rank":7'
+contains "session reports the high-trust capability" '"high_trust":true'
+
 # --------------------------------------------------------------- CRUD
 echo
 echo "[2] News CRUD (staff rank 7)"
@@ -156,6 +163,11 @@ USER_COOKIES="$(cookies_from_hdr)"
 CSRF="$USER_CSRF"
 do_req GET "$BASE/api/admin/news" "$USER_COOKIES"
 check "non-staff user blocked" 403
+
+# The session endpoint must not become an enumeration surface: a signed-in
+# non-staff user gets the same 403 as an anonymous visitor.
+do_req GET "$BASE/api/admin/session" "$USER_COOKIES"
+check "non-staff user cannot introspect a staff session" 403
 
 # ------------------------------------------------------- CSRF gate
 echo

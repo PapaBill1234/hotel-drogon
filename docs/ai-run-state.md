@@ -15,6 +15,62 @@ commit `77f7c87`. Plan installed at
 `7f01bcd7bc3c58070ffdfcb7f2208c0701ddcab48ebd310ac3bdb421d609e5a7` (verified
 byte-for-byte against the supplied attachment).
 
+## Update — 2026-09-21: the admin UI is built and verified
+
+The third item of the authorised sequence below is complete. Phase 4's exit
+condition is now met on both halves; Phase 2b is **still** incomplete and is
+still the active phase, for the reasons listed in item 1 below.
+
+**What was added.** A React housekeeping panel at the legacy `/housekeeping/*`
+URL shape (`frontend/src/pages/admin/`), driving every implemented
+`/api/admin/*` resource: news, FAQ, banners, campaigns, collectibles and site
+settings, plus a dashboard, a sign-in screen and an access gate. Supporting
+changes: `frontend/src/services/apiAdmin.ts` (typed client), `frontend/src/hooks/
+useAdminContent.ts`, `frontend/src/types/admin.ts`, `frontend/src/styles/
+admin.css`, routing in `App.tsx`, a `GET /api/admin/session` endpoint
+(`StaffTestController`), an nginx alias + compose mount for the legacy
+`housekeeping/images/` assets, `tests/e2e/admin.spec.ts`,
+`scripts/check_admin_ui_coverage.py`, and CI steps for the TypeScript build and
+both Playwright suites.
+
+**Why `GET /api/admin/session` was necessary.** `AuthPolicy::requireStaff` reads
+`hotel_staff_session`, while `CsrfFilter` validates against the *user* session's
+`csrf_token` — `StaffSessionData` has no such field. The panel therefore needs
+both cookies, and the sign-in screen creates both through `POST /api/auth/login`
+then `POST /api/auth/staff-login`, exactly as the smoke script does. The session
+endpoint is what lets a page reload tell "no staff session" apart from "not
+signed in", is gated at `requireStaff(5)`, and is asserted to return 403 for a
+signed-in non-staff user.
+
+**Verification run for this change (all local, against the live stack unless
+noted):**
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Admin UI browser flow | `PLAYWRIGHT_ADMIN=1 npx playwright test admin.spec.ts` | **9 passed** |
+| Public page visual parity | `BASE_NEW=http://localhost:3000 npx playwright test visual-parity.spec.ts` | **6 passed** |
+| Phase 3 auth/session/authz | `sh scripts/smoke_phase3.sh http://proxy` | **12 passed, 0 failed** |
+| Phase 4 admin CMS API | `sh scripts/smoke_phase4_admin.sh http://proxy` | **23 passed, 0 failed** (was 19; +4 for the session endpoint and its 403) |
+| Phase 4 public API + RSS | `python3 scripts/smoke_phase4_public.py http://proxy` | **17 passed, 0 failed** |
+| CSRF route lint | `python3 scripts/check_csrf_rules.py` | exit 0 — 47 routes, 24 mutating, all protected |
+| PolarIS isolation lint | `python3 scripts/check_polaris_access.py` | exit 0 — zero direct access outside `src/services/` |
+| **Admin API↔UI agreement lint** | `python3 scripts/check_admin_ui_coverage.py` | exit 0 — 25 routes, 26 client calls, 22 wired, 3 explicitly unwired |
+| …its failure modes | three seeded defects (renamed route, warning removed, raw `fetch()`) | each produced exit 1; tree restored to exit 0 |
+| Frontend build | `npm run build` in `frontend/` | clean (`tsc -b` + `vite build`) |
+| C++ build + sanitizers + CTest | `cmake -DENABLE_SANITIZERS=ON -DBUILD_TESTING=ON` + `cmake --build` + `ctest`, GCC/Debug/Ninja, `-Werror` | 0 warnings from this repository's sources, **1/1 test passed** |
+
+**Fixture hygiene.** The admin suite creates a banner and deletes it, asserting
+the row is gone rather than trusting the "deleted" notice — because
+`phpretro_banners` feeds the ad slots the parity baselines were captured
+against. Verified after a run: 0 banners, 0 leftover `E2E%` news rows. The
+pre-existing `smoke_phase4_admin.sh` still leaves banners behind; the e2e
+`README.md` documents clearing them before a parity run.
+
+**Still unproven, stated plainly:** the new CI steps (TypeScript build, admin
+Playwright, visual-parity Playwright) have not yet executed on CI. Locally they
+pass; "wired" is not "verified in CI".
+
+
 ## SAFETY CONSTRAINT — destructive Docker/database operations
 
 **Never run `docker compose down -v`, delete or reset Docker volumes, drop
@@ -41,14 +97,20 @@ operation, stop and ask instead.
 
 ## Why 2b is the selected phase
 
-Phase 2b's exit condition has four parts. Three are unmet and the fourth is
-unproven, and CI is currently red — so "build/container/test verification
-remains incomplete" is true in the strongest sense available. Phase 2b is also
-the gate the plan places before Phases 3–4 may be trusted.
+*(Reconciled 2026-09-21 after the admin UI work. The earlier note here said Phase
+4 also had an unmet exit check; that is no longer true, see the update at the top
+of this file. Phase 2b remains active.)*
 
-Work already completed in Phases 3 and 4 is **not** being restarted. Phase 4
-does, however, also have an unmet exit check (see below) — that is recorded, not
-papered over, and the phase label can be switched to 4 if preferred.
+Phase 2b's exit condition has four parts. The build, warnings-as-errors and
+sanitizer parts are met and locally re-verified. What remains is not "the build
+is broken": it is that **cutover/rollback is undemonstrable, Sentry is unwired,
+the preflight host checks were never recorded, the vcpkg/Conan deviation was
+never resolved or explicitly accepted, and the CI steps added for the frontend
+and browser tests have not yet run on CI.** Phase 2b is also the gate the plan
+places before Phases 3–4 may be trusted.
+
+Work already completed in Phases 3 and 4 is **not** being restarted, and Phase 4's
+exit condition is now met on both halves.
 
 ## Phase 2b — verification matrix
 
@@ -56,16 +118,16 @@ papered over, and the phase label can be switched to 4 if preferred.
 | --- | --- | --- |
 | Preflight: compiler/cmake/git/docker versions reported | **Not recorded** | No artifact in the repo |
 | vcpkg or Conan chosen and explained | **Deviation** | Dependencies come from Ubuntu 24.04 apt packages, not vcpkg/Conan. Works, but the plan's choice was never made or explained |
-| Everything compiles | **Yes** | CMake + Ninja build succeeds; CI job "C++ Drogon (Sanitizers + Tests)" success on `77f7c87` |
-| Warnings-as-errors enabled | **DONE** | `-Werror` added (with `/WX` for MSVC). The 7 known `-Wunused-parameter` findings in `PublicContentController.cpp` (168, 191, 213, 235, 257, 281, 300 — the handlers that take `req` and ignore it) are fixed by dropping the unused parameter names. Verified **zero compiler warnings** on clean builds in both configurations: Release (Docker image) and Debug + ASan/UBSan (CI's exact flags). **CI green on `824f634`** with `-Werror` active. One non-compiler warning remains and is deliberately NOT suppressed — see below |
-| ASan/UBSan on every test run | **Yes** | CI configures `-DENABLE_SANITIZERS=ON`; CTest passes |
+| Everything compiles | **Yes** | CMake + Ninja build succeeds; CI job "C++ Drogon (Sanitizers + Tests)" success on `824f634`; re-verified locally with `-DENABLE_SANITIZERS=ON`, Debug, GCC/Ninja, `-Werror` — 0 warnings from this repository's sources |
+| Warnings-as-errors enabled | **DONE** | `-Werror` added (with `/WX` for MSVC). The 7 known `-Wunused-parameter` findings in `PublicContentController.cpp` (168, 191, 213, 235, 257, 281, 300 — the handlers that take `req` and ignore it) are fixed by dropping the unused parameter names. Verified **zero compiler warnings** on clean builds in both configurations: Release (Docker image) and Debug + ASan/UBSan (CI's exact flags). **CI green on `824f634`** with `-Werror` active |
+| ASan/UBSan on every test run | **Yes** | CI configures `-DENABLE_SANITIZERS=ON`; CTest passes (re-run locally for this change: 1/1) |
 | Structured logging, `/health`, graceful shutdown, env config | **Yes** | spdlog JSON logging, `HealthController`, SIGTERM handler, `AppConfig::loadFromEnv` |
 | Async MariaDB + Redis clients, proven against real data | **Yes** | Live stack serves real queries; smoke suites exercise them |
-| Compose services (backend, MariaDB, Redis, worker, nginx, frontend build) | **Partial** | All present except a frontend build service; `frontend/dist` is built out-of-band and bind-mounted |
+| Compose services (backend, MariaDB, Redis, worker, nginx, frontend build) | **Partial** | All present except a frontend build service; `frontend/dist` is built out-of-band and bind-mounted locally and in CI |
 | CI covers CMake + sanitizers + tests | **Yes** | `.github/workflows/ci.yml` job `cpp-build-and-test` |
-| CI covers TypeScript build | **No** | No npm/vite/tsc step anywhere in CI |
-| CI covers Playwright | **No** | The visual-parity suite exists but never runs in CI |
-| **CI passes** | **Green, and the flake's mechanism is now fixed** | Passed on `9684e3a` and `b933abf`; failed on the identically-coded `77f7c87`. The readiness window behind the flake is closed and verified deterministically — see below |
+| CI covers TypeScript build | **Added, not yet run on CI** | `integration-smoke` now runs `npm ci && npm run build` in `frontend/` and restarts the proxy. Local build clean; no CI run has exercised it |
+| CI covers Playwright | **Added, not yet run on CI** | The same job installs Chromium and runs `admin.spec.ts` (`PLAYWRIGHT_ADMIN=1`) then `visual-parity.spec.ts`, uploading `test-results` on failure. Local results 9/9 and 6/6 |
+| **CI passes** | **Green, and the flake's mechanism is now fixed** | Passed on `9684e3a` and `b933abf`; failed on the identically-coded `77f7c87`. The readiness window behind the flake is closed and verified deterministically — see below. The newly added steps have not yet run on CI |
 | Route switch/proxy map with cutover **and rollback** demonstrated | **Not done** | `proxy/cutover.map` is orphaned: `nginx.conf` never includes it, has its own inline map, and `compose.yaml` has no legacy PHP upstream. `cutover.map` says `default legacy` while nginx actually defaults to the SPA. Rollback is not demonstrable |
 | Sentry wired | **Not wired** | `cfg.sentry_dsn` is read from env into `AppConfig` but no SDK is linked and nothing is reported. The inventory's "Sentry DSN configuration wired into AppConfig" overstates this |
 | Basic metrics endpoint | **Yes** | `/metrics` serves Prometheus text |
@@ -187,17 +249,12 @@ UI, and converted public pages match legacy screenshots within tolerance."*
 
 | Half | State |
 | --- | --- |
-| Converted public pages match legacy screenshots within tolerance | **Met** — 6/6 pages pass at a 2% pixel tolerance, reproduced on a freshly built stack |
-| Staff can manage public content through the new **admin UI** | **UNMET — no admin UI exists** |
+| Converted public pages match legacy screenshots within tolerance | **Met** — 6/6 pages pass at a 2% pixel tolerance, re-run after the admin UI landed |
+| Staff can manage public content through the new **admin UI** | **Met** — `frontend/src/pages/admin/*` drives every implemented `/api/admin/*` resource; 9/9 browser assertions in `tests/e2e/admin.spec.ts` |
 
-`/api/admin/*` is complete and verified (19/19 assertions: CRUD, per-field
-validation, audit rows, CSRF, rank gates, and the high-trust raw-HTML boundary
-at rank 5 vs 7). But the plan changed this requirement from the earlier wording
-"through the new admin API" to "through the new **admin UI**" and states the
-admin section is "real UI + backend work, not configuration". The frontend
-contains only six public pages — there is no admin route, page, or component,
-and nothing under `frontend/src` references admin. The admin UI is therefore
-missing implementation, not a verification gap.
+Residual note, not a gap in the exit condition: the API exposes no update
+endpoint for collectibles, so the panel creates and deletes them but cannot edit
+them. Recorded in the inventory and shown as a notice in the UI.
 
 ## Phase 1 — exit condition
 
@@ -217,14 +274,17 @@ foundation gap, and the plan's rules require an API contract before page work.
 | Check | Command | Result |
 | --- | --- | --- |
 | Visual parity (6 pages) | `npx playwright test` in `tests/e2e` | **6 passed** |
+| Admin UI flow (9 assertions) | `PLAYWRIGHT_ADMIN=1 npx playwright test admin.spec.ts` | **9 passed** |
 | Phase 3 auth/session/authz | `scripts/smoke_phase3.sh http://proxy` | **12 passed, 0 failed** |
-| Phase 4 admin CMS | `scripts/smoke_phase4_admin.sh http://proxy` | **19 passed, 0 failed** |
+| Phase 4 admin CMS | `scripts/smoke_phase4_admin.sh http://proxy` | **23 passed, 0 failed** |
 | Phase 4 public API + RSS | `scripts/smoke_phase4_public.py http://proxy` | **17 passed, 0 failed** |
-| CSRF route lint | `scripts/check_csrf_rules.py` | exit 0 — 46 routes, 24 mutating, all protected |
+| CSRF route lint | `scripts/check_csrf_rules.py` | exit 0 — 47 routes, 24 mutating, all protected |
 | PolarIS isolation lint | `scripts/check_polaris_access.py` | exit 0 — zero direct access outside `src/services/` |
-| C++ build + sanitizers + CTest | CI job `cpp-build-and-test` on `9684e3a` | success |
-| Live-stack integration smoke | CI job `integration-smoke` on `9684e3a` | **success — but flaky; it failed on the identically-coded `77f7c87`** |
-| Isolated CI repro (primary untouched) | `tools/ci-repro/` + Linux client, fresh volumes | Phase 3 smoke **12/12** on a fresh database |
+| Admin API↔UI agreement lint | `scripts/check_admin_ui_coverage.py` | exit 0 — 25 routes, 22 wired, 3 explicitly unwired |
+| Frontend build | `npm run build` in `frontend/` | clean |
+| C++ build + sanitizers + CTest | `cmake -DENABLE_SANITIZERS=ON` + `ctest`, GCC/Debug, `-Werror` | 0 warnings, 1/1 test passed |
+| CI job `cpp-build-and-test` | CI on the last pushed commit | success as of `824f634`; unchanged by this work |
+| CI job `integration-smoke` | CI on the last pushed commit | **New steps not yet exercised on CI** — the TypeScript build, admin Playwright and visual-parity steps were added in this change and have only run locally |
 
 Parity requires two data preconditions, both documented in
 `tests/e2e/README.md`: both apps must hold identical content
@@ -247,7 +307,8 @@ a deterministic probe shows 503-then-200 with login succeeding at the first 200
 — versus a violated invariant on the pre-fix image. *Remaining in this item:*
 confirm on CI that the job is now stable (green runs), since the fix removes the
 mechanism but only CI can confirm the flake is gone. Then the rest of the Phase
-2b matrix: add a TypeScript-build job and a Playwright job to CI; make the cutover
+2b matrix: **the TypeScript-build and Playwright CI steps are now written** (see
+the update above) but have not run on CI, so confirm them there; make the cutover
 map real (include it in `nginx.conf`, add a legacy upstream, and demonstrate
 cutover **and** rollback for one route) or delete it and correct the inventory;
 Sentry either wired or its claim downgraded; the vcpkg/Conan deviation either
@@ -257,20 +318,20 @@ resolved or explicitly accepted; the preflight host-check results recorded.
 clean builds are warning-free in both the Release and the sanitizer
 configurations.
 
-**2. Close the missing Phase 1 OpenAPI deliverable.**
+**2. Close the missing Phase 1 OpenAPI deliverable. — NEXT WORK UNIT.**
 Phase 1's exit condition requires "an OpenAPI document for the first slice".
 None exists anywhere in the repository. Produce it for the auth / `me` /
 profile slice (and the endpoints since built), or record a deliberate,
-justified decision to supersede the requirement.
+justified decision to supersede the requirement. Nothing in this change touched
+it, so it is still exactly as described.
 
-**3. Return to Phase 4 and implement and verify the missing admin UI.**
-The Phase 4 exit condition requires staff to manage content *through the new
-admin UI*; only the API exists. Build the admin UI against the already-verified
-`/api/admin/*` endpoints, including the visible high-trust warning for
-raw-HTML/script fields that the plan calls for, then re-check the Phase 4 exit
-condition line by line.
+**3. Return to Phase 4 and implement and verify the missing admin UI. — DONE.**
+The panel is built and verified (9/9 browser assertions, 6/6 parity re-run,
+23/23 admin API smoke). See the 2026-09-21 update at the top of this file.
 
 **4. Do not advance to Phase 5 until 1–3 are complete.**
+Item 3 is now complete. Items 1 (the residual Phase 2b items) and 2 (the OpenAPI
+document) remain, so **Phase 5 is still gated**.
 
 While working the above, honour the safety constraint at the top of this file:
 no destructive volume/database operations without explicit approval, and CI

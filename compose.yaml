@@ -92,6 +92,10 @@ services:
       # pages must reuse verbatim (nginx aliases /web-gallery/ to this path).
       # Without it the React pages render completely unstyled.
       - ../legacy/phpretro-pdo/web-gallery:/var/www/web-gallery:ro
+      # Legacy housekeeping panel assets, aliased to /housekeeping/images/ by
+      # nginx. The converted admin panel keeps the legacy URL shape, so its
+      # stylesheets and icons have to come from the same read-only checkout.
+      - ../legacy/phpretro-pdo/housekeeping/images:/var/www/housekeeping-images:ro
       # React SPA build. Run `npm run build` in frontend/ first; nginx serves
       # this and falls back to index.html for client-side routes.
       - ./frontend/dist:/usr/share/nginx/html:ro

@@ -6,6 +6,7 @@
   "scripts": {
     "capture": "playwright test --config=playwright.capture.config.ts",
     "test:visual": "playwright test",
+    "test:admin": "playwright test admin.spec.ts",
     "report": "playwright show-report"
   },
   "devDependencies": {

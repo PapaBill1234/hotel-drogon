@@ -1,12 +1,14 @@
-# Visual-parity harness (Phase 4)
+# Playwright harness (Phase 4)
 
-Compares each converted React page against the legacy PHPRetro page it replaces,
-at a fixed viewport, within a pixel tolerance.
+Four suites live here: one that captures legacy reference baselines, one that
+compares the converted public pages against them, and one that drives the
+converted housekeeping (admin) panel end to end.
 
-## Status: 6/6 pages passing
+## 1. Visual parity — status: 6/6 pages passing
 
-`visual-parity.spec.ts` compares all six converted pages against baselines
-captured from a real legacy stack, within a 2% pixel tolerance. All six pass.
+`visual-parity.spec.ts` compares all six converted public pages against
+baselines captured from a real legacy stack, within a 2% pixel tolerance. All
+six pass.
 
 ```sh
 BASE_NEW=http://localhost:3000 npm run test:visual   # 6 passed
@@ -26,6 +28,41 @@ To re-capture them, bring up `tools/legacy-stack/` and run `npm run capture`.
    while the site is open, so its baseline can only be captured closed. The
    comparison itself runs against captured PNGs, so flipping the flag does not
    affect the other five pages.
+
+The admin UI suite (`admin.spec.ts`) deletes everything it creates, so it does
+not need that cleanup step; it asserts the removal rather than just the success
+notice, precisely because a leftover banner would change the public markup the
+baselines were captured against.
+
+## 2. Admin UI flow — the Phase 4 exit condition
+
+`admin.spec.ts` proves staff can manage content **through the admin UI**, which
+is the half of the Phase 4 exit condition the API-only smoke suite could not
+cover.
+
+```sh
+PLAYWRIGHT_ADMIN=1 npx playwright test admin.spec.ts   # 9 passed
+# PowerShell: $env:PLAYWRIGHT_ADMIN='1'; npx playwright test admin.spec.ts
+```
+
+It is gated on `PLAYWRIGHT_ADMIN=1` so a bare `npx playwright test` keeps
+exactly its previous meaning (the six parity tests) on machines with no stack
+running. What it covers:
+
+| # | Assertion |
+| --- | --- |
+| 1 | an anonymous visitor sees the staff gate, not panel content |
+| 2 | a rank-1 account is refused with the rank requirement named |
+| 3 | a wrong password is refused |
+| 4 | successful sign-in yields **both** cookies (`hotel_session` *and* `hotel_staff_session`) |
+| 5 | create → edit → per-field validation error → delete a news article through the forms |
+| 6 | a mutation stripped of `X-XSRF-TOKEN` is refused with 403 |
+| 7 | raw-HTML banner content shows the high-trust warning before submit, is written, and never renders as markup |
+| 8 | settings list existing keys and save a change, then restore it |
+| 9 | logout returns to the gate |
+
+Fixtures: `admin` / `password123` (rank 7) and `testuser` / `password123`
+(rank 1), both seeded by `src/main.cpp`.
 
 ## Diagnostics
 

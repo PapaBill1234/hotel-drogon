@@ -39,26 +39,27 @@ says Filament) before it compounds.
 | Docker Compose (backend binary, MariaDB, Redis, worker binary, nginx proxy) | Yes | **Done.** `compose.yaml` running Drogon C++ server, MariaDB 10.11, Redis 7, worker process, and nginx reverse proxy. |
 | `web-gallery` served without copying/hashing | Yes | **Done.** nginx `alias` mount directly in `proxy/nginx.conf`. |
 | Route switch/proxy with instant rollback | Yes | **NOT DONE — the previous "Done, tested and verified live" claim was wrong.** `proxy/cutover.map` is **orphaned**: `proxy/nginx.conf` never includes it and defines its own inline `map $uri $target_backend`. The two disagree — `cutover.map` says `default legacy`, while nginx actually sends unmatched routes to the React SPA. There is no legacy PHP service in `compose.yaml`, so no `legacy` upstream exists and **rollback cannot be demonstrated**. Either wire the map up with a real legacy upstream and prove cutover + rollback, or delete it and correct this row. |
-| CI (CMake build with ASan/UBSan, Catch2 unit tests) | Yes | **Partial.** Job `cpp-build-and-test` builds on Ubuntu 24.04 with GCC, ASan/UBSan and CTest — green. But there is **no warnings-as-errors** (`-Wall -Wextra` only, no `-Werror`), **no TypeScript build job** and **no Playwright job**; the visual-parity suite never runs in CI. The live-stack job `integration-smoke` was **FAILING** on `77f7c87` — see Phase 2b below. |
+| CI (CMake build with ASan/UBSan, Catch2 unit tests) | Yes | **Covered, and the gaps have been addressed.** Job `cpp-build-and-test` builds on Ubuntu 24.04 with GCC, ASan/UBSan, `-Werror` and CTest (green). The live-stack job `integration-smoke` now also runs the three Python lints, `sh scripts/smoke_phase4_admin.sh`, `python3 scripts/smoke_phase4_public.py`, a TypeScript frontend build and both Playwright suites. The `integration-smoke` job was **FAILING** on `77f7c87`; that was isolated to a readiness race and fixed — see Phase 2b below. |
 | Redis cache/sessions/queues/locks | Yes | **Done.** Async Redis client configured with database routing, health check verified. |
 | Background Worker | Minimal worker binary | **Done.** `hotel_worker` binary building and running in container. |
 | Structured logging, /health, /metrics | Yes | **Done.** spdlog JSON logging, `/health` and `/metrics` controllers verified live. |
 | Sentry / Metrics | Before public cutover | **Not wired (previous claim overstated).** `/metrics` Prometheus endpoint is live. `AppConfig` reads `SENTRY_DSN` into `cfg.sentry_dsn`, but no Sentry SDK is linked and nothing is ever reported — the field is inert. |
 
-### Phase 2b — build, containerize, verify (status at `77f7c87`)
+### Phase 2b — build, containerize, verify (status at the admin-UI commit)
 
-The plan's Phase 2b exit condition has four parts; three are unmet and the
-fourth is unproven. **Verification is incomplete, so Phase 2b is not complete.**
+The plan's Phase 2b exit condition has four parts. Two are met, one is partially
+met, and one remains unmet. **Phase 2b is still not complete**, and nothing below
+should be read as claiming it is.
 
 | Requirement | State |
 | --- | --- |
-| Compiles; sanitizers on every test run | **Yes** — CI `cpp-build-and-test` green; CTest passes under ASan/UBSan |
-| Warnings-as-errors enabled, all warnings cleared | **Yes** — `-Werror` added; the 7 `-Wunused-parameter` findings in `PublicContentController.cpp` cleared; clean builds warning-free in both Release and Debug+ASan/UBSan |
-| CI covers TypeScript build and Playwright | **No** — neither exists in CI |
-| **CI passes** | **Green, and the flake's mechanism is fixed** — passed on `9684e3a` and `b933abf`, failed on the identically-coded `77f7c87`; the readiness window behind it is closed and verified deterministically |
+| Compiles; sanitizers on every test run | **Yes** — `cpp-build-and-test` green; and re-verified locally for this change with the sanitizer configuration (`-DENABLE_SANITIZERS=ON`, Debug, GCC, Ninja), `-Werror` active, zero warnings from this repository's sources, CTest 1/1 passed |
+| Warnings-as-errors enabled, all warnings cleared | **Yes** — `-Werror`; the 7 `-Wunused-parameter` findings in `PublicContentController.cpp` cleared; clean builds warning-free in both Release and Debug+ASan/UBSan |
+| CI covers TypeScript build and Playwright | **Added, not yet observed green** — `integration-smoke` now builds `frontend/` with `npm ci && npm run build`, restarts the proxy, installs Chromium and runs `admin.spec.ts` then `visual-parity.spec.ts`. Locally clean (tsc/vite clean, 9/9 and 6/6); a CI run has not yet exercised the steps, so this is "wired", not "verified in CI" |
+| **CI passes** | **Green, and the flake's mechanism is fixed** — passed on `9684e3a` and `b933abf`, failed on the identically-coded `77f7c87`; the readiness window behind it is closed and verified deterministically. The jobs added in this step have not yet run on CI |
 | Cutover **and rollback** demonstrated for a real route | **No** — see the cutover row above |
 | Sentry wired | **No** — inert config field only |
-| Compose services incl. a frontend build | **Partial** — no frontend build service; `frontend/dist` is built out-of-band and bind-mounted |
+| Compose services incl. a frontend build | **Partial** — no frontend build service; `frontend/dist` is built out-of-band and bind-mounted (locally and now in CI). The proxy additionally mounts the legacy `housekeeping/images/` tree read-only so `/housekeeping/images/…` resolves instead of being answered with the SPA shell. |
 | Preflight host checks recorded | **No artifact** |
 | vcpkg/Conan chosen and explained | **Deviation** — dependencies come from Ubuntu apt packages; the plan's choice was never made or explained |
 
@@ -218,11 +219,11 @@ use `Json::Value`/`isMember`/`asString`.
 
 ### Phase 4b — Drogon C++ implementation (current stack)
 
-**Exit condition status: NOT MET.** The plan requires *"staff can manage public
-content through the new admin UI, and converted public pages match legacy
-screenshots within tolerance."* The screenshot half is fully met (6/6). The
-admin-UI half is not: the API exists and is verified, but there is no UI. See
-the "Admin CMS UI" row below.
+**Exit condition status: MET at 2026-09-21.** The plan requires *"staff can
+manage public content through the new admin UI, and converted public pages match
+legacy screenshots within tolerance."* Both halves now have evidence:
+screenshot parity **6/6**, and the admin UI drives all six resources through the
+browser in **9/9** Playwright assertions (`tests/e2e/admin.spec.ts`).
 
 Ported from `legacy/phpretro-pdo` at the reviewed commit. The Laravel rows above
 are historical; these are the live statuses.
@@ -230,13 +231,79 @@ are historical; these are the live statuses.
 | Page/feature | Legacy source | Status |
 | --- | --- | --- |
 | Content models (`phpretro_*`) | `migrations/001`, `008` | **Done.** Typed structs + `ContentService` named methods (not Drogon ORM classes — one data-access idiom with Phase 3). Schema bootstrapped at startup for `phpretro_news`, `phpretro_collectibles`, `phpretro_faq`, `phpretro_banners`, `phpretro_campaigns`, `phpretro_site_settings`. |
-| Admin CMS API | legacy `housekeeping/*` | **Done.** `/api/admin/{news,faq,collectibles,banners,campaigns,settings}`, staff rank ≥ 5, per-field validation, audit-logged, CSRF-enforced. 19/19 smoke assertions. |
-| Admin CMS **UI** | legacy `housekeeping/*` | **NOT STARTED — this is the unmet half of the Phase 4 exit condition.** The plan requires staff to manage content "through the new admin UI" and calls the admin section "real UI + backend work, not configuration". The frontend contains only the six public pages: no admin route, page or component, and nothing under `frontend/src` references admin. The API is complete and tested; the UI that would let staff use it does not exist. |
-| High-trust raw-HTML gating | not gated in legacy | **Done.** `AuthPolicy::requireHighTrust` (rank ≥ 7), enforced in controller *and* service, visible warning in responses, `X-High-Trust-Required` on denial, high-trust writes distinctly audit-labelled. Public API never exposes `html`. |
+| Admin CMS API | legacy `housekeeping/*` | **Done.** `/api/admin/{news,faq,collectibles,banners,campaigns,settings}`, staff rank ≥ 5, per-field validation, audit-logged, CSRF-enforced. **23/23** smoke assertions (was 19/19; +1 for the new session endpoint, +2 for session introspection, +1 for the non-staff denial on it). |
+| Admin CMS **UI** | legacy `housekeeping/*` | **Done.** `frontend/src/pages/admin/*` — a React panel at the legacy `/housekeeping/*` URL shape with sign-in, a nav of only-implemented sections, and one screen per resource. **9/9** Playwright assertions including create→edit→validate→delete, both-session sign-in, the CSRF header requirement, the high-trust warning, and logout. See "Admin UI" below. || High-trust raw-HTML gating | not gated in legacy | **Done, and stricter than legacy.** `AuthPolicy::requireHighTrust` (rank ≥ 7), enforced in controller *and* service, visible warning in the UI **before** submit and in the API response, `X-High-Trust-Required` on denial, high-trust writes distinctly audit-labelled. Public API never exposes `html`. The legacy `housekeeping/banners.php` let any rank-5 member of staff write markup into a field the public pages echo unescaped; that write is now rank-gated. |
 | Public content API | the `*.php` pages | **Done.** `/api/public/{landing,news,news/{id},faq,collectibles,banners,campaigns,maintenance,settings}`. |
 | RSS | `xml/rss.php` | **Done, with bug fixed.** See "RSS double-escaping" below. |
 | React pages (landing, community, articles, FAQ, collectables, maintenance) | the `*.php` pages | **Done and visually verified.** `frontend/` (Vite + React 18 + TS + TanStack Query); all six pages render the legacy markup and classes verbatim. `tsc -b && vite build` clean. |
-| Screenshot parity tests | n/a | **Done — 6/6 pages pass** at a 2% pixel tolerance. Baselines are captured from a real legacy stack (`tools/legacy-stack/`) at a fixed 1280×800 viewport. |
+| Screenshot parity tests | n/a | **Done — 6/6 pages pass** at a 2% pixel tolerance, re-run after the admin UI landed (the admin suite creates and deletes a banner, so this also proves it leaves no fixture behind). Baselines are captured from a real legacy stack (`tools/legacy-stack/`) at a fixed 1280×800 viewport. |
+
+#### Admin UI (the half that was missing)
+
+Built as a decoupled React panel at the legacy path, so existing links and
+bookmarks survive. Entry points: `/housekeeping` (dashboard), `/housekeeping/
+{news,faq,banners,campaigns,collectables,settings}`, `/housekeeping/login`.
+
+- **Both sessions are required, and the UI establishes both.** `AuthPolicy::
+  requireStaff` reads `hotel_staff_session`; `CsrfFilter` validates the submitted
+  token against the `csrf_token` of the **user** session in `hotel_session`
+  (`StaffSessionData` has no `csrf_token` field at all). The sign-in screen
+  therefore performs `POST /api/auth/login` **and** `POST /api/auth/staff-login`,
+  exactly as `scripts/smoke_phase4_admin.sh` does, so the browser path and the
+  smoke path cannot drift apart.
+- **New endpoint: `GET /api/admin/session`.** The legacy panel re-checked the
+  staff session server-side on every request (`includes/hksession.php`); a
+  decoupled SPA has no such hook. This endpoint reports the staff session the
+  caller actually holds (`username`, `rank`, `2fa_verified`, `high_trust`),
+  passwordless and idempotent, gated at `requireStaff(5)`. A signed-in non-staff
+  user gets 403, asserted in the smoke suite so it cannot become an
+  enumeration surface.
+- **The three refusal states are distinguished.** `admin-blocked` renders
+  `signed-out`, `not-staff` (naming the required rank) or `no-staff-session`
+  (signed in at rank ≥ 5 but the 2h staff session is absent or expired) — three
+  different next actions, rather than one generic "access denied".
+- **Navigation lists only implemented sections.** The legacy menu had catalogue,
+  newsletter, vouchers, users, bans, alerts, help desk, reports, staff sessions,
+  2FA, logs, cache and maintenance; none has an endpoint, so none is linked, and
+  the dashboard says so explicitly (plan rule 6).
+- **Per-field validation, not one flat notice.** `ContentService` returns the
+  exact rejected column in `field`; the form attaches the server's message to
+  that input. Legacy `news.php` had a single fixed sentence for every failure.
+- **`%path%` tokens are still rewritten to `/`** on banner and campaign
+  save/load, as the legacy page did with `str_replace('%path%', PATH, …)`.
+
+#### Deliberate divergences from the legacy housekeeping pages
+
+Recorded rather than silently absorbed, as plan rule 8 requires:
+
+| Area | Legacy | Port | Why |
+| --- | --- | --- | --- |
+| Raw-HTML banner writes | rank 5 | rank 7 (`requireHighTrust`) | Legacy let ordinary staff write markup the public pages echo unescaped. Stricter is deliberate; the denial is reported in the UI and in `X-High-Trust-Required`. |
+| Site settings writes | whole page gated at rank 7; every key posted at once; `generateCache()` after | endpoint gated at rank 5, escalating to rank 7 only when a *value* carries markup; one key per call | One rejected raw-HTML key no longer discards the other keys' saves. The backend reads `phpretro_site_settings` per request, so there is no cache to regenerate. |
+| Collectibles | full create/edit/delete | create + delete only | `AdminContentController` has no `PUT /api/admin/collectibles/{id}`. This is an **API gap**, shown in the UI as a notice rather than a disabled button. |
+| Campaigns | "Name and image are required." | only `name` is required | The server is the authority; the form does not invent a client rule that contradicts it. Recorded as a deliberate difference. |
+| "Month timestamp" number box | raw epoch `<input type="number">` | `<input type="month">` writing the same epoch | First instant of the chosen month, local time — the same value the legacy default produced. Column unchanged. |
+| Banners list | Order / Data / Visible | Order / Text / Data / Visible | Legacy showed only the word "HTML" for an advanced banner, so its text was invisible in the list and "which row am I deleting" was unanswerable. |
+| Panel chrome | `housekeeping/images/styles/style.css` | `frontend/src/styles/admin.css`, palette copied from that file | Measured and rejected: its `* { font-size:10px; letter-spacing:-1px }` fights React's form controls, and `.panel_header` positions the menu absolutely with a hover-only flyout that has no keyboard path. The legacy assets are still served read-only at `/housekeeping/images/` for reference and reuse. |
+| Row deletion | form POST per row | `DELETE /api/admin/<res>/{id}` | The API shape; CSRF still required on every mutation. |
+
+#### Static agreement check between the API and the UI
+
+`scripts/check_admin_ui_coverage.py` (in CI) fails the build when:
+
+- a registered `/api/admin/*` route has no call in `frontend/src/services/apiAdmin.ts`
+  and is not listed in `ALLOWED_UNWIRED` with a written reason (currently
+  `test-gate`, `bans`, `bans/revoke` — Phase 9 surface);
+- a mutating route is "covered" by a call with the wrong HTTP method;
+- any module outside the two service clients calls `fetch()` directly;
+- `GET /api/admin/session` is not served or not used;
+- no admin page renders the `<HighTrustWarning>` component the plan requires.
+
+Current output: *25 admin routes, 26 client calls, 22 wired, 3 explicitly
+unwired* — exit 0. Its failure modes were verified by seeding three defects
+(a renamed route, the warning removed from both pages, a raw `fetch()` added to a
+page); each produced exit 1, and the tree was restored to exit 0.
+
 
 #### Per-page parity status
 
@@ -379,8 +446,9 @@ against a running legacy stack.
 - **Genuinely reusable now:** middleware boundary (`hotel.auth`/`optional`/`staff`/`guest`), `PolarisAuthService`, the Homes/Hotel data-layer logic, Docker/nginx scaffolding, the `phpretro_*` migrations, reports/help-desk (the one fully-functional Laravel-era admin feature). The "routing map" and "cutover scaffolding" are **not** reusable as they stand — `cutover.map` is orphaned and rollback is undemonstrable.
 - **Needs replacing, not extending:** every Blade template for a hotel page (→ Inertia+React), `HousekeepingController`/`HousekeepingToolsController` (→ Filament), the CSRF exemption list (→ real token bridging). `HolodbWriteGuard` has been **replaced in the C++ stack** by named service classes; the Laravel-era guard is now historical.
 - **Done in the C++ stack (Phase 3b):** the named Polaris service layer, explicit authorization policy functions, CSRF enforcement on mutating routes, Redis sessions with separate public/staff cookies, audit logging. These were the "not started" items in the Laravel-era read.
-- **Done in the C++ stack (Phase 4b):** the content service layer, the `/api/admin/*` CMS API, high-trust gating for raw-HTML banner fields, the public `/api/public/*` API, the RSS feed (with the `xml/rss.php` double-escaping defect fixed), and all six public pages as React components — visually verified 6/6 against captured legacy baselines.
-- **Still not started:** Reverb/live notifications, the dnd-kit/TanStack Query Homes rebuild, monitoring/Sentry (the config field is inert), the versioned JSON layout API, and any actual cutover. Screenshot parity testing is **no longer** on this list — it is done.
-- **The next blocker is verification, not features.** Phase 2b's exit condition is unmet: CI does not pass (the `integration-smoke` job failed on `77f7c87`), warnings-as-errors is not enabled, CI has no TypeScript or Playwright job, Sentry is unwired, and the cutover/rollback path cannot be demonstrated. Rules 7 and 10 make an unverified foundation an explicit gap rather than a pass, so this comes before new feature work.
-- **The Phase 4 exit condition is only half met.** Screenshot parity passes 6/6, but the plan requires staff to manage content *through the new admin UI* and no admin UI exists — only the API. The plan also names an OpenAPI document in Phase 1's exit condition and none exists. Both are missing implementation, not verification. The user has since authorised the order of work: finish Phase 2b, then the OpenAPI document, then the admin UI, and do not advance to Phase 5 until all three are complete. See `ai-run-state.md`.
+- **Done in the C++ stack (Phase 4b):** the content service layer, the `/api/admin/*` CMS API, high-trust gating for raw-HTML banner fields, the public `/api/public/*` API, the RSS feed (with the `xml/rss.php` double-escaping defect fixed), all six public pages as React components — visually verified 6/6 against captured legacy baselines — and, as of this commit, the **admin UI** that makes the Phase 4 exit condition's first half true: a React panel at `/housekeeping/*` driving every implemented `/api/admin/*` resource, verified 9/9 through the browser.
+- **Still not started:** Reverb/live notifications, the dnd-kit/TanStack Query Homes rebuild, monitoring/Sentry (the config field is inert), the versioned JSON layout API, and any actual cutover. Screenshot parity testing and the admin UI are **no longer** on this list.
+- **Phase 2b remains incomplete, for one reason only:** cutover/rollback is undemonstrable (`cutover.map` is orphaned and there is no legacy upstream), Sentry is unwired, the preflight host checks were never recorded, and the vcpkg/Conan deviation was never resolved or explicitly accepted. The build, warnings-as-errors and sanitizer requirements are met. The CI TypeScript and Playwright steps now exist but have not yet run on CI, so they are wired rather than verified.
+- **Phase 1 is still outstanding:** the plan's Phase 1 exit condition requires an OpenAPI document for the first slice, and none exists anywhere in the repository. Rules 7 and 10 make that an explicit foundation gap, not a pass. It is the next work unit after Phase 2b's remaining items, ahead of Phase 5.
+- **The Phase 4 exit condition is now met**, with one residual note: `AdminContentController` exposes no update endpoint for collectibles, so the admin UI can create and delete them but not edit them. That is recorded here and surfaced in the UI rather than hidden.
 - **The service layer remains narrow in breadth:** it covers identity, bans, guilds, reports and CMS content. Registration, credit/pixel edits, badge saves, and group create/purchase are still unimplemented, so the "refused" rows in Phases 5–9 stay refused until each gets its own named, audited service method. The pattern is established; the breadth is not.
