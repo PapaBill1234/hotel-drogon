@@ -81,7 +81,9 @@ step "Run Phase 3 smoke suite" on `77f7c87` (run `35512912865`). The very next
 commit, `9684e3a`, changed **docs only** — the code is byte-identical for
 anything the smoke exercises — and the same job passed every step
 (run `35514365424`), including the Phase 4 admin and public/RSS suites that had
-been skipped the run before. Same code, same steps, different outcome.
+been skipped the run before. `b933abf` (docs + test tooling, no application
+code) then passed both jobs again (run `35515560819`). Same code, same steps,
+different outcome — three runs, one failure.
 
 **A real defect that explains it.** Started fresh in isolation, the backend logs
 show the server accepting connections well before it has usable data:
