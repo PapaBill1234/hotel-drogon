@@ -6,38 +6,12 @@
     <link rel="shortcut icon" href="/web-gallery/v2/favicon.ico" type="image/vnd.microsoft.icon" />
     <link rel="alternate" type="application/rss+xml" href="/articles/rss.xml" />
     <!--
-      The exact stylesheet set and ORDER used by templates/community_header.php.
-      These are the legacy stylesheets, served unmodified from the mounted
-      web-gallery: the converted pages are required to reuse the original
-      markup and classes, so they must reuse the original CSS too. Order is
-      significant (later files override earlier ones).
+      No page stylesheets here on purpose. The legacy page families each load a
+      DIFFERENT set (community_header.php, login_header.php,
+      maintenance_header.php) and declaring one globally made the maintenance
+      page inherit community rules it should never have. Each page now declares
+      its own set via components/LegacyStyles.tsx.
     -->
-    <link rel="stylesheet" href="/web-gallery/v2/styles/style.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/v2/styles/buttons.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/v2/styles/boxes.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/v2/styles/tooltips.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/v2/styles/welcome.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/v2/styles/personal.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/v2/styles/minimail.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/styles/myhabbo/control.textarea.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/v2/styles/settings.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/v2/styles/friendmanagement.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/v2/styles/rooms.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/v2/styles/collectibles.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/styles/myhabbo/myhabbo.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/styles/myhabbo/skins.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/styles/myhabbo/dialogs.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/styles/myhabbo/buttons.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/styles/myhabbo/control.textarea.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/styles/myhabbo/boxes.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/v2/styles/myhabbo.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/styles/myhabbo/assets.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/v2/styles/lightwindow.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/v2/styles/group.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/styles/discussions.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/v2/styles/ie8.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/v2/styles/ie.css" type="text/css" />
-    <link rel="stylesheet" href="/web-gallery/v2/styles/ie6.css" type="text/css" />
   </head>
   <body>
     <div id="root"></div>

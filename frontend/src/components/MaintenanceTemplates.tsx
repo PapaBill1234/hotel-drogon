@@ -1,4 +1,5 @@
 import { LEGACY_ALIGN_LEFT, LEGACY_BORDER_ZERO } from '../services/jsxLegacy';
+import { MaintenanceStyles } from './LegacyStyles';
 
 /**
  * `maintenance.php` (classic template) with the closure flag coming from
@@ -31,27 +32,10 @@ export default function MaintenanceClassic() {
     <>
       <title>PHPRetro</title>
       {/*
-        The maintenance page has its OWN stylesheet set — templates/
-        maintenance_header.php loads only these three, and none of the
-        community_header.css files. Without them the page inherits the
-        community CSS and every box is mis-sized (measured: #page-container 8px
-        higher than legacy, #content-container 20px wider).
+        The maintenance page has its OWN stylesheet set and loads none of the
+        community sheets (templates/maintenance_header.php). See LegacyStyles.
       */}
-      <link
-        href="/web-gallery/maintenance/style.css"
-        type="text/css"
-        rel="stylesheet"
-      />
-      <link
-        href="/web-gallery/maintenance/ie-all.css"
-        type="text/css"
-        rel="stylesheet"
-      />
-      <link
-        href="/web-gallery/maintenance/ie6.css"
-        type="text/css"
-        rel="stylesheet"
-      />
+      <MaintenanceStyles />
       <link href="/web-gallery/maintenance/style.css" type="text/css" rel="stylesheet" />
 
       <div id="page-container">

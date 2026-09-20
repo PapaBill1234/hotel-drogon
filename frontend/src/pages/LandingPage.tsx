@@ -1,6 +1,7 @@
 import { Fragment, useEffect } from 'react';
 
 import { useFaq, useSettings } from '../hooks/usePublicContent';
+import { LandingStyles } from '../components/LegacyStyles';
 import { splitPromoPhrases } from '../services/legacy';
 
 /**
@@ -120,15 +121,15 @@ export default function LandingPage() {
         href="/articles/rss.xml"
       />
       {/*
-        login_header.php loads style.css, buttons.css, boxes.css, tooltips.css
-        and then process.css. The SPA entry loads the first four (plus others)
-        but not process.css, and every landing rule -- body.process-template
-        background, the 766px #container, the 404px/310px #column1/#column2
-        split, and the whole #create-habbo-nonflash layout -- lives in it.
-        Rendering it here puts it last, which is also where it sat relative to
-        boxes.css in the legacy head.
+        The full login_header.php set, in order: frontpage.css FIRST, then
+        style/buttons/boxes/tooltips, then process.css. This page previously
+        depended on the global sheet list in index.html for the first four and
+        declared only process.css itself — and frontpage.css, which carries the
+        front-page promo layout, was missing entirely. Each page family now
+        declares its own set (components/LegacyStyles.tsx) because the three
+        legacy headers load different sets.
       */}
-      <link rel="stylesheet" href="/web-gallery/v2/styles/process.css" type="text/css" />
+      <LandingStyles />
 
       {/* login_header.php:130-146 (the `new_landing != true` branch) */}
       <div id="overlay"></div>

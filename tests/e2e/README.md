@@ -3,11 +3,43 @@
 Compares each converted React page against the legacy PHPRetro page it replaces,
 at a fixed viewport, within a pixel tolerance.
 
-## Status: harness complete, baselines NOT captured
+## Status: 6/6 pages passing
 
-`visual-parity.spec.ts` skips (rather than fails) any page with no baseline, so
-this suite is currently green-by-skipping. It cannot report real parity until
-baselines exist. That is the honest state, not a passing result.
+`visual-parity.spec.ts` compares all six converted pages against baselines
+captured from a real legacy stack, within a 2% pixel tolerance. All six pass.
+
+```sh
+BASE_NEW=http://localhost:3000 npm run test:visual   # 6 passed
+```
+
+Baselines live in `../../docs/reference-screenshots/baseline/` and are committed.
+To re-capture them, bring up `tools/legacy-stack/` and run `npm run capture`.
+
+### Two preconditions
+
+1. **Identical content on both sides.** Fixtures come from
+   `tools/legacy-stack/init/99-seed.sql` and are applied to both databases.
+   Differing data shows up as a markup diff. Note the admin smoke suite creates
+   banners and does not clean up after itself — clear `phpretro_banners` before
+   running parity, or the new app renders ad slots legacy has no rows for.
+2. **`maintenance` needs `site_closed=1` on both apps.** Legacy redirects to `/`
+   while the site is open, so its baseline can only be captured closed. The
+   comparison itself runs against captured PNGs, so flipping the flag does not
+   affect the other five pages.
+
+## Diagnostics
+
+Two scripts make failures tractable — a bare "N% of pixels differ" is not
+actionable:
+
+```sh
+node diagnose-layout.cjs /help '#header,#column1,#footer'   # bounding-box diff
+node diff-text.cjs /credits/collectables '#column1,#column2' # text diff
+```
+
+Both compare the live legacy app (8081) against the new app (3000), so both must
+be running with matching content for the output to mean anything.
+
 
 ## Why the existing screenshots are not baselines
 

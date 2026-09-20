@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 
+import { CommunityStyles } from './LegacyStyles';
 import { useBanners, useFaq, useSettings } from '../hooks/usePublicContent';
 import { holoUrl } from '../services/legacy';
 
@@ -53,6 +54,7 @@ export default function CommunityShell({ pageId, cat, pageName, children }: Comm
   return (
     <>
       <title>{`${SHORTNAME}: ${pageName} `}</title>
+      <CommunityStyles />
       <div id="overlay"></div>
       <div id="header-container">
         <div id="header" className="clearfix">

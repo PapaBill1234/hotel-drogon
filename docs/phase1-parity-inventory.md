@@ -161,8 +161,54 @@ are historical; these are the live statuses.
 | High-trust raw-HTML gating | not gated in legacy | **Done.** `AuthPolicy::requireHighTrust` (rank ≥ 7), enforced in controller *and* service, visible warning in responses, `X-High-Trust-Required` on denial, high-trust writes distinctly audit-labelled. Public API never exposes `html`. |
 | Public content API | the `*.php` pages | **Done.** `/api/public/{landing,news,news/{id},faq,collectibles,banners,campaigns,maintenance,settings}`. |
 | RSS | `xml/rss.php` | **Done, with bug fixed.** See "RSS double-escaping" below. |
-| React pages (landing, community, articles, FAQ, collectables, maintenance) | the `*.php` pages | **Done, unverified visually.** `frontend/` bootstrapped (Vite + React 18 + TS + TanStack Query); all six pages converted preserving legacy markup and class names verbatim. Build verified (`tsc -b && vite build`). nginx serves `frontend/dist` with SPA fallback. |
-| Screenshot parity tests | n/a | **Harness done, baselines missing — 0 pages verified.** `tests/e2e/` captures legacy baselines at a fixed 1280×800 viewport and diffs the converted pages within a 2% pixel tolerance. The suite skips pages with no baseline, so it is green-by-skipping and reports no parity result. Capturing baselines needs a running legacy stack, which is not available here. |
+| React pages (landing, community, articles, FAQ, collectables, maintenance) | the `*.php` pages | **Done and visually verified.** `frontend/` (Vite + React 18 + TS + TanStack Query); all six pages render the legacy markup and classes verbatim. `tsc -b && vite build` clean. |
+| Screenshot parity tests | n/a | **Done — 6/6 pages pass** at a 2% pixel tolerance. Baselines are captured from a real legacy stack (`tools/legacy-stack/`) at a fixed 1280×800 viewport. |
+
+#### Per-page parity status
+
+All six converted pages pass `tests/e2e/visual-parity.spec.ts`:
+
+| Page | Legacy source | Result |
+| --- | --- | --- |
+| landing (`/`) | **`index.php`** — *not* `landing.php` | pass |
+| community | `community.php` | pass |
+| articles | `articles.php` | pass |
+| help / FAQ | `help.php` | pass |
+| collectables | `collectables.php` | pass |
+| maintenance | `maintenance.php` (classic, `maintenance_style=0`) | pass |
+
+Three things were needed before any page could match, all found by measuring
+rather than eyeballing:
+
+1. **The legacy page scripts were never loaded.** `Rounder.init()` rewrites
+   `.rounded` elements into the nested `.rounded-container` gradient markup the
+   legacy pages actually render; without it every rounded box was ~16px short on
+   every page.
+2. **Each page family loads a different stylesheet set.** `community_header.php`,
+   `login_header.php` and `maintenance_header.php` disagree, and declaring one
+   global set made maintenance inherit community padding it should never have.
+   Each page now declares its own set via `frontend/src/components/LegacyStyles.tsx`.
+   The sets were read from the *rendered* pages, not the templates — grepping
+   `login_header.php` suggests a larger set than the page actually requests, and
+   loading `frontpage.css` on landing broke the two-column layout.
+3. **`/` is served by `index.php`, not `landing.php`.** The latter only runs when
+   `site_new_landing_page=1`. The React page had been built from the wrong file,
+   including `#fp-container` and speech bubbles that do not exist on the real
+   page.
+
+Two preconditions the parity run depends on, both data rather than markup:
+
+- **Both apps must hold identical content.** The fixtures live in
+  `tools/legacy-stack/init/99-seed.sql` and are applied to both databases.
+  Divergent data shows up as a markup diff. In particular the admin smoke suite
+  creates banners and does not delete them; clear `phpretro_banners` before
+  running parity.
+- **`maintenance` requires `site_closed=1` on both sides.** Legacy redirects to
+  `/` when the site is open, so its baseline can only be captured closed. With
+  the flag set, every other legacy page redirects to `/maintenance` — so parity
+  for maintenance and for the other five cannot be measured in the same pass
+  unless the baselines are static (they are; the comparison is against captured
+  PNGs, not the live legacy app).
 
 #### RSS double-escaping — fixed
 
