@@ -93,6 +93,74 @@ script reproduces.
 | Six baselines re-captured | yes, all six differ from the Windows captures |
 | Legacy stack restored | `site_closed` back to `'0'`, settings cache cleared |
 
+## Update — 2026-09-21 (fourth pass): parity still red, and why I stopped
+
+A fourth CI run was made and inspected, and it **failed at the same step**. This
+pass adds no fix, because the cause is not yet established and the evidence
+needed to establish it cannot be retrieved from this environment. Recording that
+plainly rather than pushing another speculative change.
+
+| Run | Commit | Result | Failing step |
+| --- | --- | --- | --- |
+| `35522067386` | `69a7811` | failure | "Public page visual parity against the committed baselines" (again); every other step in the job, including the admin UI flow, passed |
+
+### What has been ruled out, with reproducible evidence
+
+The parity suite passes everywhere it can be run from here:
+
+| Environment | Setup | Result |
+| --- | --- | --- |
+| Windows native | primary stack, seeded fixtures | 6/6 |
+| Linux Chromium, pinned `playwright:v1.47.0-jammy` | primary stack | 6/6, 0 diff |
+| Linux Chromium, lockfile-matching `playwright:v1.63.0-noble` | primary stack | 6/6 |
+| Linux Chromium `v1.63.0-noble` | **fresh disposable stack** (`tools/ci-repro/compose-parity.yaml`, own project/volumes/port), fixtures applied, `site_closed=1`, banners cleared | 6/6 |
+| Linux Chromium `v1.63.0-noble` | the same isolated stack **with the legacy app stopped**, so no cross-app asset fetch is possible | 6/6 |
+| Linux Chromium `v1.63.0-noble` | isolated stack after replaying CI's exact smoke→fixture→parity order | 6/6 |
+
+Also verified: the six committed baselines are byte-identical to the ones
+captured in this session; the DOM rendered by the fresh isolated stack and by the
+long-lived primary stack is the same apart from a JS-computed popup position on a
+`display:none` element; and the parity run does not depend on the legacy app
+being reachable.
+
+### The blocker
+
+The failing step's log and its `playwright-results` artifact both require
+credentials this environment does not have:
+
+- `GET /actions/jobs/{id}/logs` -> *"Must have admin rights to Repository."*
+- the uploaded artifact -> *"Requires authentication"*
+- the public job page no longer embeds the log text.
+
+There is no `GITHUB_TOKEN`, no `gh`, and no retrievable stored credential here.
+Consequently the failing page, the diff ratio and the diff image have never been
+observable — only "Process completed with exit code 1". That is why this pass
+stops: further changes would be guesses, and two of the three fixes so far came
+from being able to see the real failure.
+
+To make the next occurrence diagnosable, the parity step now runs with
+`--reporter=list,json`; the JSON reporter writes the per-test error text to
+stdout, which includes "N pixels (ratio R of all image pixels) are different".
+Verified locally by forcing a mismatch with a temporarily lowered tolerance.
+
+### What is needed to unblock
+
+Either of these, and the fix is probably quick:
+
+1. a token with `actions:read` (then the artifact or the log can be fetched); or
+2. the text of the failing parity step from
+   <https://github.com/PapaBill1234/hotel-drogon/actions/runs/35522067386/job/10610751265>
+   — with the JSON reporter in place it will now name the page and the ratio.
+
+The single most likely remaining explanation, stated as a hypothesis rather than
+a finding: the GitHub runner's font set differs from the pinned Playwright
+image's, which would shift text rasterisation and produce exactly this signature
+(correct markup, consistent per-page diff ratios, Linux-to-Linux otherwise
+matching). It has not been verified, and it is not being fixed on the strength of
+a guess.
+
+
+
 ## Update — 2026-09-21 (second pass): Phase 4 claim corrected, first CI failure recorded
 
 **Why this pass exists.** The previous entry marked Phase 4's exit condition met

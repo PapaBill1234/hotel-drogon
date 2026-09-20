@@ -1,34 +1,30 @@
 # Isolated CI-reproduction project
 
-Reproduces GitHub Actions' fresh-runner conditions **locally and safely**, to
-diagnose the flaky `integration-smoke` job without disturbing the primary stack.
+Two Compose files live here, both bound by the same safety rule: any CI
+reproduction runs in its own project with its own throwaway volumes.
 
-Required by the safety constraint in `docs/ai-run-state.md`: CI reproduction
-must use a clearly isolated, disposable Compose project.
+| File | Purpose |
+| --- | --- |
+| `compose.yaml` | Reproduces the **smoke job's** fresh-runner conditions. Deliberately omits the `frontend/dist` and `web-gallery` mounts, because a fresh runner has neither. |
+| `compose-parity.yaml` | Reproduces the **visual-parity job's** conditions instead: it mounts everything the real stack mounts (so pages render at all) but still uses a disposable project, network, volumes and port (3200), so a genuinely fresh database can be created safely. Added while diagnosing why parity failed on CI and passed locally. |
 
-## Why it is separate from `compose.yaml`
+## Why they are separate from `compose.yaml` (the repo root one)
 
 The root `compose.yaml` pins `container_name:` values (`hotel_backend`,
 `hotel_mariadb`, …). Running it a second time locally would collide with the
-already-running stack. This file deliberately sets **no** `container_name`, so
-Compose derives `ci-repro-<service>-1`.
-
-It also deliberately does **not** mount:
-
-- `frontend/dist` — absent on a fresh CI runner;
-- `../legacy/phpretro-pdo/web-gallery` — also absent on a fresh runner.
-
-Those two absent mounts are part of what CI actually exercises, so reproducing
-CI means reproducing their absence.
+already-running stack. These files deliberately set **no** `container_name`, so
+Compose derives `ci-repro-<service>-1` / `ci-parity-<service>-1`.
 
 ## Usage
 
 ```sh
-# bring up (own project, own network, own throwaway volumes, port 3100)
+# smoke-job conditions (no frontend/dist, no web-gallery)
 docker compose -p ci-repro -f tools/ci-repro/compose.yaml up -d --build
-
-# tear down — touches ONLY ci-repro_* ; safe and scoped
 docker compose -p ci-repro -f tools/ci-repro/compose.yaml down -v
+
+# parity-job conditions (everything mounted, fresh database, port 3200)
+docker compose -p ci-parity -f tools/ci-repro/compose-parity.yaml up -d --build
+docker compose -p ci-parity -f tools/ci-repro/compose-parity.yaml down -v
 ```
 
 Then, to mirror CI's exact poll-then-smoke sequence with a Linux client at
@@ -59,10 +55,15 @@ windows. Use a Linux client for anything timing-sensitive.
   rather than on the seed having finished — a genuine readiness window, and the
   leading explanation for the job being flaky rather than deterministically
   broken.
+- For the parity job: with the fixtures applied and `site_closed=1` on a fresh
+  disposable database, all six parity pages pass under Linux Chromium, including
+  with the legacy app unreachable. The parity failure on CI is therefore **not**
+  explained by fresh-database state, the fixtures, the baselines or the
+  Playwright version — see the fourth-pass entry in `docs/ai-run-state.md`.
 
 ## Safety
 
-`down -v` here is scoped to `-p ci-repro` and destroys only this project's
-disposable volumes. **Never** run a bare `docker compose down -v` from the repo
-root, and never `docker volume prune` — both would destroy the primary stack's
-`hotel-drogon_*` volumes.
+`down -v` here is scoped to `-p ci-repro` / `-p ci-parity` and destroys only
+those projects' disposable volumes. **Never** run a bare `docker compose down -v`
+from the repo root, and never `docker volume prune` — both would destroy the
+primary stack's `hotel-drogon_*` volumes.
