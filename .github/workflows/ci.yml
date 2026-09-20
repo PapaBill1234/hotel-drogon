@@ -118,6 +118,22 @@ jobs:
           # Guards the failure mode that broke parity: an empty web-gallery mount
           # still answers, so assert real bytes come back, early and with a
           # message that names the cause.
+          #
+          # Diagnostics first: if this step ever fails again, the log must show
+          # where the mount actually points, not just that it is empty. A
+          # resolved-mount mismatch is a different bug from a missing checkout and
+          # the two are indistinguishable from "404" alone.
+          echo "== diagnostics =="
+          echo "pwd: $(pwd)"
+          echo "workspace: ${GITHUB_WORKSPACE:-unset}"
+          echo "source files at compose-relative path:"
+          find ../legacy/phpretro-pdo/web-gallery -type f 2>/dev/null | wc -l
+          echo "proxy mount as Docker resolved it:"
+          docker inspect hotel_proxy \
+            --format '{{range .Mounts}}{{.Type}} {{.Source}} -> {{.Destination}}{{"\n"}}{{end}}' || true
+          echo "web-gallery inside the container:"
+          docker exec hotel_proxy sh -c 'ls /var/www/web-gallery | head -5; find /var/www/web-gallery -type f | wc -l' || true
+
           code=$(curl -s -o /tmp/style.css -w '%{http_code}' \
             http://localhost:3000/web-gallery/v2/styles/style.css)
           if [ "$code" != "200" ] || ! grep -qi 'font-family\|color' /tmp/style.css; then
