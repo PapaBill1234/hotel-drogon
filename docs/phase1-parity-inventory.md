@@ -39,7 +39,7 @@ says Filament) before it compounds.
 | Docker Compose (backend binary, MariaDB, Redis, worker binary, nginx proxy) | Yes | **Done.** `compose.yaml` running Drogon C++ server, MariaDB 10.11, Redis 7, worker process, and nginx reverse proxy. |
 | `web-gallery` served without copying/hashing | Yes | **Done.** nginx `alias` mount directly in `proxy/nginx.conf`. |
 | Route switch/proxy with instant rollback | Yes | **NOT DONE — the previous "Done, tested and verified live" claim was wrong.** `proxy/cutover.map` is **orphaned**: `proxy/nginx.conf` never includes it and defines its own inline `map $uri $target_backend`. The two disagree — `cutover.map` says `default legacy`, while nginx actually sends unmatched routes to the React SPA. There is no legacy PHP service in `compose.yaml`, so no `legacy` upstream exists and **rollback cannot be demonstrated**. Either wire the map up with a real legacy upstream and prove cutover + rollback, or delete it and correct this row. |
-| CI (CMake build with ASan/UBSan, Catch2 unit tests) | Yes | **Covered; live-stack job being re-verified after a real fix.** `cpp-build-and-test` builds with GCC, ASan/UBSan, `-Werror` and CTest (green, consistently). `integration-smoke` runs the Python lints, all three smoke suites, a TypeScript frontend build, the admin UI suite on the runner's Chromium, and the parity suite in the pinned container. Recent runs were red at exactly one step — visual parity — because the legacy `web-gallery` bind-mount source was absent; that is fixed, and a green run is pending. |
+| CI (CMake build with ASan/UBSan, Catch2 unit tests) | Yes | **Green.** Run `35524678557` (commit `66ba2d8`): both jobs success. `cpp-build-and-test` builds with GCC, ASan/UBSan, `-Werror` and CTest. `integration-smoke` runs the Python lints, all three smoke suites, a TypeScript frontend build, the admin UI suite on the runner's Chromium, and the parity suite in the pinned container — which now passes because the legacy `web-gallery` is sparse-cloned into the workspace the Compose project directory expects. |
 | Redis cache/sessions/queues/locks | Yes | **Done.** Async Redis client configured with database routing, health check verified. |
 | Background Worker | Minimal worker binary | **Done.** `hotel_worker` binary building and running in container. |
 | Structured logging, /health, /metrics | Yes | **Done.** spdlog JSON logging, `/health` and `/metrics` controllers verified live. |
@@ -378,12 +378,12 @@ no double-escaped entity. A double-escaped implementation fails both.
 
 #### Why the parity suite failed on CI: an empty legacy mount, not rendering drift
 
-**Root cause, proven from the CI log and artifact.** `legacy/` is gitignored, so
-a CI workspace contains no `legacy/phpretro-pdo/web-gallery`. `compose.yaml`
-bind-mounts that path into the proxy, and **Docker creates a missing bind-mount
-source as an empty directory**, so the mount succeeds and every legacy stylesheet
-and image 404s. The converted pages reuse the legacy CSS verbatim, so they
-rendered as bare unstyled HTML.
+**Root cause, proven from the CI log and artifact, then confirmed fixed on CI.**
+`legacy/` is gitignored, so a CI workspace contained no
+`legacy/phpretro-pdo/web-gallery`. `compose.yaml` bind-mounts that path into the
+proxy, and **Docker creates a missing bind-mount source as an empty directory**,
+so the mount succeeded and every legacy stylesheet and image 404'd. The converted
+pages reuse the legacy CSS verbatim, so they rendered as bare unstyled HTML.
 
 | Evidence | Value |
 | --- | --- |
@@ -392,6 +392,14 @@ rendered as bare unstyled HTML.
 | Artifact `*-actual.png` | the pages with no CSS applied at all |
 | Diff ratios | landing **0.23**, community **0.19**, collectables **0.22**, maintenance **0.96**; articles and help **0.00** (those two need no legacy stylesheet) |
 | Local reproduction, isolated stack with the mount deliberately absent | landing **225352** differing pixels — the identical number CI reported |
+
+A second, subtler defect surfaced while fixing it: the Compose **project
+directory** on a GitHub runner is the *parent* of the checkout
+(`/home/runner/work/hotel-drogon`), not the checkout itself, so a sparse clone
+placed at `<checkout>/legacy/...` left the mount pointing at an empty directory
+while looking correct. The assets are now placed at both candidate roots and the
+guard asserts against the mount Docker resolved (`docker inspect`) rather than the
+path anyone assumed.
 
 An earlier diagnosis in this file blamed Windows-versus-Linux text rasterisation
 and raised the tolerance to 10% on that basis. **That was wrong and is
@@ -402,15 +410,18 @@ a page with no stylesheet.
 What is true now:
 
 - CI sparse-clones the legacy `web-gallery` (901 files, 7.7 MB) into the
-  workspace before the stack starts, and a guard step fails fast with a named
-  cause if the mount is ever empty again;
+  workspace the Compose project directory expects, and a guard fails fast with
+  the resolved mount, the file counts on both sides and the error message if the
+  mount is ever empty again;
 - the parity comparison runs in the pinned Playwright container, and viewport,
   locale, timezone, colour scheme, device scale factor and animations are pinned
   in `playwright.config.ts`, so capture, local reproduction and CI share one
   environment;
 - `MAX_DIFF_PIXEL_RATIO` is back to **2%**. Inside the canonical environment the
   measured difference is **0 pixels on all six pages**, so 2% is slack rather
-  than headroom.
+  than headroom;
+- **CI is green**: run `35524678557` on `66ba2d8`, both jobs success, parity
+  6/6 and the admin UI flow 10/10 in the same job.
 
 Baseline provenance is unchanged and was **not** re-captured: all six were
 captured from the legacy application in the pinned container, and inspection

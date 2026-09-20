@@ -170,6 +170,65 @@ touched).**
 **Still to confirm on CI itself:** a green run. "Locally proven" is not "green on
 CI", so this work unit stays open until a run reports success.
 
+## Update — 2026-09-21 (sixth pass): CI is GREEN; the parity work unit is closed
+
+**Green run: `35524678557` on `66ba2d8` — both jobs `success`.**
+
+| Job | Result |
+| --- | --- |
+| `C++ Drogon (Sanitizers + Tests)` | **success** |
+| `Phase 3 Integration Smoke (live stack)` | **success** — every step, including admin UI flow and visual parity |
+
+Evidence from that run's own log, not from a local rehearsal:
+
+```
+Verify the legacy assets the stack mounts are present
+  /home/runner/work/hotel-drogon/hotel-drogon/../legacy/phpretro-pdo/web-gallery: 901 files
+  /home/runner/work/hotel-drogon/hotel-drogon/legacy/phpretro-pdo/web-gallery:    901 files
+
+Verify the proxy is serving the legacy assets
+  web-gallery mount source: /home/runner/work/hotel-drogon/legacy/phpretro-pdo/web-gallery
+  files at that source:     901
+  files inside the container: 901
+  legacy stylesheet served: 75674 bytes
+
+Public page visual parity against the committed baselines
+  ✓ 6 passed — landing, community, articles, help, collectables, maintenance
+```
+
+**The two fixes that were actually required**, both found only because the run's
+log and artifact were retrievable:
+
+1. **The legacy `web-gallery` was absent from the CI workspace.** `legacy/` is
+   gitignored, so the compose bind-mount source did not exist; Docker created an
+   empty directory, the mount succeeded, and every legacy stylesheet 404'd
+   (162 errors, 0 successes), leaving the pages unstyled. Fixed by sparse-cloning
+   the assets into the workspace.
+2. **The clone was placed one level too deep.** Compose resolves
+   `../legacy/...` against the Compose *project* directory, which on a GitHub
+   runner is the **parent** of the checkout
+   (`/home/runner/work/hotel-drogon`), not the checkout itself. The assets are now
+   placed at both candidate roots, and the guard asserts against the mount Docker
+   resolved rather than the path we assumed — the mistake that made the first
+   attempt look correct while the proxy still 404'd.
+
+Two self-inflicted red runs along the way are recorded rather than glossed: a
+guard written with `&&`-chained shell that failed a passing build on `::error`,
+and a guard using an inline `python3` one-liner that died on its own quoting
+under `bash -e`. Both were replaced.
+
+**Tolerance and baselines, as required:** `MAX_DIFF_PIXEL_RATIO` is back to
+**2%**, measured at **0 pixels** of difference per page inside the canonical
+environment. No baseline was re-captured for this fix and none was ever captured
+from the new application; the committed six are legacy captures, inspected and
+confirmed to be the fully styled legacy renders.
+
+**Pinned canonical environment** (capture, local reproduction and CI all use it):
+`mcr.microsoft.com/playwright:v1.63.0-noble` with `@playwright/test` from
+`package-lock.json` (1.63.0 → chromium-1243), viewport 1280×800 at device scale 1,
+locale `en-US`, timezone `UTC`, colour scheme `light`, `--force-color-profile=srgb`,
+animations disabled, caret hidden.
+
 
 
 ## Update — 2026-09-21 (fourth pass): parity still red, before the token arrived
