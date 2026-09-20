@@ -173,13 +173,27 @@ Rationale: during earlier Phase 4 work an agent ran `docker compose down -v` on
 the primary stack without asking and destroyed the runtime volume. Treat this as
 blocking: if a task appears to need a destructive operation, stop and ask.
 
+## Known gaps, not part of any current work unit
+
+- **`hotel_worker` is reported `unhealthy` although it is running.** The image's
+  `HEALTHCHECK` probes `http://localhost:8080/health`, which is the HTTP server's
+  endpoint; the worker container overrides the entrypoint with `/app/hotel_worker`
+  and serves no HTTP, so the probe can never succeed. Harmless today (nothing
+  gates on it — `worker` has no dependent service) but it makes `docker compose ps`
+  misleading and would block any future `depends_on: service_healthy`. Fix by
+  disabling the inherited health check for the worker, or giving it a real one.
+  Pre-existing; deliberately not folded into the dependency work unit.
+- **`frontend/dist` is still built out-of-band and bind-mounted** — Phase 2b's
+  remaining implementation item, item 1 below.
+
 ## Remaining sequence (authorised order)
 
 **1. Phase 2b — the Compose frontend build service.** *(next work unit)*
 Add a service that builds `frontend/dist` into the existing bind mount, under a
 profile so the default `docker compose up` is unchanged; then re-run the frontend,
 admin UI and parity checks against it. Optionally remove the host-side npm build
-step from CI once the service is proven.
+step from CI once the service is proven. The worker's inherited health check
+(item above) touches the same file and can be settled in the same commit.
 
 **2. Phase 1 — the OpenAPI document for the first slice.**
 Still does not exist. Phase 5 is gated on it.
