@@ -65,54 +65,77 @@ papered over, and the phase label can be switched to 4 if preferred.
 | CI covers CMake + sanitizers + tests | **Yes** | `.github/workflows/ci.yml` job `cpp-build-and-test` |
 | CI covers TypeScript build | **No** | No npm/vite/tsc step anywhere in CI |
 | CI covers Playwright | **No** | The visual-parity suite exists but never runs in CI |
-| **CI passes** | **No** | Job "Phase 3 Integration Smoke (live stack)" **FAILED** on `77f7c87` |
+| **CI passes** | **Green now — but the job is FLAKY** | Green on `9684e3a`: every step of both jobs succeeded, including all three smoke suites. The *identically-coded* `77f7c87` FAILED. See below |
 | Route switch/proxy map with cutover **and rollback** demonstrated | **Not done** | `proxy/cutover.map` is orphaned: `nginx.conf` never includes it, has its own inline map, and `compose.yaml` has no legacy PHP upstream. `cutover.map` says `default legacy` while nginx actually defaults to the SPA. Rollback is not demonstrable |
 | Sentry wired | **Not wired** | `cfg.sentry_dsn` is read from env into `AppConfig` but no SDK is linked and nothing is reported. The inventory's "Sentry DSN configuration wired into AppConfig" overstates this |
 | Basic metrics endpoint | **Yes** | `/metrics` serves Prometheus text |
 
-### The CI failure
+### The CI integration-smoke failure — isolated to an intermittent readiness race
 
-Run `35512912865`, commit `77f7c87`:
+**Status: CI is currently GREEN, but the job is unreliable.** This is a flaky
+failure, not a deterministic break, and the underlying defect is real and
+unfixed.
 
-- Job **"C++ Drogon (Sanitizers + Tests)"** — success (all 7 steps)
-- Job **"Phase 3 Integration Smoke (live stack)"** — failure at step
-  **"Run Phase 3 smoke suite"**; every later step (Phase 4 admin, Phase 4
-  public/RSS) was skipped
-- Check-run annotation: `Process completed with exit code 1.` at
-  `.github/workflows/ci.yml:39`, with no assertion text
+**Evidence that it is intermittent.** The `integration-smoke` job failed at the
+step "Run Phase 3 smoke suite" on `77f7c87` (run `35512912865`). The very next
+commit, `9684e3a`, changed **docs only** — the code is byte-identical for
+anything the smoke exercises — and the same job passed every step
+(run `35514365424`), including the Phase 4 admin and public/RSS suites that had
+been skipped the run before. Same code, same steps, different outcome.
 
-**Root cause not isolated.** The job log is not retrievable through the API
-(`/actions/jobs/{id}/logs` returns a non-followed redirect). What has been ruled
-out:
+**A real defect that explains it.** Started fresh in isolation, the backend logs
+show the server accepting connections well before it has usable data:
 
-- Not a fresh-database problem. CI's condition was reproduced (fresh schema,
-  clean rebuild, health-poll, immediate smoke run) and Phase 3 passed **12/12**
-  on a clean database. NOTE: that reproduction was done by running
-  `docker compose down -v` **on the primary stack**, which destroyed the runtime
-  volume — see the SAFETY CONSTRAINT above. It must **not** be repeated that
-  way. Any re-run must use an isolated disposable Compose project
-  (`-p ci-repro`, own network, own throwaway volumes) with the primary stack
-  left running and untouched. The conclusion may therefore need re-confirming
-  under proper isolation, since a disposable project could behave differently
-  (different volume lifecycle, different ports).
-- Not the schema/seed race seen earlier in this project for the content tables.
-  Restarting the backend six times against a freshly created database produced
-  zero `1146 / doesn't exist` errors.
-- The same script and the same step passed on earlier commits (`4ee575a`,
-  `1f1ec68`), so it is not a shell-compatibility problem with `/bin/sh`.
+```
+14:03:32.386  Listening on 0.0.0.0:8080...             <- server is serving
+14:03:33.006  Default test user and admin seeded...    <- 620ms LATER
+```
 
-Suspects worth ruling out next, in order: the nginx SPA-routing change
-(`nginx.conf` now `try_files`-es to `/index.html`, and in CI the bind-mounted
-`frontend/dist` does not exist so that file is absent); the `web-gallery` bind
-mount source `../legacy/phpretro-pdo` also not existing on the runner; and
-whether `docker compose up` genuinely brings up every service when both mount
-sources are missing.
+`/health` reports readiness based only on the DB *client object existing*, not
+on the schema or seed having completed (see `HealthController`). So there is a
+~620ms window in which the stack answers `/health` with 200 while `testuser`
+does not yet exist — and the smoke's first assertion is exactly
+`login testuser` expecting 200. Whether a given CI run lands inside that window
+depends on the race between nginx becoming reachable and the asynchronous seed
+finishing, which is why it fails intermittently rather than always.
 
-Note that `main.cpp` still dispatches its Phase 3 `CREATE TABLE` statements and
-the user seed **asynchronously and unordered** (fire-and-forget), unlike
-`ContentService::ensureSchema`, which was made sequential precisely because that
-race had already been observed. That remains a latent defect even though it did
-not reproduce here.
+This is the same latent defect already noted below: `main.cpp` dispatches its
+CREATE TABLE statements and the user seed **asynchronously and unordered**,
+unlike `ContentService::ensureSchema`, which was made sequential precisely
+because that race had already been observed.
+
+**Ruled out, empirically and non-destructively.** Using the isolated
+`tools/ci-repro/` project (fresh disposable volumes, no `frontend/dist`, no
+`web-gallery`, a Linux client polling `/health` and then running the smoke the
+instant it turns 200 — CI's exact pattern):
+
+- **Not the missing mounts.** The repro deliberately omits both
+  `frontend/dist` and `../legacy/phpretro-pdo/web-gallery`, exactly as a fresh
+  runner has them, and the smoke passes.
+- **Not fresh-database state by itself.** Passed repeatedly on a brand-new
+  volume.
+- **Not shell compatibility.** The script is unchanged since `d22ae23`, and CI
+  ran it green on `4ee575a`, `1f1ec68` and `9684e3a`.
+- **Not client latency.** An in-network Linux client detected health after
+  **3 polls (~150ms)** and still passed — so the window is narrower than the
+  nginx-vs-seed race usually allows, but it is a race, and passing twice does
+  not prove it cannot be lost.
+
+**Fix identified, deliberately NOT implemented.** The correct fix is to make
+readiness mean readiness — `/health` (or a dedicated endpoint) must not report
+ready until the schema and seed have completed — and, separately, to make
+`main.cpp`'s bootstrap sequentially ordered like `ContentService::ensureSchema`.
+Neither is implemented here because the failure **cannot be reproduced on
+demand**: a fix that cannot be shown to remove a flake is an unverified claim,
+and plan rule 10 forbids reporting an unverified change as a pass. The next unit
+is to reproduce the losing ordering deterministically (e.g. by delaying the
+seed), then fix and prove it.
+
+**Isolation harness added:** `tools/ci-repro/compose.yaml`. It runs the stack
+under its own Compose project (`ci-repro`), own network, own disposable volumes
+and port 3100, with no `container_name` pins so it cannot collide with the
+primary stack. Teardown is `docker compose -p ci-repro -f
+tools/ci-repro/compose.yaml down -v`, which touches only `ci-repro_*`.
 
 ## Phase 4 — exit condition
 
@@ -156,8 +179,9 @@ foundation gap, and the plan's rules require an API contract before page work.
 | Phase 4 public API + RSS | `scripts/smoke_phase4_public.py http://proxy` | **17 passed, 0 failed** |
 | CSRF route lint | `scripts/check_csrf_rules.py` | exit 0 — 46 routes, 24 mutating, all protected |
 | PolarIS isolation lint | `scripts/check_polaris_access.py` | exit 0 — zero direct access outside `src/services/` |
-| C++ build + sanitizers + CTest | CI job `cpp-build-and-tests` on `77f7c87` | success |
-| Live-stack integration smoke | CI job `integration-smoke` on `77f7c87` | **FAILURE** |
+| C++ build + sanitizers + CTest | CI job `cpp-build-and-test` on `9684e3a` | success |
+| Live-stack integration smoke | CI job `integration-smoke` on `9684e3a` | **success — but flaky; it failed on the identically-coded `77f7c87`** |
+| Isolated CI repro (primary untouched) | `tools/ci-repro/` + Linux client, fresh volumes | Phase 3 smoke **12/12** on a fresh database |
 
 Parity requires two data preconditions, both documented in
 `tests/e2e/README.md`: both apps must hold identical content
@@ -173,9 +197,13 @@ superseded — both are now in scope.
 
 **1. Complete every Phase 2b exit condition, beginning with isolating the CI
 integration-smoke failure.**
-The failing `integration-smoke` job is the first blocker, because every other
-Phase 2b claim sits behind it. Deliverable: root cause, a fix, and the CI run
-URL showing the job green. Then the rest of the Phase 2b matrix:
+*Isolation: DONE* — see "The CI integration-smoke failure" above. The job is
+green on the current commit but flaky, and the defect behind it is a ~620ms
+readiness window (`/health` reports ready before the schema/seed completes)
+compounded by `main.cpp`'s unordered async bootstrap. *Remaining in this item:*
+reproduce the losing ordering deterministically, then make readiness mean
+readiness and make the bootstrap sequential, and prove the fix against the
+reproduction. Then the rest of the Phase 2b matrix:
 warnings-as-errors enabled and all findings cleared; a TypeScript-build job and
 a Playwright job added to CI; the cutover map made real (include it in
 `nginx.conf`, add a legacy upstream, and demonstrate cutover **and** rollback

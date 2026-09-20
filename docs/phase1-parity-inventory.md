@@ -55,30 +55,45 @@ fourth is unproven. **Verification is incomplete, so Phase 2b is not complete.**
 | Compiles; sanitizers on every test run | **Yes** — CI `cpp-build-and-test` green; CTest passes under ASan/UBSan |
 | Warnings-as-errors enabled, all warnings cleared | **No** — no `-Werror`; warnings are not gating |
 | CI covers TypeScript build and Playwright | **No** — neither exists in CI |
-| **CI passes** | **No** — `integration-smoke` FAILED at "Run Phase 3 smoke suite" |
+| **CI passes** | **Green, but the job is FLAKY** — passed on `9684e3a`, failed on the identically-coded `77f7c87` |
 | Cutover **and rollback** demonstrated for a real route | **No** — see the cutover row above |
 | Sentry wired | **No** — inert config field only |
 | Compose services incl. a frontend build | **Partial** — no frontend build service; `frontend/dist` is built out-of-band and bind-mounted |
 | Preflight host checks recorded | **No artifact** |
 | vcpkg/Conan chosen and explained | **Deviation** — dependencies come from Ubuntu apt packages; the plan's choice was never made or explained |
 
-**CI failure detail.** Run `35512912865` on `77f7c87`: the C++ job succeeded;
-`integration-smoke` failed at step "Run Phase 3 smoke suite", and every later
-step (both Phase 4 suites) was skipped. The check-run annotation gives only
-`Process completed with exit code 1.` at `.github/workflows/ci.yml:39` with no
-assertion text, and job logs are not retrievable through the API.
+**CI integration-smoke: isolated to an intermittent readiness race.**
+`integration-smoke` failed at "Run Phase 3 smoke suite" on `77f7c87`
+(run `35512912865`) and then **passed every step** on `9684e3a`
+(run `35514365424`) — a commit that changed docs only. Same code, different
+outcome: the job is flaky, not broken.
 
-**Root cause not isolated.** Ruled out locally: fresh-database behaviour
-(reproduced CI exactly — `down -v`, `up -d --build`, health-poll, immediate
-smoke — Phase 3 passed **12/12** on a clean volume) and the schema/seed race
-observed earlier in this project for the content tables (six backend restarts
-against a fresh database produced zero `1146` errors). The same script passed on
-earlier commits, so it is not a shell-compatibility problem.
+The defect behind it is real and unfixed. Started fresh in isolation, the
+backend logs show:
 
-**Latent defect worth noting regardless:** `main.cpp` still dispatches its
-Phase 3 `CREATE TABLE` statements and the user seed **asynchronously and
-unordered**, unlike `ContentService::ensureSchema`, which was made sequential
-precisely because that race had already been seen.
+```
+Listing on 0.0.0.0:8080...            <- serving
+Default test user and admin seeded... <- 620ms later
+```
+
+`/health` reports ready from the DB *client object existing*, not from the
+schema/seed having completed, so there is a ~620ms window where the stack
+answers 200 while `testuser` does not exist — and the smoke's first assertion is
+`login testuser` expecting 200. `main.cpp` compounds this by dispatching its
+CREATE TABLE statements and user seed asynchronously and unordered, unlike
+`ContentService::ensureSchema`, which is sequential precisely because that race
+was seen before.
+
+Ruled out non-destructively via the isolated `tools/ci-repro/` project (fresh
+disposable volumes, no `frontend/dist`, no `web-gallery`, Linux client using
+CI's exact poll-then-smoke pattern): the missing mounts, fresh-database state by
+itself, shell compatibility, and client latency — an in-network client detected
+health after 3 polls (~150ms) and still passed.
+
+The fix (make readiness mean readiness; make the bootstrap sequential) is
+**deliberately not implemented**: the flake cannot be reproduced on demand, and
+plan rule 10 forbids reporting an unverified change as a pass. Next unit is to
+reproduce the losing ordering deterministically, then fix and prove it.
 
 ### Phase 1 gap
 

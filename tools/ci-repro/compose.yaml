@@ -1,0 +1,106 @@
+# Isolated CI-reproduction project.
+#
+# Purpose: reproduce GitHub Actions' fresh-machine conditions locally WITHOUT
+# touching the primary stack or its data. Mandated by the safety constraint in
+# docs/ai-run-state.md: CI reproduction must use a clearly isolated, disposable
+# Compose project.
+#
+# Isolation guarantees:
+#   * `name: ci-repro` puts every container, network and volume in its own
+#     namespaced project (`ci-repro_*`), so nothing collides with or mutates
+#     `hotel-drogon_*` / `legacy-stack_*`.
+#   * NO `container_name:` is set here. The primary compose.yaml pins names like
+#     `hotel_backend`; reusing those would collide with the running stack.
+#   * The proxy publishes on 3100, not 3000 (primary) or 8081 (legacy).
+#   * Deliberately does NOT mount `frontend/dist` or
+#     `../legacy/phpretro-pdo/web-gallery`, because neither exists on a fresh CI
+#     runner. Those two missing mounts are part of what CI actually exercises.
+#
+# Usage:
+#   docker compose -p ci-repro -f tools/ci-repro/compose.yaml up -d --build
+#   docker compose -p ci-repro -f tools/ci-repro/compose.yaml down -v   # scoped to ci-repro only
+#
+# The `-v` above is safe and intentional: it destroys ONLY ci-repro's
+# disposable volumes. Never run a bare `docker compose down -v` from the repo
+# root, and never `docker volume prune`.
+
+name: ci-repro
+
+services:
+  backend:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: "no"
+    environment:
+      APP_ENV: development
+      APP_PORT: 8080
+      LOG_LEVEL: debug
+      LOG_JSON: "false"
+      DB_HOST: mariadb
+      DB_PORT: 3306
+      DB_DATABASE: polaris
+      DB_USERNAME: hotel
+      DB_PASSWORD: hotel_secret
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - ci-repro-net
+
+  mariadb:
+    image: mariadb:10.11
+    restart: "no"
+    environment:
+      MYSQL_ROOT_PASSWORD: root_secret
+      MYSQL_DATABASE: polaris
+      MYSQL_USER: hotel
+      MYSQL_PASSWORD: hotel_secret
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    networks:
+      - ci-repro-net
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: "no"
+    volumes:
+      - redis_data:/data
+    networks:
+      - ci-repro-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  proxy:
+    image: nginx:alpine
+    restart: "no"
+    ports:
+      - "3100:80"
+    volumes:
+      - ../../proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      # NOTE: frontend/dist and web-gallery are intentionally NOT mounted.
+    depends_on:
+      - backend
+    networks:
+      - ci-repro-net
+
+networks:
+  ci-repro-net:
+    driver: bridge
+
+volumes:
+  mariadb_data:
+  redis_data:
