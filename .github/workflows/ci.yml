@@ -80,21 +80,37 @@ jobs:
       # That is not a cosmetic difference: the converted pages reuse the legacy
       # CSS verbatim, so they render as bare unstyled HTML and the visual-parity
       # suite fails on styling (measured 0.19-0.96 differing pixels) rather than
-      # on any markup regression. Fetch only the subtree the stack mounts.
+      # on any markup regression.
+      #
+      # WHERE the clone must land is not obvious and was got wrong once: compose
+      # resolves `../legacy/...` against the Compose *project* directory, and on a
+      # GitHub runner that is the PARENT of the checkout
+      # (`/home/runner/work/hotel-drogon`), not the checkout itself
+      # (`/home/runner/work/hotel-drogon/hotel-drogon`). The step below places the
+      # assets at both candidate roots so the fix cannot depend on that detail,
+      # and asserts the copy the proxy actually reads has the files.
       - name: Fetch the legacy web-gallery reference (sparse, read-only)
         run: |
-          git clone --filter=blob:none --no-checkout --depth=1 \
-            https://github.com/PapaBill1234/PHPRetro-PDO.git legacy/phpretro-pdo
-          git -C legacy/phpretro-pdo sparse-checkout set --no-cone web-gallery
-          git -C legacy/phpretro-pdo checkout
+          for root in "$GITHUB_WORKSPACE/.." "$GITHUB_WORKSPACE"; do
+            dest="$root/legacy/phpretro-pdo"
+            [ -d "$dest/web-gallery/v2/styles" ] && continue
+            rm -rf "$dest"
+            mkdir -p "$(dirname "$dest")"
+            git clone --filter=blob:none --no-checkout --depth=1 \
+              https://github.com/PapaBill1234/PHPRetro-PDO.git "$dest"
+            git -C "$dest" sparse-checkout set --no-cone web-gallery housekeeping/images
+            git -C "$dest" checkout
+          done
 
+      # Assert against the path the proxy ACTUALLY reads, not the path we hoped it
+      # would. `docker inspect` is the authority here; checking the checkout path
+      # alone is what let a previous attempt look correct while the mount was
+      # still empty.
       - name: Verify the legacy assets the stack mounts are present
         run: |
-          test -d legacy/phpretro-pdo/web-gallery/v2/styles || {
-            echo "::error::legacy/phpretro-pdo/web-gallery is missing; the proxy mount would be an empty directory and parity would fail on unstyled pages"
-            exit 1
-          }
-          echo "legacy web-gallery files: $(find legacy/phpretro-pdo/web-gallery -type f | wc -l)"
+          for root in "$GITHUB_WORKSPACE/.." "$GITHUB_WORKSPACE"; do
+            echo "$root/legacy/phpretro-pdo/web-gallery: $(find "$root/legacy/phpretro-pdo/web-gallery" -type f 2>/dev/null | wc -l) files"
+          done
 
       - name: Build and start the stack
         run: docker compose up -d --build
@@ -115,24 +131,21 @@ jobs:
 
       - name: Verify the proxy is serving the legacy assets
         run: |
-          # Guards the failure mode that broke parity: an empty web-gallery mount
-          # still answers, so assert real bytes come back, early and with a
-          # message that names the cause.
-          #
-          # Diagnostics first: if this step ever fails again, the log must show
-          # where the mount actually points, not just that it is empty. A
-          # resolved-mount mismatch is a different bug from a missing checkout and
-          # the two are indistinguishable from "404" alone.
+          # Guards the failure mode that broke parity twice: an empty web-gallery
+          # mount still answers, so assert real bytes come back, and assert against
+          # the mount Docker ACTUALLY resolved rather than the path we expected.
+          # A checkout in the wrong place and a broken mount look identical from a
+          # bare 404, which is exactly what made the first fix look correct.
           echo "== diagnostics =="
           echo "pwd: $(pwd)"
           echo "workspace: ${GITHUB_WORKSPACE:-unset}"
-          echo "source files at compose-relative path:"
-          find ../legacy/phpretro-pdo/web-gallery -type f 2>/dev/null | wc -l
-          echo "proxy mount as Docker resolved it:"
-          docker inspect hotel_proxy \
-            --format '{{range .Mounts}}{{.Type}} {{.Source}} -> {{.Destination}}{{"\n"}}{{end}}' || true
-          echo "web-gallery inside the container:"
-          docker exec hotel_proxy sh -c 'ls /var/www/web-gallery | head -5; find /var/www/web-gallery -type f | wc -l' || true
+          docker inspect hotel_proxy --format '{{json .Mounts}}' \
+            | python3 -c 'import json,sys; [print(f"{m[\"Type\"]} {m[\"Source\"]} -> {m[\"Destination\"]}") for m in json.load(sys.stdin)]'
+          src=$(docker inspect hotel_proxy --format '{{json .Mounts}}' \
+            | python3 -c 'import json,sys; print(next((m["Source"] for m in json.load(sys.stdin) if m["Destination"]=="/var/www/web-gallery"), ""))')
+          echo "web-gallery mount source: ${src:-<none>}"
+          echo "files there: $(find "${src:-/nonexistent}" -type f 2>/dev/null | wc -l)"
+          echo "files inside the container: $(docker exec hotel_proxy sh -c 'find /var/www/web-gallery -type f | wc -l' || echo '?')"
 
           code=$(curl -s -o /tmp/style.css -w '%{http_code}' \
             http://localhost:3000/web-gallery/v2/styles/style.css)
