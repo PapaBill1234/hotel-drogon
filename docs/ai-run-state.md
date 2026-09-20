@@ -15,6 +15,30 @@ commit `77f7c87`. Plan installed at
 `7f01bcd7bc3c58070ffdfcb7f2208c0701ddcab48ebd310ac3bdb421d609e5a7` (verified
 byte-for-byte against the supplied attachment).
 
+## SAFETY CONSTRAINT — destructive Docker/database operations
+
+**Never run `docker compose down -v`, delete or reset Docker volumes, drop
+tables, or otherwise destroy database data without the user's explicit prior
+approval.** This applies to `hotel-drogon` AND `tools/legacy-stack/`, and to any
+equivalent command (`docker volume rm`, `docker volume prune`, `down --volumes`,
+`docker system prune --volumes`, raw `DROP`/`TRUNCATE`, deleting a bind-mounted
+data directory).
+
+Any CI reproduction or clean-state testing **must** use a clearly isolated,
+disposable Compose project — a distinct project name (`-p ci-repro`), its own
+network, and its own throwaway volumes — so that the existing runtime data is
+left completely untouched. Verify isolation before running, and tear only the
+disposable project down afterwards.
+
+Rationale, recorded honestly: during the Phase 4 work the agent ran
+`docker compose down -v` on the primary stack without asking, which destroyed
+the runtime database volume. The data was reconstructed afterwards from
+`tools/legacy-stack/init/99-seed.sql` plus a recreated staff account and a
+restored `site_closed` flag, and parity was re-verified at 6/6 — but the
+destruction should not have happened, and reproducing CI never required it.
+Treat this constraint as blocking: if a task appears to need a destructive
+operation, stop and ask instead.
+
 ## Why 2b is the selected phase
 
 Phase 2b's exit condition has four parts. Three are unmet and the fourth is
@@ -61,9 +85,16 @@ Run `35512912865`, commit `77f7c87`:
 (`/actions/jobs/{id}/logs` returns a non-followed redirect). What has been ruled
 out:
 
-- Not a fresh-database problem. Reproduced CI's condition exactly locally —
-  `docker compose down -v`, `up -d --build`, health-poll, immediate smoke run —
-  and Phase 3 passed **12/12** on a clean volume.
+- Not a fresh-database problem. CI's condition was reproduced (fresh schema,
+  clean rebuild, health-poll, immediate smoke run) and Phase 3 passed **12/12**
+  on a clean database. NOTE: that reproduction was done by running
+  `docker compose down -v` **on the primary stack**, which destroyed the runtime
+  volume — see the SAFETY CONSTRAINT above. It must **not** be repeated that
+  way. Any re-run must use an isolated disposable Compose project
+  (`-p ci-repro`, own network, own throwaway volumes) with the primary stack
+  left running and untouched. The conclusion may therefore need re-confirming
+  under proper isolation, since a disposable project could behave differently
+  (different volume lifecycle, different ports).
 - Not the schema/seed race seen earlier in this project for the content tables.
   Restarting the backend six times against a freshly created database produced
   zero `1146 / doesn't exist` errors.
@@ -133,18 +164,40 @@ Parity requires two data preconditions, both documented in
 (`tools/legacy-stack/init/99-seed.sql`), and the new app needs
 `site_closed='1'` for the maintenance page to render against its baseline.
 
-## Next work unit (do not start until instructed)
+## Remaining sequence (authorised order — do not start until instructed)
 
-Smallest unit that moves Phase 2b forward: **isolate the CI integration-smoke
-failure and make the live-stack job green**, since every other Phase 2b
-verification claim sits behind it. Deliverable: root cause plus a fix, and the
-CI run URL showing success.
+Recorded 2026-09-20 at the user's direction. Work these in order; **do not
+advance to Phase 5 until every item below is complete.** The earlier note that
+the admin UI and OpenAPI document were "out of scope without a decision" is
+superseded — both are now in scope.
 
-After that, still within Phase 2b and in rough order: enable warnings-as-errors
-and clear any findings; add TypeScript-build and Playwright jobs to CI; make the
-cutover map real (include it, add a legacy upstream, and demonstrate cutover
-*and* rollback for one route) or delete it and correct the inventory; wire
-Sentry or downgrade that claim.
+**1. Complete every Phase 2b exit condition, beginning with isolating the CI
+integration-smoke failure.**
+The failing `integration-smoke` job is the first blocker, because every other
+Phase 2b claim sits behind it. Deliverable: root cause, a fix, and the CI run
+URL showing the job green. Then the rest of the Phase 2b matrix:
+warnings-as-errors enabled and all findings cleared; a TypeScript-build job and
+a Playwright job added to CI; the cutover map made real (include it in
+`nginx.conf`, add a legacy upstream, and demonstrate cutover **and** rollback
+for one route) or deleted and the inventory corrected; Sentry either wired or
+its claim downgraded; the vcpkg/Conan deviation either resolved or explicitly
+accepted; the preflight host-check results recorded.
 
-Not in scope without a decision from the user: the Phase 4 admin UI, and the
-OpenAPI document.
+**2. Close the missing Phase 1 OpenAPI deliverable.**
+Phase 1's exit condition requires "an OpenAPI document for the first slice".
+None exists anywhere in the repository. Produce it for the auth / `me` /
+profile slice (and the endpoints since built), or record a deliberate,
+justified decision to supersede the requirement.
+
+**3. Return to Phase 4 and implement and verify the missing admin UI.**
+The Phase 4 exit condition requires staff to manage content *through the new
+admin UI*; only the API exists. Build the admin UI against the already-verified
+`/api/admin/*` endpoints, including the visible high-trust warning for
+raw-HTML/script fields that the plan calls for, then re-check the Phase 4 exit
+condition line by line.
+
+**4. Do not advance to Phase 5 until 1–3 are complete.**
+
+While working the above, honour the safety constraint at the top of this file:
+no destructive volume/database operations without explicit approval, and CI
+reproduction only in an isolated disposable Compose project.
