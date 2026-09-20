@@ -60,7 +60,7 @@ should be read as claiming it is.
 | Cutover **and rollback** demonstrated for a real route | **No** — see the cutover row above |
 | Sentry wired | **No** — inert config field only |
 | Compose services incl. a frontend build | **Partial** — no frontend build service; `frontend/dist` is built out-of-band and bind-mounted (locally and now in CI). The proxy additionally mounts the legacy `housekeeping/images/` tree read-only so `/housekeeping/images/…` resolves instead of being answered with the SPA shell. |
-| Preflight host checks recorded | **No artifact** |
+| Preflight host checks recorded | **Yes** — `docs/phase2b-preflight.md`, produced by `scripts/preflight.sh`, which CI now also runs as a visible first step. It records the Windows 11 development host, the Ubuntu 24.04 Linux build environment (g++ 13.3.0, cmake 3.28.3, git 2.43.0, ninja 1.11.1, python 3.12.3, systemd-detect-virt `wsl`) and that the Docker daemon is reachable, so the plan's "stop Docker work" branch does not apply |
 | vcpkg/Conan chosen and explained | **Deviation** — dependencies come from Ubuntu apt packages; the plan's choice was never made or explained |
 
 **CI integration-smoke: isolated to an intermittent readiness race.**

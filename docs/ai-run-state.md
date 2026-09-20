@@ -389,9 +389,9 @@ including the collectible collision fixture and an out-of-range month.
 
 - **Phase 1's OpenAPI document** — still does not exist. This is the next work
   unit, and Phase 5 stays gated on it.
-- **Phase 2b** — cutover/rollback undemonstrable, Sentry unwired, preflight host
-  checks unrecorded, the vcpkg/Conan deviation unresolved, and now the CI
-  frontend/browser steps pending a green re-run.
+- **Phase 2b** — cutover/rollback undemonstrable, Sentry unwired, the vcpkg/Conan
+  deviation unresolved, no Compose frontend build service. The preflight checks
+  are recorded and the CI steps are green on two consecutive runs.
 - **The active phase stays 2b.** Phase 4's exit condition is met, but 2b is the
   gate the plan places before later phases may be trusted, and its own exit
   condition is still unmet.
@@ -488,12 +488,13 @@ the top of this file — but Phase 4 is not the gating phase: Phase 2b is what t
 plan places before later phases may be trusted, and Phase 1's OpenAPI deliverable
 is a prerequisite the authorised sequence names next.)*
 
-Phase 2b's exit condition has four parts. The build, warnings-as-errors and
-sanitizer parts are met and locally re-verified. What remains is: **cutover and
-rollback are undemonstrable, Sentry is unwired, the preflight host checks were
-never recorded, the vcpkg/Conan deviation was never resolved or explicitly
-accepted, and the CI steps added for the frontend build and browser tests failed
-on their first run for a reason that is fixed but not yet re-observed green.**
+Phase 2b's exit condition has four parts. The build, warnings-as-errors,
+sanitizer and preflight-reporting parts are met, and the CI frontend-build and
+browser-test steps are now green on two consecutive runs. What remains is:
+**cutover and rollback are undemonstrable, Sentry is unwired, the vcpkg/Conan
+deviation was never resolved or explicitly accepted, and there is no frontend
+build service in Compose** (`frontend/dist` is built out-of-band and
+bind-mounted).
 
 Phase 4 is complete: the admin UI exists and drives every implemented
 `/api/admin/*` resource, including collectible editing, and both the browser flow
@@ -503,7 +504,7 @@ and the screenshot parity suites pass.
 
 | Requirement (plan lines 179–205) | State | Evidence |
 | --- | --- | --- |
-| Preflight: compiler/cmake/git/docker versions reported | **Not recorded** | No artifact in the repo |
+| Preflight: compiler/cmake/git/docker versions reported | **DONE** | `docs/phase2b-preflight.md`, produced by `scripts/preflight.sh` and now also run as CI's first step. Windows 11 dev host; Linux build environment g++ 13.3.0, cmake 3.28.3, git 2.43.0, ninja 1.11.1, python 3.12.3, `systemd-detect-virt` = `wsl`; Docker daemon reachable, so the plan's "stop Docker work" branch does not apply |
 | vcpkg or Conan chosen and explained | **Deviation** | Dependencies come from Ubuntu 24.04 apt packages, not vcpkg/Conan. Works, but the plan's choice was never made or explained |
 | Everything compiles | **Yes** | CMake + Ninja build succeeds; CI job "C++ Drogon (Sanitizers + Tests)" success on `824f634`; re-verified locally with `-DENABLE_SANITIZERS=ON`, Debug, GCC/Ninja, `-Werror` — 0 warnings from this repository's sources |
 | Warnings-as-errors enabled | **DONE** | `-Werror` added (with `/WX` for MSVC). The 7 known `-Wunused-parameter` findings in `PublicContentController.cpp` (168, 191, 213, 235, 257, 281, 300 — the handlers that take `req` and ignore it) are fixed by dropping the unused parameter names. Verified **zero compiler warnings** on clean builds in both configurations: Release (Docker image) and Debug + ASan/UBSan (CI's exact flags). **CI green on `824f634`** with `-Werror` active |
@@ -702,13 +703,13 @@ a deterministic probe shows 503-then-200 with login succeeding at the first 200
 — versus a violated invariant on the pre-fix image. *Remaining in this item:*
 confirm on CI that the job is now stable (green runs), since the fix removes the
 mechanism but only CI can confirm the flake is gone. Then the rest of the Phase
-2b matrix: **the TypeScript-build and Playwright CI steps are written, ran once,
-and failed for an environmental reason that is now fixed** — the next CI run must
-confirm them; make the cutover map real (include it in `nginx.conf`, add a legacy
-upstream, and demonstrate cutover **and** rollback for one route) or delete it and
-correct the inventory; Sentry either wired or its claim downgraded; the
-vcpkg/Conan deviation either resolved or explicitly accepted; the preflight
-host-check results recorded.
+2b matrix: **the frontend-build and Playwright CI steps are green** (runs
+`35524678557` and `35524944450`) and **the preflight host checks are recorded**
+(`docs/phase2b-preflight.md`, also run as a CI step). Still outstanding here:
+make the cutover map real (include it in `nginx.conf`, add a legacy upstream, and
+demonstrate cutover **and** rollback for one route) or delete it and correct the
+inventory; Sentry either wired or its claim downgraded; the vcpkg/Conan deviation
+either resolved or explicitly accepted; add a frontend build service to Compose.
 
 *Warnings-as-errors: DONE* — `-Werror` enabled and the 7 known findings cleared;
 clean builds are warning-free in both the Release and the sanitizer

@@ -41,6 +41,12 @@ jobs:
             nlohmann-json3-dev \
             python3
 
+      # Phase 2b asks for the host checks to be reported before infrastructure
+      # work. Running them here means docs/phase2b-preflight.md can be checked
+      # against a live run rather than trusted.
+      - name: Preflight host and toolchain checks
+        run: sh scripts/preflight.sh
+
       - name: Run CSRF Route and PolarIS Isolation Linters
         run: |
           python3 scripts/check_csrf_rules.py
