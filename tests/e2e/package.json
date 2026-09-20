@@ -1,0 +1,14 @@
+{
+  "name": "hotel-drogon-visual",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Playwright visual-parity harness: compares converted React pages against captured legacy PHPRetro references.",
+  "scripts": {
+    "capture": "playwright test capture-references.spec.ts --project=chromium",
+    "test:visual": "playwright test visual-parity.spec.ts --project=chromium",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.47.0"
+  }
+}

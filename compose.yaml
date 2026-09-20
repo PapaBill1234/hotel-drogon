@@ -88,6 +88,9 @@ services:
     volumes:
       - ./proxy/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./proxy/cutover.map:/etc/nginx/cutover.map:ro
+      # React SPA build. Run `npm run build` in frontend/ first; nginx serves
+      # this and falls back to index.html for client-side routes.
+      - ./frontend/dist:/usr/share/nginx/html:ro
     depends_on:
       - backend
     networks:
