@@ -46,7 +46,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libdrogon-dev=1.8.7+ds-1.1build1 \
     nlohmann-json3-dev=3.11.3-1 \
     ca-certificates=20260601~24.04.1 \
-    curl=8.5.0-2ubuntu10.13 \
+    curl=8.5.0-2ubuntu10.15 \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -92,7 +92,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libuuid1=2.39.3-9ubuntu6.6 \
     libdrogon1t64=1.8.7+ds-1.1build1 \
     ca-certificates=20260601~24.04.1 \
-    curl=8.5.0-2ubuntu10.13 \
+    curl=8.5.0-2ubuntu10.15 \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
