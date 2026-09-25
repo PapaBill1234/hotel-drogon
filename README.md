@@ -10,11 +10,20 @@ legacy PHPRetro PHP application and the abandoned Laravel/Inertia attempt.
 - Legacy behavior reference (read-only, not part of this repo):
   https://github.com/PapaBill1234/PHPRetro-PDO
 
-Status: **Phase 3 — auth, authorization, and the Polaris access layer (verified)**
+Status: **Phase 3 and Phase 4 narrow exits verified; Phase 2b and Phase 1
+OpenAPI still incomplete.** See [current state](docs/ai-run-state.md) and
+[feature inventory](docs/phase1-parity-inventory.md) for the release gaps.
 
 ---
 
 ## Running the stack
+
+A fresh clone is not yet one-command runnable: `compose.yaml` requires a
+read-only sibling `../legacy/phpretro-pdo` checkout containing
+`web-gallery/` and `housekeeping/images/`, and nginx serves a
+`frontend/dist` bundle currently built outside Compose. The planned
+frontend build service and reproducible asset acquisition are open work.
+Do not package legacy assets until redistribution rights are verified.
 
 ```sh
 docker compose up -d --build
@@ -30,8 +39,10 @@ Seeded development accounts (both password `password123`):
 | `admin` | 7 | staff |
 
 The seed only runs when the account is absent (`INSERT IGNORE`), so changing a
-password in code will not rewrite an existing volume. Wipe the volume or update
-the row directly if you need to re-seed.
+password in code will not rewrite existing rows. Inspect the data and use an
+authorized, auditable update path when a reseed is needed. Never reset the
+primary or legacy database volume without explicit prior approval; see the
+plan's data-safety rule.
 
 > Recreating the backend container does not require restarting the proxy: the
 > cutover map returns literal `host:port` values resolved through Docker's
