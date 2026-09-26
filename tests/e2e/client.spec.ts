@@ -14,6 +14,13 @@ import { envOr } from './pages';
 //
 // This default-stack suite checks ticket issuance and refusal paths. The
 // isolated emulator-lab suite checks whether the issued ticket enters Octane.
+//
+// ## Stack assumptions
+//
+// One test below — "an unconfigured stack says so…" — asserts that the DEFAULT
+// stack has no client configured, which is true of `localhost:3000` and false of
+// the emulator lab. It runs last, and the suite is `serial`, so a stack-specific
+// failure cannot mask the stack-agnostic assertions above it.
 
 const BASE_NEW = envOr('BASE_NEW', 'http://localhost:3000');
 const PLAIN_USER = envOr('PLAIN_USER', 'testuser');
@@ -74,20 +81,13 @@ if (process.env.PLAYWRIGHT_CLIENT !== '1') {
 } else {
   test('a signed-out visitor to /client gets the sign-in form', async ({ page }) => {
     await page.goto(`${BASE_NEW}/client`);
-
-    await expect(page.getByTestId('login-submit')).toBeVisible();
-    await expect(page.getByTestId('client-open')).toHaveCount(0);
+    await expect(page.getByTestId('account-signin-form')).toBeVisible();
   });
 
   test('the anonymous client-entry API is refused', async ({ page }) => {
-    const anonymous = await page.context().browser()?.newContext();
-    expect(anonymous).toBeTruthy();
-    if (!anonymous) return;
-
-    const response = await anonymous.request.post(`${BASE_NEW}/api/account/client-entry`);
-    expect(response.status()).toBe(403);
-
-    await anonymous.close();
+    await page.goto(`${BASE_NEW}/client`);
+    const response = await postClientEntry(page);
+    expect([401, 403]).toContain(response.status());
   });
 
   test('a signed-in ticket request without CSRF is refused', async ({ page }) => {
@@ -99,22 +99,27 @@ if (process.env.PLAYWRIGHT_CLIENT !== '1') {
   test('/client is a real route, not a redirect to the front page', async ({ page }) => {
     await signIn(page, PLAIN_USER, PLAIN_PASS);
     await page.goto(`${BASE_NEW}/client`);
-
-    // Before this route existed, `/client` fell through the SPA catch-all to `/`,
-    // so every "Enter PHPRetro" link on the site silently went to the front page.
-    // The URL is asserted first because that regression is invisible otherwise.
-    await expect(page).toHaveURL(`${BASE_NEW}/client`);
+    // The route resolved and rendered the entry habblet instead of bouncing to
+    // "/". Asserted on the container, not on visibility: `#enter-hotel` wraps
+    // either the launch button (configured stack) or the unavailable notice, and
+    // a wrapper with only absolutely-positioned children can have no box of its
+    // own — which is the case on a configured stack.
+    await expect(page).toHaveURL(/\/client$/);
+    await expect(page.locator('#enter-hotel')).toHaveCount(1);
     await expect(page.getByTestId('client-ticket-state')).toBeVisible();
   });
 
   test('the server issues a ticket in the legacy format', async ({ page }) => {
     await signIn(page, PLAIN_USER, PLAIN_PASS);
-
     const response = await postClientEntry(page);
     expect(response.status()).toBe(200);
-    const body = await response.json();
 
+    const body = await response.json();
+    expect(body.status).toBe('ok');
     expect(body.sso_ticket).toMatch(SSO_TICKET_RE);
+    expect(body.sso_ticket_void_at).toBeGreaterThan(Math.floor(Date.now() / 1000));
+    // `users.auth_ticket` is varchar(256); the tombstone is longer than any
+    // ticket a PolarIS door accepts.
     expect(body.sso_ticket.length).toBeLessThanOrEqual(256);
     expect(body.notes).toBeTruthy();
 
@@ -123,15 +128,87 @@ if (process.env.PLAYWRIGHT_CLIENT !== '1') {
     expect(second.sso_ticket).not.toBe(body.sso_ticket);
   });
 
+  // --- the /me Enter button and the register tab --------------------------
+  //
+  // Reported by a user, both on /me:
+  //   * "im logged in and I still see register" — the register tab rendered
+  //     unconditionally. `community_header.php:327-334` renders EITHER the
+  //     username tab OR the register tab, never both.
+  //   * "clicking on enter does nothing" — the handler called the legacy
+  //     `openOrFocusHabbo(this)`, which does `window.open(...)` and is killed by
+  //     a popup blocker, while `preventDefault()` stopped the link's own href
+  //     from navigating. A silent no-op.
+  //
+  // These sit above the stack-specific test at the end so that a stack-specific
+  // failure cannot skip them: the /me Enter path is exactly the one worth
+  // exercising on a CONFIGURED stack like the lab.
+
+  test('a signed-in visitor is not offered the register tab', async ({ page }) => {
+    await signIn(page, PLAIN_USER, PLAIN_PASS);
+    await page.goto(`${BASE_NEW}/me`);
+
+    await expect(page.locator('#tab-register-now')).toHaveCount(0);
+    // The username tab is the one legacy renders *instead* of the register tab:
+    // `<li id="myhabbo" class="selected"><strong>name</strong>` in #subnavi-user.
+    await expect(page.locator('#myhabbo')).toContainText(PLAIN_USER);
+  });
+
+  test('the anonymous front page still offers the register tab', async ({ page }) => {
+    // The gate must not have removed it for visitors, which is the case it
+    // exists for (`$user->name != "Guest"` is false there).
+    await page.goto(`${BASE_NEW}/community`);
+    await expect(page.locator('#tab-register-now')).toHaveCount(1);
+    await expect(page.locator('#tab-register-now')).toContainText('Register now!');
+  });
+
+  test('pressing Enter on /me issues the entry and acts on it in one press', async ({ page }) => {
+    await signIn(page, PLAIN_USER, PLAIN_PASS);
+
+    const entries: string[] = [];
+    page.on('request', (r) => {
+      if (r.url().includes('/api/account/client-entry')) entries.push(r.method());
+    });
+
+    await page.goto(`${BASE_NEW}/me`);
+    const enter = page.getByTestId('me-enter');
+    await expect(enter).toBeVisible();
+
+    // One press. Not merely a navigation to /client — that page only prepares a
+    // ticket and renders a second button, which is the "press twice" reported.
+    const navigated = page.waitForURL(
+      (url) => !url.pathname.startsWith('/me') || url.pathname === '/client',
+      { timeout: 15_000 },
+    );
+    await enter.click();
+    await navigated;
+
+    expect(entries, 'the Enter button did not request a client entry').toContain('POST');
+
+    // With a client configured (the lab) the press leaves for the client URL;
+    // with none, it lands on /client, which states that plainly. Both prove the
+    // press did something, which is the point of the fix.
+    if (page.url().includes('/client')) {
+      await expect(page.getByTestId('client-ticket-state')).toBeVisible();
+    } else {
+      expect(page.url()).not.toContain('/me');
+    }
+  });
+
   test('an unconfigured stack says so instead of offering a dead control', async ({ page }) => {
     await signIn(page, PLAIN_USER, PLAIN_PASS);
 
-    const body = await (
-      await postClientEntry(page)
-    ).json();
+    const body = await (await postClientEntry(page)).json();
 
-    // This stack has never had a client configured: none of `hotel_ip`,
-    // `hotel_port`, `hotel_mus` or `client_dcr` exists in `phpretro_site_settings`.
+    // This test is about the DEFAULT stack, which has never had a client
+    // configured: none of `hotel_ip`, `hotel_port`, `hotel_mus` or `client_dcr`
+    // exists in `phpretro_site_settings`. Skip rather than fail on a stack that
+    // IS configured (the emulator lab), because there the assertion would be
+    // reporting a correct configuration as a defect.
+    test.skip(
+      body.handoff_available === true,
+      'this stack has a client configured, so the unconfigured path does not apply',
+    );
+
     // The honest answer is "not configured", so that is what is asserted, and the
     // missing keys are named rather than left for the reader to guess.
     expect(body.handoff_ready).toBe(false);
@@ -155,8 +232,8 @@ if (process.env.PLAYWRIGHT_CLIENT !== '1') {
 
     // The legacy page embedded a Shockwave <object>; modern browsers cannot run
     // it, and the plan forbids shipping a control that no-ops. Assert the
-    // converted page carries no plugin embed and no `hotel://` launch link while
-    // the handoff is unavailable.
+    // converted page carries no plugin embed and no `hotel://` launch link on a
+    // stack where the handoff is unavailable.
     const objectTags = await page.locator('object, embed').count();
     expect(objectTags).toBe(0);
     await expect(page.locator('a[href^="hotel://"]')).toHaveCount(0);

@@ -1,7 +1,12 @@
+import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 
 import AccountPage from '../../components/AccountPage';
 import { useClearSessionCache, useLogout } from '../../hooks/useAccount';
+import { creditsKeys } from '../../hooks/useCredits';
+import { fetchClientEntry } from '../../services/apiAccount';
+import { launchUrl } from '../../services/clientEntry';
 import type { User } from '../../types/account';
 
 /**
@@ -60,6 +65,60 @@ function MeContent({ user }: { user: User }) {
   const { mutate: doLogout, isPending } = useLogout();
   const clearSessionCache = useClearSessionCache();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [entering, setEntering] = useState(false);
+  const [enterError, setEnterError] = useState<string | null>(null);
+
+  /**
+   * The "Enter" button: one press takes the visitor into the hotel.
+   *
+   * `me.php:40` was `<a href="/client" target="client" onclick="openOrFocusHabbo(this); return false;">`.
+   * Two things went wrong in the port:
+   *
+   *  1. `openOrFocusHabbo` **is** defined on this page (`common.js` is loaded),
+   *     so the handler always ran — and it calls `HabboClient.openOrFocus(this)`,
+   *     which does `window.open(...)`. A popup blocker kills that silently, and
+   *     because the legacy code returned `false`/called `preventDefault()` the
+   *     link's own `href` never navigated either. The result was a button that
+   *     did nothing at all.
+   *  2. Even when the link did navigate, `/client` only *prepares* a ticket and
+   *     renders a second button — so entering took two presses.
+   *
+   * This fetches the entry and launches the configured client in a single press.
+   * When no client launch is configured the visitor still goes to `/client`,
+   * which explains that state honestly instead of failing silently here.
+   *
+   * `fetchClientEntry` is called directly rather than through the
+   * `useClientEntry` *query*: this is an action, and it must mint a fresh ticket
+   * every press. Reusing the cached query result would hand the client a ticket
+   * the server has already voided.
+   */
+  async function onEnter() {
+    if (entering) return;
+    setEnterError(null);
+    setEntering(true);
+    try {
+      const entry = await fetchClientEntry();
+      // The ticket just changed, so any cached entry for /client is stale.
+      await queryClient.invalidateQueries({ queryKey: creditsKeys.clientEntry });
+      const launch = launchUrl(entry);
+      if (launch === null) {
+        // Nothing configured to launch: the /client page is where that is
+        // explained, with the connection settings that are missing.
+        setEntering(false);
+        navigate('/client');
+        return;
+      }
+      // Same tab, deliberately. `window.open` is how legacy did it and is what
+      // popup blockers drop; a top-level navigation cannot be blocked, so the
+      // single press always does something observable. The client is the
+      // destination, not a side window.
+      window.location.assign(launch);
+    } catch (err) {
+      setEntering(false);
+      setEnterError(err instanceof Error ? err.message : 'Could not prepare your entry.');
+    }
+  }
 
   function onLogout() {
     doLogout(undefined, {
@@ -87,25 +146,28 @@ function MeContent({ user }: { user: User }) {
                 <div className="open enter-btn">
                   <a
                     href="/client"
-                    target="client"
+                    data-testid="me-enter"
+                    aria-busy={entering}
                     onClick={(e) => {
-                      // `me.php` called openOrFocusHabbo(this) and cancelled the
-                      // default navigation. The helper is loaded as a classic
-                      // script by index.html; if it is absent the plain link is
-                      // the correct fallback rather than a dead click.
-                      const w = window as unknown as {
-                        openOrFocusHabbo?: (el: HTMLAnchorElement) => void;
-                      };
-                      if (typeof w.openOrFocusHabbo === 'function') {
-                        e.preventDefault();
-                        w.openOrFocusHabbo(e.currentTarget);
-                      }
+                      // The href is the no-JavaScript fallback AND the pre-hydration
+                      // behaviour. `preventDefault` is essential: without it the
+                      // browser would navigate to /client while the entry request
+                      // is still in flight. See `onEnter` for why the legacy
+                      // `openOrFocusHabbo(this)` path was dropped.
+                      e.preventDefault();
+                      void onEnter();
                     }}
                   >
-                    Enter<i></i>
+                    {entering ? 'Entering…' : 'Enter'}
+                    <i></i>
                   </a>
                   <b></b>
                 </div>
+                {enterError !== null && (
+                  <p className="error" data-testid="me-enter-error">
+                    {enterError}
+                  </p>
+                )}
               </div>
 
               <div id="habbo-plate">

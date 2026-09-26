@@ -3,6 +3,7 @@ import { Navigate } from 'react-router-dom';
 import AccountPage from '../../components/AccountPage';
 import { useSessionState } from '../../hooks/useAccount';
 import { useClientEntry } from '../../hooks/useCredits';
+import { launchUrl, voidTime } from '../../services/clientEntry';
 
 /**
  * `/client` — the converted client entry.
@@ -58,6 +59,7 @@ function ClientEntry() {
   // The legacy `intermediate.php` markup: an enter button, a line of copy, and a
   // link back to the user's own page. The ids are kept so the legacy stylesheet
   // (`#enter-hotel`, `.enter-btn`) applies to the block it was written for.
+  const launch = launchUrl(data);
   return (
     <div id="container">
       <div id="content" className="clearfix">
@@ -67,16 +69,16 @@ function ClientEntry() {
               <h2 className="title">Enter the hotel</h2>
               <div className="box-content">
                 <div id="enter-hotel">
-                  {data.handoff_available ? (
+                  {launch !== null ? (
                     <div className="open enter-btn">
                       {/*
                         Octane consumes `?sso=`. The old hotel:// form remains
                         available only for a separately configured legacy client.
+                        Same URL builder as /me's Enter button, so the two entry
+                        points cannot disagree about what to launch.
                       */}
                       <a
-                        href={data.octane_url
-                          ? `${data.octane_url}?sso=${encodeURIComponent(data.sso_ticket)}`
-                          : `${clientScheme(data.connection.host, data.connection.port)}?use.sso.ticket=1&sso.ticket=${encodeURIComponent(data.sso_ticket)}`}
+                        href={launch}
                         target={data.octane_url ? '_blank' : undefined}
                         rel={data.octane_url ? 'noreferrer' : undefined}
                         referrerPolicy="no-referrer"
@@ -155,27 +157,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * The local time a ticket stops working, or an empty string when the server did
- * not report one. Rendered from the server's deadline rather than recomputed
- * here: the window is the server's to enforce, and a client-side guess would
- * disagree with it.
+ * The launch URL builder and the ticket-deadline formatter moved to
+ * `services/clientEntry.ts`, because `/me`'s Enter button now needs the same
+ * answers and duplicating them is how the two entry points would drift apart.
  */
-function voidTime(epochSeconds: number): string {
-  if (!epochSeconds) return 'an unreported time';
-  return new Date(epochSeconds * 1000).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-/**
- * A URL-shaped rendering of the configured host and port.
- *
- * Deliberately not `http://`: the value a Shockwave client was given was a bare
- * `host:port` for its own socket connection, not an HTTP origin, and guessing a
- * scheme would invent a fact. The `hotel://` scheme marks it as the hotel
- * endpoint it is; nothing dereferences it in this application.
- */
-function clientScheme(host: string, port: string): string {
-  return `hotel://${host}${port ? `:${port}` : ''}`;
-}

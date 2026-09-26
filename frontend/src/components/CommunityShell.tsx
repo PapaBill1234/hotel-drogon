@@ -293,10 +293,25 @@ export default function CommunityShell({
             <AnonymousSubnav />
           )}
           <ul id="navi">
-            <li id="tab-register-now">
-              <Link to="/register">Register now!</Link>
-              <span></span>
-            </li>
+            {/*
+              `community_header.php:327-334` renders EITHER the username tab
+              (`$user->name != "Guest"`) OR the register tab:
+                <?php if($user->name != "Guest"){ ?> …username… <?php }else{ ?>
+                <li id="tab-register-now">…</li> <?php } ?>
+              The port rendered the register tab unconditionally, so a signed-in
+              user was still shown "Register now!". The whole <li> is omitted
+              rather than styled away, so the DOM matches legacy too.
+
+              (Legacy also reuses `id="tab-register-now"` for the staff
+              Housekeeping tab at line 344 when rank > 4. That duplicate id is
+              not reproduced; the staff tab is not ported yet.)
+            */}
+            {signedInAs === undefined && (
+              <li id="tab-register-now">
+                <Link to="/register">Register now!</Link>
+                <span></span>
+              </li>
+            )}
             <li className={cat === 'community' ? 'selected' : undefined}>
               {cat === 'community' ? (
                 <strong>Community </strong>
