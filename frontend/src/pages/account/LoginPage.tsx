@@ -1,7 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-import CommunityShell from '../../components/CommunityShell';
+import ProcessShell from '../../components/ProcessShell';
 import { useLogin } from '../../hooks/useAccount';
 import { AccountApiError } from '../../services/apiAccount';
 
@@ -74,62 +74,65 @@ export default function LoginPage() {
   }
 
   return (
-    <CommunityShell pageId="me" cat="home" pageName="Sign in">
-      <div id="container">
-        <div id="content" className="clearfix">
-          <div id="column1" className="column">
-            <div className="habblet-container">
-              <div className="cbb clearfix default">
-                <h2 className="title">Sign in</h2>
-                <div className="box-content">
-                  {error !== null && (
-                    <p className="error" data-testid="login-error">
-                      {error}
-                    </p>
-                  )}
+    <ProcessShell pageName="Sign in">
+      {/*
+        Same family as forgot.php: `account.php` sets `$page['bodyid'] =
+        "landing"` and renders through `templates/login_header.php`, i.e.
+        `body#landing.process-template` with the bare logo header and no nav.
+        `CommunityShell` was the wrong family, so this page used to grow the full
+        community header, the Register/Community/Coins tabs and a SECOND
+        anonymous sign-in form in `#subnavi`.
 
-                  {/* Scoped ids and names, deliberately `account-*` rather than
-                      `login-*`: `CommunityShell` renders the anonymous header
-                      sign-in form on this same page, so `#login-username` and
-                      `#login-password` would be duplicated in the document and
-                      every label lookup would be ambiguous between the two. */}
-                  <form onSubmit={(e) => void onSubmit(e)} data-testid="account-signin-form">
-                    <label htmlFor="account-username">Username</label>
-                    <br />
-                    <input
-                      id="account-username"
-                      name="username"
-                      type="text"
-                      autoComplete="username"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                    />
-                    <br />
-                    <label htmlFor="account-password">Password</label>
-                    <br />
-                    <input
-                      id="account-password"
-                      name="password"
-                      type="password"
-                      autoComplete="current-password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                    />
-                    <br />
-                    <button type="submit" disabled={isPending} data-testid="login-submit">
-                      {isPending ? 'Signing in…' : 'Sign in'}
-                    </button>
-                  </form>
+        `#column1` is deliberately NOT used: `process.css` floats it only for
+        `body#landing`/`body#reauthenticate`, and the legacy sign-in box is a
+        plain block inside `#process-content`.
+      */}
+      <div className="cbb clearfix">
+        <h2 className="title">Sign in</h2>
+        <div className="box-content">
+          {error !== null && (
+            <p className="error" data-testid="login-error">
+              {error}
+            </p>
+          )}
 
-                  <p>
-                    <a href="/account/password/forgot">I forgot my password/username</a>
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
+          {/* Scoped ids and names, deliberately `account-*` rather than
+              `login-*`: the landing page's header form uses `#login-username`,
+              and both can be present in one document, so a shared id would make
+              every label lookup ambiguous between the two. */}
+          <form onSubmit={(e) => void onSubmit(e)} data-testid="account-signin-form">
+            <label htmlFor="account-username">Username</label>
+            <br />
+            <input
+              id="account-username"
+              name="username"
+              type="text"
+              autoComplete="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+            />
+            <br />
+            <label htmlFor="account-password">Password</label>
+            <br />
+            <input
+              id="account-password"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            <br />
+            <button type="submit" disabled={isPending} data-testid="login-submit">
+              {isPending ? 'Signing in…' : 'Sign in'}
+            </button>
+          </form>
+
+          <p>
+            <a href="/account/password/forgot">I forgot my password/username</a>
+          </p>
         </div>
       </div>
-    </CommunityShell>
+    </ProcessShell>
   );
 }

@@ -82,8 +82,13 @@ const BODY_BY_PATH: Record<string, { id: string; className: string }> = {
   // #link-bar), which the community stylesheet set already contains.
   '/me': { id: 'home', className: '' },
   '/account/profile': { id: 'home', className: '' },
-  // account.php rendered the sign-in screen with the community header too.
-  '/account': { id: 'home', className: '' },
+  // account.php set `$page['bodyid'] = "landing"` and rendered through
+  // templates/login_header.php, i.e. `body#landing.process-template`. It never
+  // rendered a sign-in box itself — its login case is a POST handler, and a GET
+  // falls through to the 404 default — so `/account` is a port convenience. It
+  // gets the landing process-template body so `ProcessShell` lays out the same
+  // way the legacy sign-in form does on `/`.
+  '/account': { id: 'landing', className: 'process-template' },
   '/logout': { id: 'home', className: '' },
 };
 
