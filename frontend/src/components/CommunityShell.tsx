@@ -38,6 +38,10 @@ interface CommunityShellProps {
     | 'help'
     | 'me'
     | 'profile'
+    // MyHabbo's own home page (`home.php`). This stack has no such page yet, but
+    // `cat = "home"`'s navi2 strip has a "My page" tab keyed on it, so the token
+    // has to exist for the strip to select it correctly once the page does.
+    | 'home'
     | 'history';
   /** Legacy `$page['cat']`, which chooses the secondary navigation strip. */
   cat: PageCat;
@@ -337,6 +341,46 @@ export default function CommunityShell({
       </div>
 
       <div id="content-container">
+        {/*
+          `community_header.php:355-379` has a `navi2` variant for `cat ==
+          "home"`:
+            Home | My Page | Account Settings | Habbo Club
+          rendered only when `$user->name != "Guest"`. `me.php` and `profile.php`
+          are both `cat = "home"`, so a signed-in user sees this strip on /me and
+          on the profile page. `CommunityShell` rendered nothing for `home`,
+          which is most of why /me measured 48.8% different from legacy.
+        */}
+        {cat === 'home' && signedInAs !== undefined && (
+          <div id="navi2-container" className="pngbg">
+            <div id="navi2" className="pngbg clearfix">
+              <ul>
+                <li className={pageId === 'me' ? 'selected' : undefined}>
+                  {pageId === 'me' ? 'Home' : <Link to="/me">Home</Link>}
+                </li>
+                <li className={pageId === 'home' ? 'selected' : undefined}>
+                  {/* Legacy links to /home/<username>; this stack has no MyHabbo
+                      home page, so the link points at the profile's own page
+                      rather than inventing one. Recorded in the inventory. */}
+                  {pageId === 'home' ? (
+                    'My page'
+                  ) : (
+                    <a href={`/home/${signedInAs}`}>My page</a>
+                  )}
+                </li>
+                <li className={pageId === 'profile' ? 'selected' : undefined}>
+                  {pageId === 'profile' ? (
+                    'Account settings'
+                  ) : (
+                    <Link to="/account/profile">Account settings</Link>
+                  )}
+                </li>
+                <li className=" last">
+                  <a href="/club">Retro Club</a>
+                </li>
+              </ul>
+            </div>
+          </div>
+        )}
         {cat === 'community' && (
           <div id="navi2-container" className="pngbg">
             <div id="navi2" className="pngbg clearfix">

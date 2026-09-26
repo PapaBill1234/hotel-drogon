@@ -58,10 +58,12 @@ const findings: Finding[] = [];
  */
 async function isSignedIn(p: Page, base: string): Promise<boolean> {
   if (base === BASE_NEW) {
-    return p
-      .getByTestId('me-username')
-      .isVisible()
-      .catch(() => false);
+    // `#myhabbo` is the new-stack marker that holds on EVERY signed-in page.
+    // `[data-testid="me-username"]` was the obvious choice and is wrong: it only
+    // exists on /me, so /credits and /account/profile were reported UNAUTH while
+    // signed in. Measured on /me, /credits, /credits/history and
+    // /account/profile with marker-matrix.spec.ts.
+    return p.evaluate(() => document.getElementById('myhabbo') !== null);
   }
   // Legacy. Verified against /me, /credits and /profile with a real session:
   // the signed-in community header renders `#subnavi-user` and does NOT render

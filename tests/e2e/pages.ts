@@ -149,7 +149,15 @@ const AUDIT_PUBLIC: AuditPage[] = [
 /** Signed-in pages. */
 const AUDIT_SIGNED_IN: AuditPage[] = [
   { name: 'me', newPath: '/me', legacyPath: '/me', auth: 'user' },
-  { name: 'profile', newPath: '/account/profile', legacyPath: '/profile', auth: 'user' },
+  {
+    // profile.php's new route is `/account/profile`. `/profile` is NOT it: it
+    // falls through to the catch-all and renders "/" (measured with
+    // marker-matrix.spec.ts while signed in).
+    name: 'profile',
+    newPath: '/account/profile',
+    legacyPath: '/profile',
+    auth: 'user',
+  },
   { name: 'credits', newPath: '/credits', legacyPath: '/credits', auth: 'user' },
   {
     name: 'credits-history',

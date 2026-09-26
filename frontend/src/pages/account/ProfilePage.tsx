@@ -51,7 +51,7 @@ import type { User } from '../../types/account';
  */
 export default function ProfilePage() {
   return (
-    <AccountPage pageName="Edit profile">
+    <AccountPage pageName="Edit profile" pageId="profile">
       {(user) => <ProfileContent user={user} />}
     </AccountPage>
   );

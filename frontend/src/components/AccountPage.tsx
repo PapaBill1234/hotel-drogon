@@ -45,12 +45,17 @@ interface AccountPageProps {
    * Legacy `$page['id']` / `$page['cat']`, passed through to `CommunityShell`.
    *
    * The account pages do not all share one: `me.php` and `profile.php` are
-   * `cat = 'home'` with no secondary navigation strip, while `credits.php` is
-   * `cat = 'credits'` and renders the Coins/Habbo Club/Collectables/Pixels strip
-   * with Coins selected. Defaulting to the profile pair keeps the common case
-   * terse without forcing the credits pages to accept the wrong strip.
+   * `cat = 'home'`, which DOES have a secondary strip — `community_header.php`
+   * renders `Home | My Page | Account Settings | Habbo Club` for a signed-in
+   * user — and `credits.php` is `cat = 'credits'` with the
+   * Coins/Habbo Club/Collectables/Pixels strip. Defaulting to the profile pair
+   * keeps the common case terse without forcing the credits pages to accept the
+   * wrong strip.
+   *
+   * `'me'` / `'profile'` select which tab of the `home` strip is current;
+   * `'home'` is the MyHabbo home page, which this stack does not have yet.
    */
-  pageId?: 'me' | 'credits' | 'history';
+  pageId?: 'me' | 'profile' | 'home' | 'credits' | 'history';
   cat?: 'home' | 'credits';
   children: (user: User) => ReactNode;
 }
@@ -162,7 +167,7 @@ function AccountFrame({
   children,
 }: {
   pageName: string;
-  pageId: 'me' | 'credits' | 'history';
+  pageId: 'me' | 'profile' | 'home' | 'credits' | 'history';
   cat: 'home' | 'credits';
   children: ReactNode;
 }) {
