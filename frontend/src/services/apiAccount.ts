@@ -28,6 +28,7 @@
 
 import { ACCOUNT_API_BASE, ApiRequestError, requestJson } from './api';
 import type {
+  ClientEntryResponse,
   LoginRequest,
   MeResponse,
   PasswordChangeRequest,
@@ -200,6 +201,22 @@ export function fetchTransactions(signal?: AbortSignal): Promise<TransactionsRes
   return requestJson<TransactionsResponse>({
     method: 'GET',
     path: `${ACCOUNT_API_BASE}/account/transactions`,
+    csrf: false,
+    signal,
+  });
+}
+
+/**
+ * `GET /api/account/client-entry` — SSO ticket and hotel connection settings.
+ *
+ * Reports `handoff_available: false` with the missing setting names when the
+ * stack has no client configured, rather than inventing a host. See the type's
+ * documentation for what these flags do and do not claim.
+ */
+export function fetchClientEntry(signal?: AbortSignal): Promise<ClientEntryResponse> {
+  return requestJson<ClientEntryResponse>({
+    method: 'GET',
+    path: `${ACCOUNT_API_BASE}/account/client-entry`,
     csrf: false,
     signal,
   });

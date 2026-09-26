@@ -105,8 +105,17 @@ int main(int argc, char* argv[]) {
                         "account_created BIGINT DEFAULT 0, "
                         "last_login BIGINT DEFAULT 0, "
                         "ip_current VARCHAR(50) DEFAULT '', "
-                        "auth_ticket VARCHAR(255) DEFAULT '', "
-                        "auth_ticket_expires_at BIGINT DEFAULT 0, "
+                        // `auth_ticket` is PolarIS's `varchar(256)` exactly
+                        // (`references/schema/CleanDB.sql`); it was declared
+                        // VARCHAR(255) here, which is one character short of the
+                        // column the emulator and the legacy site both use.
+                        // `auth_ticket_expires_at` was removed for the opposite
+                        // reason: PolarIS has no such column, so writing it would
+                        // fail against a real PolarIS database. A database
+                        // created before this change keeps both old columns —
+                        // `CREATE TABLE IF NOT EXISTS` will not alter it — so the
+                        // migration is recorded in docs/phase1-parity-inventory.md.
+                        "auth_ticket VARCHAR(256) DEFAULT '', "
                         "remember_token_hash VARCHAR(64) DEFAULT '', "
                         "remember_token_expires_at BIGINT DEFAULT 0"
                         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",

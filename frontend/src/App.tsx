@@ -22,6 +22,7 @@ import MePage from './pages/account/MePage';
 import ProfilePage from './pages/account/ProfilePage';
 import WalletPage from './pages/account/WalletPage';
 import TransactionHistoryPage from './pages/account/TransactionHistoryPage';
+import ClientPage from './pages/account/ClientPage';
 
 /**
  * The legacy stylesheets target body-level selectors (`body#news #column1`,
@@ -54,6 +55,12 @@ const BODY_BY_PATH: Record<string, { id: string; className: string }> = {
   // the class is empty either way once a user is signed in.
   '/credits': { id: 'home', className: '' },
   '/credits/history': { id: 'home', className: '' },
+  // client.php emitted its own page shell (templates/client_header.php) with
+  // <body id="client" class="wide">. The converted page reuses the community
+  // shell instead, because the Shockwave document the legacy body was built
+  // around no longer exists; the id below keeps the legacy client body id so any
+  // `#client` rule still resolves.
+  '/client': { id: 'client', className: 'wide' },
   // me.php and profile.php both set $page['bodyid'] = 'home' and require
   // community_header.php, which adds class="anonymous" only for a guest — these
   // two routes are guest-refused, so the class is empty.
@@ -152,6 +159,10 @@ export default function App() {
             `/credits/history`, so that path is kept verbatim. */}
         <Route path="/credits" element={<WalletPage />} />
         <Route path="/credits/history" element={<TransactionHistoryPage />} />
+        {/* client.php. Before this route existed, every "Enter PHPRetro" link on
+            the site fell through to the catch-all and quietly redirected to the
+            front page — a dead entrance rather than an honest one. */}
+        <Route path="/client" element={<ClientPage />} />
 
         <Route path="/housekeeping" element={<AdminLayout />}>
           <Route index element={<AdminHomePage />} />

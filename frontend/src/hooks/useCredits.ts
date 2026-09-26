@@ -8,11 +8,12 @@
 
 import { useQuery } from '@tanstack/react-query';
 
-import { fetchPurse, fetchTransactions } from '../services/apiAccount';
+import { fetchClientEntry, fetchPurse, fetchTransactions } from '../services/apiAccount';
 
 export const creditsKeys = {
   purse: ['account', 'purse'] as const,
   transactions: ['account', 'transactions'] as const,
+  clientEntry: ['account', 'client-entry'] as const,
 };
 
 /** `GET /api/account/purse` — Coin, Pixel and Point balances. */
@@ -33,6 +34,22 @@ export function useTransactions() {
   return useQuery({
     queryKey: creditsKeys.transactions,
     queryFn: ({ signal }) => fetchTransactions(signal),
+    retry: false,
+    staleTime: 0,
+  });
+}
+
+/**
+ * `GET /api/account/client-entry` — SSO ticket and connection settings.
+ *
+ * `staleTime: 0` and no retry, like the others: the request issues a **fresh
+ * ticket** each time it runs, so a cached answer would hand the page a ticket
+ * that has since been rotated.
+ */
+export function useClientEntry() {
+  return useQuery({
+    queryKey: creditsKeys.clientEntry,
+    queryFn: ({ signal }) => fetchClientEntry(signal),
     retry: false,
     staleTime: 0,
   });

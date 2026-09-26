@@ -330,7 +330,6 @@ void UserAccountService::setRememberToken(
 void UserAccountService::generateAuthTicket(
     uint32_t userId,
     const std::string& ticket,
-    uint64_t expiresAt,
     const std::string& ipAddress,
     std::function<void(bool success)> callback
 ) {
@@ -340,8 +339,10 @@ void UserAccountService::generateAuthTicket(
         return;
     }
 
-    *db << "UPDATE users SET auth_ticket = ?, auth_ticket_expires_at = ? WHERE id = ?"
-        << ticket << expiresAt << userId
+    // `users.auth_ticket` only. PolarIS declares `auth_ticket varchar(256)` and
+    // no expiry column; see the note on the declaration.
+    *db << "UPDATE users SET auth_ticket = ? WHERE id = ?"
+        << ticket << userId
         >> [userId, ipAddress, callback](const drogon::orm::Result& /*r*/) {
             AuditService::logAction(userId, "issue_sso_ticket", "user", userId, "Client SSO ticket issued", ipAddress);
             if (callback) callback(true);

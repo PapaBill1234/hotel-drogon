@@ -75,6 +75,7 @@ ACCOUNT_CONTRACT_DISPOSABLE=1 python3 scripts/check_account_contract.py http://l
 # visual-parity meaning). From tests/e2e:
 #   PLAYWRIGHT_ACCOUNT=1 npx playwright test account.spec.ts
 #   PLAYWRIGHT_CREDITS=1 npx playwright test credits.spec.ts
+#   PLAYWRIGHT_CLIENT=1  npx playwright test client.spec.ts
 #   PLAYWRIGHT_ADMIN=1   npx playwright test admin.spec.ts
 ```
 
@@ -118,6 +119,16 @@ always the session's user — so another account's balance or ledger is not
 reachable through them. The ledger's only writers are the housekeeping credit
 adjustment (Phase 9) and the MyHabbo Homes store (Phase 8), so an empty history
 on a fresh stack is expected, not broken.
+
+**`/client` is a handoff, not a client.** The legacy `client.php` embedded a
+Shockwave/Director object that modern browsers cannot run, so the converted page
+issues an SSO ticket in the legacy `GenerateTicket("sso")` format, stores it in
+`users.auth_ticket`, reports the hotel connection settings from
+`phpretro_site_settings`, and links to the hotel endpoint only when those
+settings exist. It never claims the hotel accepts the ticket — that is emulator
+behaviour, no PolarIS/Nitro source is available here, and the browser-native
+client is tracked as its own milestone. An unconfigured stack says so and lists
+the missing keys instead of offering a control that cannot work.
 
 **Two modules may open a request, one per surface.** `services/api.ts` (public,
 including the account routes) and `services/apiAdmin.ts` (staff).

@@ -176,6 +176,20 @@
           "404": { "$ref": "#/components/responses/UserNotFound" }
         }
       }
+    },
+    "/api/account/client-entry": {
+      "get": {
+        "tags": ["Credits"],
+        "operationId": "getClientEntry",
+        "summary": "Issue an SSO ticket and report the hotel connection settings",
+        "description": "The converted `client.php`. The legacy page embedded a Shockwave object whose `sw8` parameter carried `use.sso.ticket=1;sso.ticket=<users.auth_ticket>` and whose `sw2`/`sw3` parameters carried the hotel host, port and MUS port read from `phpretro_site_settings`. Modern browsers cannot run that plugin and the browser-native client is tracked as a separate milestone, so this route serves the materials for a handoff instead of an embed. It writes exactly one column — the caller's own `users.auth_ticket`, with a freshly generated ticket in the legacy 8-4-4-4-12 lowercase-hex format — and records an audit entry; it is a GET because that is how the page asks for a ticket, and a cross-site GET here can only rotate the victim's own ticket, which is useless to an attacker who cannot read the response. `handoff_ready` and `handoff_available` are website-side facts only: they state that the settings are present and the ticket was stored. They do NOT claim a client exists, is running, or accepts the ticket — that is emulator behaviour this application cannot observe and does not assert.",
+        "security": [{ "userSession": [] }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/ClientEntrySuccess" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/UserNotFound" }
+        }
+      }
     }
   },
   "components": {
@@ -245,6 +259,26 @@
           "count": { "type": "integer" },
           "limit": { "type": "integer", "description": "The server's page cap (100, as history.php used)." }
         }
+      },
+      "ClientEntryResponse": {
+        "type": "object",
+        "required": ["status", "handoff_ready", "handoff_available", "sso_ticket", "missing_settings", "connection", "notes"],
+        "properties": {
+          "status": { "const": "ok" },
+          "handoff_ready": { "type": "boolean", "description": "Website side only: every required connection setting is present and non-empty." },
+          "handoff_available": { "type": "boolean", "description": "handoff_ready AND the SSO ticket was stored. Still not a claim about the emulator." },
+          "sso_ticket": { "type": "string", "description": "Legacy 8-4-4-4-12 lowercase-hex ticket, also stored in users.auth_ticket. Empty when storing failed." },
+          "missing_settings": { "type": "array", "items": { "type": "string" }, "description": "phpretro_site_settings keys that are absent or empty." },
+          "connection": {
+            "type": "object",
+            "required": ["host", "port", "mus_port", "client_asset"],
+            "properties": {
+              "host": { "type": "string" }, "port": { "type": "string" },
+              "mus_port": { "type": "string" }, "client_asset": { "type": "string" }
+            }
+          },
+          "notes": { "type": "string", "description": "Plain statement of what the handoff does and does not claim." }
+        }
       }
     },
     "responses": {
@@ -270,6 +304,7 @@
       "PasswordSuccess": { "description": "Password changed.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PasswordResponse" } } } },
       "PurseSuccess": { "description": "Balances read from the live PolarIS users row.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PurseResponse" } } } },
       "TransactionsSuccess": { "description": "The caller's own ledger page, newest first. items may be empty.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TransactionsResponse" } } } },
+      "ClientEntrySuccess": { "description": "A fresh SSO ticket plus the connection settings, and an explicit statement of whether a handoff is available.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClientEntryResponse" } } } },
       "InvalidJson": { "description": "JSON body could not be read.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "Unauthorized": { "description": "Invalid credentials or missing/expired public session, depending on route.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "Forbidden": { "description": "Insufficient staff rank.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },

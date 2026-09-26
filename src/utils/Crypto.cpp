@@ -68,8 +68,18 @@ std::string Crypto::randomHex(size_t byteCount) {
     return toHex(buf.data(), byteCount);
 }
 
-std::string Crypto::randomAlphanumeric(size_t length) {
-    static constexpr char charset[] =
+std::string Crypto::generateSsoTicket() {
+    // `GenerateTicket("random", $length)` in the legacy includes/functions.php is
+    // `substr(bin2hex(random_bytes(ceil($length / 2))), 0, $length)` — lowercase
+    // hex. Every segment length below is even, because an odd one would need a
+    // half-byte to reproduce faithfully and no legacy call site asks for one.
+    auto segment = [](size_t length) { return randomHex(length / 2); };
+
+    return segment(8) + "-" + segment(4) + "-" + segment(4) + "-" + segment(4) + "-" +
+           segment(12);
+}
+
+std::string Crypto::randomAlphanumeric(size_t length) {    static constexpr char charset[] =
         "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     std::vector<unsigned char> randBytes(length);
     RAND_bytes(randBytes.data(), static_cast<int>(length));

@@ -93,6 +93,34 @@ export interface PasswordChangeResponse extends ApiEnvelope {
   message: string;
 }
 
+/**
+ * `GET /api/account/client-entry`
+ *
+ * The materials a client needs to connect, plus an explicit statement of whether
+ * the website can actually offer a handoff.
+ *
+ * `handoff_ready` means every setting a client needs is present and non-empty —
+ * a website-side fact. `handoff_available` additionally requires that the SSO
+ * ticket was stored. **Neither claims that a client exists, is running, or
+ * accepts the ticket**: that is emulator behaviour this application cannot
+ * observe, and the plan forbids implying otherwise.
+ */
+export interface ClientEntryResponse extends ApiEnvelope {
+  handoff_ready: boolean;
+  handoff_available: boolean;
+  /** Empty when the ticket could not be stored. */
+  sso_ticket: string;
+  /** Names of the `phpretro_site_settings` keys that are absent or empty. */
+  missing_settings: string[];
+  connection: {
+    host: string;
+    port: string;
+    mus_port: string;
+    client_asset: string;
+  };
+  notes: string;
+}
+
 export interface LogoutResponse extends ApiEnvelope {
   message: string;
 }

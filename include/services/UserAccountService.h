@@ -92,10 +92,23 @@ public:
         std::function<void(bool success)> callback
     );
 
+    /**
+     * Store the client SSO ticket on the user's row — `users.auth_ticket`.
+     *
+     * That is the column PolarIS defines, and the only one this writes. The
+     * legacy website generated the ticket (`GenerateTicket("sso")`), stored it
+     * there, and handed it to the client as
+     * `use.sso.ticket=1;sso.ticket=<ticket>`.
+     *
+     * An earlier revision of this method also wrote `auth_ticket_expires_at`.
+     * That column does not exist in PolarIS — `references/schema/CleanDB.sql`
+     * declares only `auth_ticket varchar(256)` — so the write would have failed
+     * against a real PolarIS database. The parameter was never read by anything
+     * (the method had no callers), so it is removed rather than left inert.
+     */
     static void generateAuthTicket(
         uint32_t userId,
         const std::string& ticket,
-        uint64_t expiresAt,
         const std::string& ipAddress,
         std::function<void(bool success)> callback
     );

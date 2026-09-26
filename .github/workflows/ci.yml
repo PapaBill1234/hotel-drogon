@@ -338,6 +338,18 @@ jobs:
           BASE_NEW: http://localhost:3000
         run: npx playwright test credits.spec.ts
 
+      # The Phase 5 client-entry handoff, the converted client.php. This asserts
+      # only what the website can be held to — authorization, the ticket's legacy
+      # format and storage, and the settings being reported honestly. It does NOT
+      # assert that an emulator accepts the ticket: the browser-native client is a
+      # separate milestone and no PolarIS/Nitro source is available to CI.
+      - name: Client-entry handoff browser flow (Phase 5 client slice)
+        working-directory: tests/e2e
+        env:
+          PLAYWRIGHT_CLIENT: '1'
+          BASE_NEW: http://localhost:3000
+        run: npx playwright test client.spec.ts
+
       # The comparison runs in the PINNED Playwright container, not on the
       # runner's own Chromium. The image pins the Chromium build *and* the font
       # set, which is what makes the comparison environment genuinely the same as

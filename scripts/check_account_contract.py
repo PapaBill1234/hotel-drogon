@@ -119,6 +119,8 @@ def main():
         *((f"/api/account/{name}", "post") for name in ("motto", "look", "email", "password")),
         # Phase 5 credits surface, served by CreditsController.
         ("/api/account/purse", "get"), ("/api/account/transactions", "get"),
+        # Phase 5 client-entry handoff, also on CreditsController.
+        ("/api/account/client-entry", "get"),
     }
     actual = {(path, method) for path, methods in SPEC["paths"].items()
               for method in methods if method in ("get", "post", "put", "delete", "patch", "options")}
@@ -175,6 +177,34 @@ def main():
     check(isinstance(ledger["items"], list) and ledger["count"] == len(ledger["items"]),
           "ledger count matches the items it returned")
     check(ledger["count"] == 0, "a disposable stack starts with an empty ledger")
+
+    # --- Phase 5 client-entry handoff --------------------------------------
+    # What is verifiable here is the WEBSITE side: the ticket is issued in the
+    # legacy format and stored in the column PolarIS defines, and the connection
+    # settings are reported honestly — including the fact that a disposable stack
+    # has none. Whether an emulator accepts the ticket is emulator behaviour and
+    # is deliberately not asserted.
+    request("GET", "/api/account/client-entry", 401)
+    entry, _ = request("GET", "/api/account/client-entry", 200, cookies=cookies)
+    parts = entry["sso_ticket"].split("-")
+    check([len(p) for p in parts] == [8, 4, 4, 4, 12],
+          "SSO ticket uses the legacy 8-4-4-4-12 segment shape")
+    check(all(c in "0123456789abcdef" for p in parts for c in p),
+          "SSO ticket segments are lowercase hex")
+    check(len(entry["sso_ticket"]) <= 256, "SSO ticket fits users.auth_ticket varchar(256)")
+    check(entry["sso_ticket"] != "", "a ticket was generated and stored")
+    check(isinstance(entry["notes"], str) and entry["notes"] != "",
+          "the response states what the handoff does and does not claim")
+    # A second call must not hand back the same ticket: the page issues a fresh
+    # one each time it is opened.
+    second, _ = request("GET", "/api/account/client-entry", 200, cookies=cookies)
+    check(second["sso_ticket"] != entry["sso_ticket"], "each request issues a fresh ticket")
+    # The stack this runs against has never had a client configured, so the
+    # honest answer is "not configured" and every required setting is named.
+    check(entry["handoff_ready"] is False, "unconfigured stack does not claim a ready handoff")
+    check(entry["handoff_available"] is False, "unconfigured stack offers no handoff")
+    for required in ("hotel_ip", "hotel_port", "hotel_mus", "client_dcr"):
+        check(required in entry["missing_settings"], f"{required} reported as missing")
 
     request("POST", "/api/account/motto", 403, {"motto": "test"}, cookies=cookies)
     request("POST", "/api/account/motto", 403, {"motto": "test"}, cookies=cookies, csrf="wrong")
