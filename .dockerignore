@@ -1,0 +1,21 @@
+# The backend image builds C++ sources and copies config into the runtime stage.
+# Keep docs, browser/frontend artifacts, and local state out of COPY . so they
+# cannot invalidate CMake or enter an image built from a developer checkout.
+.git
+.github
+docs
+frontend
+proxy
+scripts
+tools
+tests/e2e
+build
+out
+cmake-build-*
+**/node_modules
+**/dist
+**/.out
+**/.env
+**/.env.*
+README.md
+compose.yaml
