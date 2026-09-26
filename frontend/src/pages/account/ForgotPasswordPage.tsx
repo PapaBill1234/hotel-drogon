@@ -1,7 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
-import CommunityShell from '../../components/CommunityShell';
+import ProcessShell from '../../components/ProcessShell';
 import {
   useRequestPasswordReset,
   useRequestUsernameReminder,
@@ -36,18 +36,63 @@ import {
  */
 export default function ForgotPasswordPage() {
   return (
-    <CommunityShell pageId="me" cat="home" pageName="Password recovery">
-      <div id="container">
-        <div id="content" className="clearfix">
-          <div id="column1" className="column">
-            <PasswordResetRequestForm />
-          </div>
-          <div id="column2" className="column">
-            <UsernameReminderForm />
-          </div>
+    <ProcessShell pageName="Forgotten password">
+      {/*
+        `forgot.php` does NOT use `#column1`/`#column2` here. It ships its own
+        inline stylesheet and two floats:
+
+          div.left-column  { float: left;  width: 50% }
+          div.right-column { float: right; width: 49% }
+          label { display: block }
+          input { width: 98% }
+          input.process-button { width: auto; float: right }
+
+        Using the generic column ids instead was wrong in a way that is not
+        obvious: `process.css:41` sets `body.process-template #column1
+        { float: none }`, and only re-floats them for `body#landing` and
+        `body#reauthenticate`. On a body with no id the boxes therefore STACK,
+        which is what made this page 21% different after the shell was fixed.
+      */}
+      <style>{`
+        div.left-column { float: left; width: 50% }
+        div.right-column { float: right; width: 49% }
+        label { display: block }
+        input { width: 98% }
+        input.process-button { width: auto; float: right }
+      `}</style>
+      <div className="left-column">
+        <PasswordResetRequestForm />
+      </div>
+      <div className="right-column">
+        <UsernameReminderForm />
+        <FalseAlarmBox />
+      </div>
+    </ProcessShell>
+  );
+}
+
+/**
+ * `forgot.php`'s third box. It was dismissed in the page's own comment as
+ * "static copy and is not ported" — but it is a visible third of the page's
+ * content, and leaving it out is exactly the kind of omission that reads as
+ * "a lot is simple wrong". It is static, so it is reproduced verbatim.
+ */
+function FalseAlarmBox() {
+  return (
+    <div className="habblet-container">
+      <div className="cbb clearfix">
+        <h2 className="title">False Alarm!</h2>
+        <div className="box-content">
+          <p>
+            If you have remembered your password, or if you just came here by
+            accident, click the link below to return to the homepage.
+          </p>
+          <p>
+            <a href="/">Back to homepage &raquo;</a>
+          </p>
         </div>
       </div>
-    </CommunityShell>
+    </div>
   );
 }
 
@@ -218,7 +263,7 @@ export function ResetPasswordPage() {
   }
 
   return (
-    <CommunityShell pageId="me" cat="home" pageName="Choose a new password">
+    <ProcessShell pageName="Choose a new password">
       <div id="container">
         <div id="content" className="clearfix">
           <div id="column1" className="column">
@@ -271,6 +316,6 @@ export function ResetPasswordPage() {
           </div>
         </div>
       </div>
-    </CommunityShell>
+    </ProcessShell>
   );
 }

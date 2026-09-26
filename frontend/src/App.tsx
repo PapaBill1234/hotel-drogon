@@ -64,12 +64,16 @@ const BODY_BY_PATH: Record<string, { id: string; className: string }> = {
   // `#client` rule still resolves.
   '/client': { id: 'client', className: 'wide' },
   // forgot.php and reauthenticate.php both used templates/login_header.php with
-  // $page['bodyid'] = "" / "reauthenticate". The step-up screen keeps the legacy
-  // body id; the recovery page sets none, as the legacy page did.
-  '/forgot': { id: '', className: '' },
-  '/account/password/forgot': { id: '', className: '' },
-  '/account/password/reset': { id: '', className: '' },
-  '/account/reauthenticate': { id: 'reauthenticate', className: '' },
+  // $page['bodyid'] = "" / "reauthenticate". Both get class="process-template":
+  // login_header.php adds it for every page whose `new_landing` is not true, and
+  // process.css scopes the whole centred-panel layout to `body.process-template`.
+  // The recovery routes previously set an EMPTY class, so they rendered as a
+  // full-width unstyled community page instead of the centred panel — measured
+  // at 86% of the frame differing on /forgot, the worst page in the audit.
+  '/forgot': { id: '', className: 'process-template' },
+  '/account/password/forgot': { id: '', className: 'process-template' },
+  '/account/password/reset': { id: '', className: 'process-template' },
+  '/account/reauthenticate': { id: 'reauthenticate', className: 'process-template' },
   // me.php and profile.php both set $page['bodyid'] = 'home' and require
   // community_header.php, which adds class="anonymous" only for a guest — these
   // two routes are guest-refused, so the class is empty.

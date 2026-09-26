@@ -91,6 +91,19 @@ export function LandingStyles() {
   return <Sheets hrefs={LANDING} />;
 }
 
+/**
+ * The `process-template` family: `login_header.php` with a non-landing
+ * `$page['new_landing']`, i.e. forgot.php, reauthenticate.php, login_popup.php.
+ *
+ * Same set as LANDING. Named separately because the two are reached by different
+ * templates and could diverge; the live pages currently request identical sets
+ * (measured from the rendered `/forgot` and `/`), so this aliases LANDING rather
+ * than duplicating the list and letting the two drift.
+ */
+export function ProcessStyles() {
+  return <Sheets hrefs={LANDING} />;
+}
+
 /** templates/maintenance_header.php */
 export function MaintenanceStyles() {
   return <Sheets hrefs={MAINTENANCE} />;
