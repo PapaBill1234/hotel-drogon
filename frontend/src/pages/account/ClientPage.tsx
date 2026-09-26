@@ -1,4 +1,7 @@
+import { Navigate } from 'react-router-dom';
+
 import AccountPage from '../../components/AccountPage';
+import { useSessionState } from '../../hooks/useAccount';
 import { useClientEntry } from '../../hooks/useCredits';
 
 /**
@@ -36,6 +39,16 @@ import { useClientEntry } from '../../hooks/useCredits';
  * — inventing `hotel_ip`/`hotel_port` defaults — would be a fabricated success.
  */
 export default function ClientPage() {
+  const { data: session, isPending } = useSessionState();
+
+  // `client.php` opened with exactly this check: a session carrying the
+  // `reauthenticate` flag was sent to the step-up screen *before* anything else
+  // on the page ran, and the requested URL was remembered so the user came back
+  // to it. The URL is carried in location state rather than a session variable.
+  if (!isPending && session?.reauth_required) {
+    return <Navigate to="/account/reauthenticate" replace />;
+  }
+
   return (
     <AccountPage pageName="Enter the hotel">
       {() => <ClientEntry />}

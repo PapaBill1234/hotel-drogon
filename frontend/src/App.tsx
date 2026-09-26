@@ -23,6 +23,8 @@ import ProfilePage from './pages/account/ProfilePage';
 import WalletPage from './pages/account/WalletPage';
 import TransactionHistoryPage from './pages/account/TransactionHistoryPage';
 import ClientPage from './pages/account/ClientPage';
+import ForgotPasswordPage, { ResetPasswordPage } from './pages/account/ForgotPasswordPage';
+import ReauthenticatePage from './pages/account/ReauthenticatePage';
 
 /**
  * The legacy stylesheets target body-level selectors (`body#news #column1`,
@@ -61,6 +63,13 @@ const BODY_BY_PATH: Record<string, { id: string; className: string }> = {
   // around no longer exists; the id below keeps the legacy client body id so any
   // `#client` rule still resolves.
   '/client': { id: 'client', className: 'wide' },
+  // forgot.php and reauthenticate.php both used templates/login_header.php with
+  // $page['bodyid'] = "" / "reauthenticate". The step-up screen keeps the legacy
+  // body id; the recovery page sets none, as the legacy page did.
+  '/forgot': { id: '', className: '' },
+  '/account/password/forgot': { id: '', className: '' },
+  '/account/password/reset': { id: '', className: '' },
+  '/account/reauthenticate': { id: 'reauthenticate', className: '' },
   // me.php and profile.php both set $page['bodyid'] = 'home' and require
   // community_header.php, which adds class="anonymous" only for a guest — these
   // two routes are guest-refused, so the class is empty.
@@ -163,6 +172,15 @@ export default function App() {
             the site fell through to the catch-all and quietly redirected to the
             front page — a dead entrance rather than an honest one. */}
         <Route path="/client" element={<ClientPage />} />
+        {/* forgot.php kept two URL shapes in the legacy site: the page answered
+            at `/forgot` but the header linked to `/account/password/forgot`.
+            Both are routed so neither link is dead. */}
+        <Route path="/forgot" element={<ForgotPasswordPage />} />
+        <Route path="/account/password/forgot" element={<ForgotPasswordPage />} />
+        <Route path="/account/password/reset" element={<ResetPasswordPage />} />
+        {/* reauthenticate.php. The address the legacy client redirected to was
+            `/account/reauthenticate`. */}
+        <Route path="/account/reauthenticate" element={<ReauthenticatePage />} />
 
         <Route path="/housekeeping" element={<AdminLayout />}>
           <Route index element={<AdminHomePage />} />

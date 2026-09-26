@@ -14,6 +14,19 @@ ALLOWED_EXEMPTIONS = {
     "/api/auth/staff-login",
 }
 
+# Routes that carry `CsrfPublicFilter` instead of `CsrfFilter`, with the reason.
+# They exist for callers who have no session, and `CsrfFilter` validates a token
+# against a user session — so it cannot protect them. `CsrfPublicFilter` requires
+# the `X-XSRF-TOKEN` header, which a cross-origin request cannot set without a
+# CORS preflight this application does not answer; that is a weaker control than
+# token validation and a stronger one than an exemption, and the routes are
+# listed here explicitly so the difference is reviewable rather than implicit.
+PUBLIC_CSRF_ROUTES = {
+    "/api/auth/password/forgot",
+    "/api/auth/password/reset",
+    "/api/auth/username/forgot",
+}
+
 METHOD_PATTERN = re.compile(
     r'ADD_METHOD_TO\s*\(\s*([^,]+)\s*,\s*"([^"]+)"\s*,\s*([^)]+)\)',
     re.MULTILINE
@@ -46,7 +59,17 @@ def check_controllers(controller_dir):
                 if is_mutating:
                     mutating_routes += 1
                     has_csrf = any('CsrfFilter' in a for a in args_clean)
-                    if not has_csrf and route not in ALLOWED_EXEMPTIONS:
+                    has_public_csrf = any('CsrfPublicFilter' in a for a in args_clean)
+                    if has_csrf or has_public_csrf:
+                        continue
+                    if route in PUBLIC_CSRF_ROUTES:
+                        errors.append(
+                            f"[FAIL] Controller {file}: Handler '{handler}' on route '{route}' "
+                            f"is listed in PUBLIC_CSRF_ROUTES but does not register "
+                            f"'hotel::filters::CsrfPublicFilter'."
+                        )
+                        continue
+                    if route not in ALLOWED_EXEMPTIONS:
                         errors.append(
                             f"[FAIL] Controller {file}: Handler '{handler}' on route '{route}' "
                             f"is mutating but lacks 'hotel::filters::CsrfFilter'."

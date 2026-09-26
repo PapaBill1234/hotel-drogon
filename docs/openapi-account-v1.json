@@ -177,8 +177,84 @@
         }
       }
     },
-    "/api/account/client-entry": {
+    "/api/auth/password/forgot": {
+      "post": {
+        "tags": ["Auth"],
+        "operationId": "forgotPassword",
+        "summary": "Request a password reset link for an account",
+        "description": "The converted `forgot.php` `actionForgot`. The account must match on BOTH username and email exactly, with `mail_verified = '1'` — legacy's own predicate, condition for condition. On a match a single-use token is generated, stored in Redis only as a SHA-256 hash under `password_reset:<hash>` with a 30-minute TTL, and sent to the account's own address; no column is added to a PolarIS table because PolarIS has none for this. **No mail transport exists in this stack**, so delivery is the log-only transport and the message is recorded rather than sent; the response does not distinguish that, and must not be read as proof an email arrived. Unlike legacy, every outcome answers with the same 200 and the same text: legacy's distinct \"Invalid details.\" turned the form into an oracle for which accounts exist. Carries `CsrfPublicFilter`, not `CsrfFilter`, because the caller has no session for a session-bound token to be validated against; the filter requires the `X-XSRF-TOKEN` header, which a cross-origin request cannot set without a preflight this application does not answer.",
+        "parameters": [{ "$ref": "#/components/parameters/CsrfPublicHeader" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ForgotPasswordRequest" } } } },
+        "responses": {
+          "200": { "$ref": "#/components/responses/ForgotPasswordNeutral" },
+          "400": { "$ref": "#/components/responses/InvalidJson" },
+          "403": { "$ref": "#/components/responses/PublicCsrfForbidden" }
+        }
+      }
+    },
+    "/api/auth/password/reset": {
+      "post": {
+        "tags": ["Auth"],
+        "operationId": "resetPassword",
+        "summary": "Spend a reset token and set a new password",
+        "description": "There is no legacy equivalent: `forgot.php` mailed a plaintext password and had no second step. The token is consumed with Redis `GETDEL`, so it is single-use even under concurrent requests — exactly one caller can see the stored value. An unknown, expired or already-spent token all answer 401 with the same message, so a caller cannot probe which tokens exist. A password shorter than six bytes answers 400, the same floor the authenticated change route enforces, so a reset cannot produce a password that route would refuse. Also carries `CsrfPublicFilter`: the token in the body is the primary control, and the header requirement is a second, weaker one.",
+        "parameters": [{ "$ref": "#/components/parameters/CsrfPublicHeader" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResetPasswordRequest" } } } },
+        "responses": {
+          "200": { "$ref": "#/components/responses/PasswordSuccess" },
+          "400": { "$ref": "#/components/responses/BadRequestOrUpdateFailure" },
+          "401": { "$ref": "#/components/responses/InvalidResetToken" },
+          "403": { "$ref": "#/components/responses/PublicCsrfForbidden" }
+        }
+      }
+    },
+    "/api/auth/username/forgot": {
+      "post": {
+        "tags": ["Auth"],
+        "operationId": "forgotUsername",
+        "summary": "List the account names registered to an email address",
+        "description": "The converted `forgot.php` `actionList`. Legacy mailed the list; there is no mail transport here, so the names are returned in the response instead and `mail_transport` says `log-only` so no caller implies an email was sent. Legacy did not require the address to be verified for this action and neither does this: it discloses only names the requester already has the address for, and it is the documented recovery path for a forgotten username. Carries `CsrfPublicFilter` for the same no-session reason as the other two.",
+        "parameters": [{ "$ref": "#/components/parameters/CsrfPublicHeader" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ForgotUsernameRequest" } } } },
+        "responses": {
+          "200": { "$ref": "#/components/responses/ForgotUsernameSuccess" },
+          "400": { "$ref": "#/components/responses/InvalidJson" },
+          "403": { "$ref": "#/components/responses/PublicCsrfForbidden" }
+        }
+      }
+    },
+    "/api/account/session": {
       "get": {
+        "tags": ["Account"],
+        "operationId": "getSessionState",
+        "summary": "Report what the current session may do",
+        "description": "Carries the legacy `$_SESSION['reauthenticate']` flag as `reauth_required`. Legacy set it when a session was established from a remember-me token rather than a fresh password, and `client.php` refused to open the hotel until the password was proved again. The flag lives in the Redis session document, so it is server state a client cannot forge. 401 without a usable public session.",
+        "security": [{ "userSession": [] }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/SessionStateSuccess" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/account/reauthenticate": {
+      "post": {
+        "tags": ["Account"],
+        "operationId": "reauthenticate",
+        "summary": "Prove the account password and clear the step-up requirement",
+        "description": "The converted `reauthenticate.php`. Re-runs the full credential check through the same service method login uses, so a password that would not pass login cannot pass step-up, then clears the flag in the Redis session. A correct password that cannot be recorded because the session update failed answers 500 rather than 200: reporting success would let the client believe a step-up happened that did not. CSRF-filtered normally — this caller has a session, so a session-bound token exists and there is no reason to accept less.",
+        "security": [{ "userSession": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/CsrfHeader" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReauthenticateRequest" } } } },
+        "responses": {
+          "200": { "$ref": "#/components/responses/ReauthenticateSuccess" },
+          "400": { "$ref": "#/components/responses/BadRequestOrUpdateFailure" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/CsrfForbidden" },
+          "500": { "$ref": "#/components/responses/ReauthFlagFailure" }
+        }
+      }
+    },
+    "/api/account/client-entry": {      "get": {
         "tags": ["Credits"],
         "operationId": "getClientEntry",
         "summary": "Issue an SSO ticket and report the hotel connection settings",
@@ -202,6 +278,13 @@
         "in": "header",
         "required": false,
         "description": "Required for a successful mutation unless the same session-bound token is supplied as JSON csrf_token or a form/query csrf_token parameter. The login response and readable XSRF-TOKEN cookie supply its value. The filter checks the submitted token against the Redis public session and runs before account authorization.",
+        "schema": { "type": "string" }
+      },
+      "CsrfPublicHeader": {
+        "name": "X-XSRF-TOKEN",
+        "in": "header",
+        "required": true,
+        "description": "Required by `CsrfPublicFilter` for the pre-authentication routes, which have no session for `CsrfFilter` to validate a token against. The filter checks PRESENCE only, not the value: there is nothing to compare it to before a session exists. What makes that meaningful is that a cross-origin request cannot set a custom header without a CORS preflight this application does not answer. Do not mistake this for token validation.",
         "schema": { "type": "string" }
       }
     },
@@ -260,8 +343,15 @@
           "limit": { "type": "integer", "description": "The server's page cap (100, as history.php used)." }
         }
       },
-      "ClientEntryResponse": {
-        "type": "object",
+      "ForgotPasswordRequest": { "type": "object", "required": ["username", "email"], "properties": { "username": { "type": "string" }, "email": { "type": "string" } } },
+      "ForgotPasswordResponse": { "type": "object", "required": ["status", "message"], "properties": { "status": { "const": "ok" }, "message": { "type": "string", "description": "One text for every outcome, so the response cannot be used to test whether an account exists." } } },
+      "ResetPasswordRequest": { "type": "object", "required": ["token", "new_password"], "properties": { "token": { "type": "string", "description": "The single-use token from the reset link." }, "new_password": { "type": "string", "description": "At least six bytes, matching the authenticated change route's floor." } } },
+      "ForgotUsernameRequest": { "type": "object", "required": ["email"], "properties": { "email": { "type": "string" } } },
+      "ForgotUsernameResponse": { "type": "object", "required": ["status", "usernames", "count", "mail_transport"], "properties": { "status": { "const": "ok" }, "usernames": { "type": "array", "items": { "type": "string" } }, "count": { "type": "integer" }, "mail_transport": { "type": "string", "description": "log-only when no transport is configured, so a caller does not imply an email was sent. smtp is not reachable today." } } },
+      "SessionStateResponse": { "type": "object", "required": ["status", "user_id", "username", "reauth_required"], "properties": { "status": { "const": "ok" }, "user_id": { "type": "integer" }, "username": { "type": "string" }, "reauth_required": { "type": "boolean", "description": "The legacy $_SESSION['reauthenticate'] flag: this session must prove the password before entering the hotel." } } },
+      "ReauthenticateRequest": { "type": "object", "required": ["password"], "properties": { "password": { "type": "string" } } },
+      "ReauthenticateResponse": { "type": "object", "required": ["status", "reauth_required", "message"], "properties": { "status": { "const": "ok" }, "reauth_required": { "const": false }, "message": { "type": "string" } } },
+      "ClientEntryResponse": {        "type": "object",
         "required": ["status", "handoff_ready", "handoff_available", "sso_ticket", "missing_settings", "connection", "notes"],
         "properties": {
           "status": { "const": "ok" },
@@ -305,6 +395,13 @@
       "PurseSuccess": { "description": "Balances read from the live PolarIS users row.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PurseResponse" } } } },
       "TransactionsSuccess": { "description": "The caller's own ledger page, newest first. items may be empty.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TransactionsResponse" } } } },
       "ClientEntrySuccess": { "description": "A fresh SSO ticket plus the connection settings, and an explicit statement of whether a handoff is available.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClientEntryResponse" } } } },
+      "ForgotPasswordNeutral": { "description": "One neutral message for every outcome.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ForgotPasswordResponse" } } } },
+      "ForgotUsernameSuccess": { "description": "The account names on the supplied address, and which transport was used.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ForgotUsernameResponse" } } } },
+      "SessionStateSuccess": { "description": "The session's user and whether step-up is required.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SessionStateResponse" } } } },
+      "ReauthenticateSuccess": { "description": "The password matched and the step-up flag is cleared.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReauthenticateResponse" } } } },
+      "InvalidResetToken": { "description": "The token is unknown, expired or already spent — one answer for all three.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "PublicCsrfForbidden": { "description": "The X-XSRF-TOKEN header was absent. The value is not checked; see the CsrfPublicHeader parameter.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "ReauthFlagFailure": { "description": "The password was correct but the session flag could not be cleared, so the step-up did not take effect.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "InvalidJson": { "description": "JSON body could not be read.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "Unauthorized": { "description": "Invalid credentials or missing/expired public session, depending on route.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "Forbidden": { "description": "Insufficient staff rank.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },

@@ -34,6 +34,22 @@ export const ACCOUNT_API_BASE = '/api';
 export const CSRF_COOKIE_NAME = 'XSRF-TOKEN';
 export const CSRF_HEADER_NAME = 'X-XSRF-TOKEN';
 
+/**
+ * The value the pre-authentication routes send in `X-XSRF-TOKEN`.
+ *
+ * Those routes have **no session**, so there is no `XSRF-TOKEN` cookie to read
+ * and `requestJson`'s normal path would omit the header entirely — which
+ * `CsrfPublicFilter` then rejects with 403, as it should. The filter checks
+ * presence, not value, because before a session exists there is nothing to
+ * compare against; what makes the requirement meaningful is that a cross-origin
+ * request cannot set a custom header without a CORS preflight this application
+ * does not answer.
+ *
+ * A constant is therefore correct and not a secret. It is named rather than
+ * inlined so it cannot be mistaken for a token.
+ */
+export const PUBLIC_CSRF_MARKER = 'public';
+
 export class ApiRequestError extends Error {
   readonly status: number;
   /** Present only on a banned-user login refusal (`AuthResult.errorCode == 3`). */
@@ -82,6 +98,14 @@ interface RequestJsonInit {
    * deliberately exempts — login has no session to bind a token to yet.
    */
   csrf: boolean;
+  /**
+   * Send this literal value instead of reading the cookie.
+   *
+   * Only for the pre-authentication routes guarded by `CsrfPublicFilter`, which
+   * checks that the header is **present** and has nothing to compare it to (see
+   * `PUBLIC_CSRF_MARKER`). Ignored when `csrf` is false.
+   */
+  csrfValue?: string;
   signal?: AbortSignal;
 }
 
@@ -97,10 +121,12 @@ export async function requestJson<T>(init: RequestJsonInit): Promise<T> {
   if (init.body !== undefined) headers['Content-Type'] = 'application/json';
 
   if (init.csrf) {
-    const token = csrfToken();
-    // Never fabricate a token: an empty header would be a silent CSRF bypass
-    // attempt, and the filter rejects it anyway. Omitting it produces the
-    // server's own explicit 403, which is the honest failure to surface.
+    const token = init.csrfValue ?? csrfToken();
+    // Never fabricate a session token: sending an empty header for a route that
+    // validates one would be a silent CSRF bypass attempt, and the filter rejects
+    // it anyway. Omitting it produces the server's own explicit 403, which is the
+    // honest failure to surface. `csrfValue` is the separate, deliberate case for
+    // routes that validate presence only.
     if (token) headers[CSRF_HEADER_NAME] = token;
   }
 

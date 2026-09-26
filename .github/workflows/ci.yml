@@ -350,6 +350,19 @@ jobs:
           BASE_NEW: http://localhost:3000
         run: npx playwright test client.spec.ts
 
+      # The Phase 5 password-recovery and step-up slice: the converted forgot.php
+      # (both actions), the reset-token page, and reauthenticate.php. This suite
+      # marks the seeded address verified and seeds one reset key directly in
+      # Redis through `docker exec` — the reset flow's token store has no API by
+      # design — and restores both afterwards, which is why it runs here rather
+      # than in the parity container.
+      - name: Password recovery browser flow (Phase 5 reset slice)
+        working-directory: tests/e2e
+        env:
+          PLAYWRIGHT_RESET: '1'
+          BASE_NEW: http://localhost:3000
+        run: npx playwright test password-reset.spec.ts
+
       # The comparison runs in the PINNED Playwright container, not on the
       # runner's own Chromium. The image pins the Chromium build *and* the font
       # set, which is what makes the comparison environment genuinely the same as

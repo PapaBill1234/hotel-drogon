@@ -114,6 +114,13 @@ void SessionManager::getUserSession(
                     session.csrf_token = root["csrf_token"].asString();
                     session.created_at = root["created_at"].asUInt64();
                     session.last_active = root["last_active"].asUInt64();
+                    // The step-up flag. Absent in a document written before this
+                    // field existed, and `asBool()` on a missing member yields
+                    // false — the correct default: a session that never recorded
+                    // the flag does not require step-up. Its absence here was a
+                    // real defect: the writer stored it and the reader silently
+                    // dropped it, so `/api/account/session` always reported false.
+                    session.reauth_required = root["reauth_required"].asBool();
                     callback(session);
                     return;
                 }
@@ -156,6 +163,65 @@ void SessionManager::destroyUserSession(
         "DEL %s",
         key.c_str()
     );
+}
+
+void SessionManager::setReauthRequired(
+    const std::string& token,
+    bool required,
+    std::function<void(bool success)> callback
+) {
+    if (token.empty()) {
+        if (callback) callback(false);
+        return;
+    }
+
+    // Reuses the session reader so the document shape has exactly one definition.
+    getUserSession(token, [token, required, callback](std::optional<UserSessionData> session) {
+        if (!session.has_value()) {
+            // No session means there is nothing to flag. The caller reports this
+            // as a failure rather than silently succeeding on a session that does
+            // not exist.
+            if (callback) callback(false);
+            return;
+        }
+
+        auto redis = drogon::app().getRedisClient("default");
+        if (!redis) {
+            if (callback) callback(false);
+            return;
+        }
+
+        Json::Value root;
+        root["user_id"] = session->user_id;
+        root["username"] = session->username;
+        root["rank"] = session->rank;
+        root["look"] = session->look;
+        root["motto"] = session->motto;
+        root["ip"] = session->ip;
+        root["csrf_token"] = session->csrf_token;
+        root["created_at"] = static_cast<Json::UInt64>(session->created_at);
+        root["last_active"] = static_cast<Json::UInt64>(session->last_active);
+        root["reauth_required"] = required;
+
+        Json::FastWriter writer;
+        const std::string jsonStr = writer.write(root);
+        const std::string key = "session:user:" + token;
+
+        // `KEEPTTL` is deliberate: reauthenticating must not extend the session's
+        // lifetime, and a plain SET would reset it to the Redis default (no
+        // expiry at all).
+        redis->execCommandAsync(
+            [callback](const drogon::nosql::RedisResult& r) {
+                if (callback) callback(r.type() != drogon::nosql::RedisResultType::kError);
+            },
+            [callback](const std::exception& e) {
+                HOTEL_LOG_ERROR("Redis error in setReauthRequired: {}", e.what());
+                if (callback) callback(false);
+            },
+            "SET %s %s KEEPTTL",
+            key.c_str(),
+            jsonStr.c_str());
+    });
 }
 
 void SessionManager::createStaffSession(

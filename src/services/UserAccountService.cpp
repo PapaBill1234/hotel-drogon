@@ -5,6 +5,11 @@
 #include "utils/Logger.h"
 #include <chrono>
 
+// The password-reset methods use Drogon's Redis client and `drogon::app()`,
+// which live in the umbrella header. The service header pulls in only the ORM
+// client so a unit test can include it without the whole framework.
+#include <drogon/drogon.h>
+
 namespace hotel::services {
 
 static UserRecord mapUserRow(const drogon::orm::Row& row) {
@@ -351,6 +356,186 @@ void UserAccountService::generateAuthTicket(
             HOTEL_LOG_ERROR("UserAccountService::generateAuthTicket error: {}", e.base().what());
             if (callback) callback(false);
         };
+}
+
+void UserAccountService::findByUsernameAndVerifiedMail(
+    const std::string& username,
+    const std::string& mail,
+    std::function<void(std::optional<UserRecord>)> callback
+) {
+    auto db = drogon::app().getDbClient("default");
+    if (!db) {
+        callback(std::nullopt);
+        return;
+    }
+
+    // Legacy forgot.php's exact predicate, including `mail_verified = '1'`.
+    *db << "SELECT id, username, real_name, mail, mail_verified, rank, credits, pixels, points, "
+           "look, gender, motto, online, account_created, last_login, ip_current, auth_ticket "
+           "FROM users WHERE username = ? AND mail = ? AND mail_verified = '1' LIMIT 1"
+        << username << mail
+        >> [callback](const drogon::orm::Result& r) {
+            if (r.empty()) {
+                callback(std::nullopt);
+            } else {
+                callback(mapUserRow(r[0]));
+            }
+        }
+        >> [callback](const drogon::orm::DrogonDbException& e) {
+            HOTEL_LOG_ERROR(
+                "UserAccountService::findByUsernameAndVerifiedMail error: {}",
+                e.base().what());
+            callback(std::nullopt);
+        };
+}
+
+void UserAccountService::listUsernamesForMail(
+    const std::string& mail,
+    std::function<void(std::vector<std::string>)> callback
+) {
+    auto db = drogon::app().getDbClient("default");
+    if (!db) {
+        callback({});
+        return;
+    }
+
+    *db << "SELECT username FROM users WHERE mail = ? ORDER BY username ASC" << mail
+        >> [callback](const drogon::orm::Result& r) {
+            std::vector<std::string> names;
+            names.reserve(r.size());
+            for (const auto& row : r) {
+                names.push_back(row["username"].as<std::string>());
+            }
+            callback(std::move(names));
+        }
+        >> [callback](const drogon::orm::DrogonDbException& e) {
+            HOTEL_LOG_ERROR("UserAccountService::listUsernamesForMail error: {}", e.base().what());
+            callback({});
+        };
+}
+
+uint32_t UserAccountService::passwordResetTtlSeconds() {
+    // 30 minutes. There is no legacy value to copy — the legacy flow had no
+    // token — so this is a deliberate choice: long enough to fetch mail and act,
+    // short enough that a leaked link is not durable. The expiry is enforced by
+    // Redis itself, so it holds even if this process restarts.
+    return 1800;
+}
+
+void UserAccountService::issuePasswordResetToken(
+    uint32_t userId,
+    std::function<void(bool success, const std::string& token, uint32_t ttlSeconds)> callback
+) {
+    auto redis = drogon::app().getRedisClient("default");
+    if (!redis) {
+        HOTEL_LOG_ERROR("UserAccountService::issuePasswordResetToken: no Redis client");
+        callback(false, "", 0);
+        return;
+    }
+
+    // 32 bytes of hex, in the same generator the session tokens use.
+    const std::string token = utils::Crypto::randomHex(32);
+    const std::string tokenHash = utils::Crypto::sha256(token);
+    const uint32_t ttl = passwordResetTtlSeconds();
+    const std::string key = "password_reset:" + tokenHash;
+
+    // The value is the user id; the key carries the secret. SETEX makes the TTL
+    // atomic with the write, so a token can never exist without an expiry.
+    redis->execCommandAsync(
+        [callback, token, ttl](const drogon::nosql::RedisResult& r) {
+            if (r.type() == drogon::nosql::RedisResultType::kError) {
+                HOTEL_LOG_ERROR("UserAccountService: reset token SETEX returned an error");
+                callback(false, "", 0);
+                return;
+            }
+            callback(true, token, ttl);
+        },
+        [callback](const std::exception& e) {
+            HOTEL_LOG_ERROR("UserAccountService::issuePasswordResetToken: {}", e.what());
+            callback(false, "", 0);
+        },
+        "SETEX %s %u %s",
+        key.c_str(),
+        static_cast<unsigned int>(ttl),
+        std::to_string(userId).c_str());
+}
+
+void UserAccountService::consumePasswordResetToken(
+    const std::string& token,
+    const std::string& newPassword,
+    const std::string& ipAddress,
+    std::function<void(bool success, bool invalidToken, const std::string& error)> callback
+) {
+    if (token.empty()) {
+        callback(false, true, "Reset token is required.");
+        return;
+    }
+    // Same six-byte floor the authenticated password-change route enforces, so a
+    // reset cannot produce a password the change route would have refused.
+    if (newPassword.size() < 6) {
+        callback(false, false, "New password must be at least 6 characters.");
+        return;
+    }
+
+    auto redis = drogon::app().getRedisClient("default");
+    if (!redis) {
+        callback(false, false, "Session store unavailable.");
+        return;
+    }
+
+    auto db = drogon::app().getDbClient("default");
+    if (!db) {
+        callback(false, false, "Database service unavailable.");
+        return;
+    }
+
+    const std::string key = "password_reset:" + utils::Crypto::sha256(token);
+
+    // GETDEL deletes and returns in one atomic step, which is what makes the
+    // token single-use even if two requests race: exactly one of them sees the
+    // value. Doing GET then DEL would let both read it.
+    redis->execCommandAsync(
+        [db, newPassword, ipAddress, callback](const drogon::nosql::RedisResult& r) {
+            if (r.type() != drogon::nosql::RedisResultType::kString) {
+                // Unknown, expired, or already consumed — one answer for all
+                // three, so a caller cannot probe which tokens exist.
+                callback(false, true, "This reset link is invalid or has expired.");
+                return;
+            }
+
+            uint32_t userId = 0;
+            try {
+                userId = static_cast<uint32_t>(std::stoul(r.asString()));
+            } catch (const std::exception&) {
+                HOTEL_LOG_ERROR("UserAccountService: reset token held a non-numeric user id");
+                callback(false, true, "This reset link is invalid or has expired.");
+                return;
+            }
+
+            const std::string newHash = utils::Crypto::hashPassword(newPassword);
+            *db << "UPDATE users SET password = ? WHERE id = ?" << newHash << userId
+                >> [userId, ipAddress, callback](const drogon::orm::Result& res) {
+                       if (res.affectedRows() == 0) {
+                           callback(false, true, "This reset link is invalid or has expired.");
+                           return;
+                       }
+                       AuditService::logAction(userId, "password_reset", "user", userId,
+                                               "Password reset completed with a single-use token",
+                                               ipAddress);
+                       callback(true, false, "");
+                   }
+                >> [callback](const drogon::orm::DrogonDbException& e) {
+                       HOTEL_LOG_ERROR("UserAccountService::consumePasswordResetToken error: {}",
+                                       e.base().what());
+                       callback(false, false, "Database update error");
+                   };
+        },
+        [callback](const std::exception& e) {
+            HOTEL_LOG_ERROR("UserAccountService::consumePasswordResetToken: {}", e.what());
+            callback(false, false, "Session store error");
+        },
+        "GETDEL %s",
+        key.c_str());
 }
 
 } // namespace hotel::services

@@ -19,6 +19,15 @@ struct UserSessionData {
     std::string csrf_token;
     uint64_t created_at = 0;
     uint64_t last_active = 0;
+    /**
+     * The legacy `$_SESSION['reauthenticate']` flag.
+     *
+     * Set when a session was established by something *other* than a fresh
+     * password — legacy set it in `security_check.php`'s remember-me branch. A
+     * session carrying it must not enter the hotel until the password is proved
+     * again; `client.php` was the first thing that checked it.
+     */
+    bool reauth_required = false;
 };
 
 struct StaffSessionData {
@@ -74,6 +83,24 @@ public:
 
     static void destroyStaffSession(
         const std::string& token,
+        std::function<void(bool success)> callback
+    );
+
+    /**
+     * Set or clear the step-up requirement on an existing user session.
+     *
+     * The flag lives inside the session document in Redis, alongside the fields
+     * `getUserSession` already reads, so a reauthentication survives a process
+     * restart and cannot be forged by a client — it is server state, exactly as
+     * `$_SESSION['reauthenticate']` was.
+     *
+     * Read-modify-write rather than a field update: Redis has no partial update
+     * for a JSON value, and the session TTL is deliberately left alone so
+     * reauthenticating does not extend a session's life.
+     */
+    static void setReauthRequired(
+        const std::string& token,
+        bool required,
         std::function<void(bool success)> callback
     );
 };

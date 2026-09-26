@@ -76,6 +76,7 @@ ACCOUNT_CONTRACT_DISPOSABLE=1 python3 scripts/check_account_contract.py http://l
 #   PLAYWRIGHT_ACCOUNT=1 npx playwright test account.spec.ts
 #   PLAYWRIGHT_CREDITS=1 npx playwright test credits.spec.ts
 #   PLAYWRIGHT_CLIENT=1  npx playwright test client.spec.ts
+#   PLAYWRIGHT_RESET=1   npx playwright test password-reset.spec.ts
 #   PLAYWRIGHT_ADMIN=1   npx playwright test admin.spec.ts
 ```
 
@@ -129,6 +130,23 @@ settings exist. It never claims the hotel accepts the ticket — that is emulato
 behaviour, no PolarIS/Nitro source is available here, and the browser-native
 client is tracked as its own milestone. An unconfigured stack says so and lists
 the missing keys instead of offering a control that cannot work.
+
+**Password recovery has no mail transport, and says so.** `/account/password/forgot`
+implements both legacy `forgot.php` actions, and a match issues a single-use token
+stored only as a SHA-256 hash in Redis with a 30-minute TTL — no PolarIS column is
+added. Delivery goes through `MailService`, whose only transport **logs**: it
+records the recipient and subject and withholds the body, because a reset body
+carries a live token. It reports `logged`, never `delivered`. Until an SMTP
+transport is approved, nobody receives a reset link, and the pages state that
+rather than implying an email was sent.
+
+**Anonymous routes get a header check, not a CSRF exemption.** The three recovery
+routes exist for a caller with no session, so `CsrfFilter` (which validates a
+session-bound token) cannot protect them. `CsrfPublicFilter` requires the
+`X-XSRF-TOKEN` header instead — a cross-origin request cannot set a custom header
+without a preflight this application does not answer. It checks presence, not
+value, and says so; `scripts/check_csrf_rules.py` keeps an explicit list of those
+routes and still fails if one loses the filter.
 
 **Two modules may open a request, one per surface.** `services/api.ts` (public,
 including the account routes) and `services/apiAdmin.ts` (staff).

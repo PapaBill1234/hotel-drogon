@@ -126,6 +126,54 @@ export interface LogoutResponse extends ApiEnvelope {
 }
 
 /**
+ * `POST /api/auth/password/forgot`
+ *
+ * The message is deliberately the same whether or not the details matched a
+ * verified account — legacy `forgot.php` distinguished the two, which made the
+ * form an oracle for which accounts exist. See the route's OpenAPI description.
+ */
+export interface ForgotPasswordResponse extends ApiEnvelope {
+  message: string;
+}
+
+/** `POST /api/auth/password/reset` — 401 when the token is unknown, expired or spent. */
+export interface ResetPasswordRequest {
+  token: string;
+  new_password: string;
+}
+
+export interface ResetPasswordResponse extends ApiEnvelope {
+  message: string;
+}
+
+/**
+ * `POST /api/auth/username/forgot`
+ *
+ * Legacy mailed the list; with no mail transport configured the names come back
+ * in the response instead, and `mail_transport` says which happened so the UI can
+ * be honest about it rather than implying an email was sent.
+ */
+export interface ForgotUsernameResponse extends ApiEnvelope {
+  usernames: string[];
+  count: number;
+  mail_transport: 'log-only' | 'smtp';
+}
+
+/** `GET /api/account/session` */
+export interface SessionStateResponse extends ApiEnvelope {
+  user_id: number;
+  username: string;
+  /** The legacy `$_SESSION['reauthenticate']` flag. */
+  reauth_required: boolean;
+}
+
+/** `POST /api/account/reauthenticate` */
+export interface ReauthenticateResponse extends ApiEnvelope {
+  reauth_required: boolean;
+  message: string;
+}
+
+/**
  * One row of the website's own ledger, `phpretro_transactions`.
  *
  * The columns are legacy migration `001_custom_tables.sql`'s, and the two legacy

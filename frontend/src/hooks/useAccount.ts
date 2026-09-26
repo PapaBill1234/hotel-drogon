@@ -15,8 +15,13 @@ import {
   AccountApiError,
   changePassword,
   fetchMe,
+  fetchSessionState,
   login,
   logout,
+  reauthenticate,
+  requestPasswordReset,
+  requestUsernameReminder,
+  resetPassword,
   updateEmail,
   updateLook,
   updateMotto,
@@ -25,7 +30,24 @@ import type { User } from '../types/account';
 
 export const accountKeys = {
   me: ['account', 'me'] as const,
+  sessionState: ['account', 'session'] as const,
 };
+
+/**
+ * `GET /api/account/session` — the step-up flag and what the session may do.
+ *
+ * Separate from `useMe` because `/api/me` answers 401 for a caller with no
+ * session while this reports the session's *state*; conflating them would make
+ * `reauth_required` unreadable on the pages that need it most.
+ */
+export function useSessionState() {
+  return useQuery({
+    queryKey: accountKeys.sessionState,
+    queryFn: ({ signal }) => fetchSessionState(signal),
+    retry: false,
+    staleTime: 0,
+  });
+}
 
 /**
  * `GET /api/me`.
@@ -146,4 +168,49 @@ export function useChangePassword() {
     { currentPassword: string; newPassword: string },
     { message: string }
   >((args) => changePassword(args.currentPassword, args.newPassword));
+}
+
+/**
+ * `POST /api/auth/password/forgot` — request a reset link.
+ *
+ * A mutation rather than a query because it sends something. It deliberately
+ * does **not** invalidate the `/api/me` cache: the caller is signed out by
+ * definition, and nothing about their state changed.
+ */
+export function useRequestPasswordReset() {
+  return useMutation({
+    mutationFn: ({ username, email }: { username: string; email: string }) =>
+      requestPasswordReset(username, email),
+  });
+}
+
+/** `POST /api/auth/password/reset` — spend a reset token. */
+export function useResetPassword() {
+  return useMutation({
+    mutationFn: ({ token, newPassword }: { token: string; newPassword: string }) =>
+      resetPassword(token, newPassword),
+  });
+}
+
+/** `POST /api/auth/username/forgot` — list the account names on an address. */
+export function useRequestUsernameReminder() {
+  return useMutation({
+    mutationFn: ({ email }: { email: string }) => requestUsernameReminder(email),
+  });
+}
+
+/**
+ * `POST /api/account/reauthenticate` — clear the step-up requirement.
+ *
+ * Invalidates the session state on success so the page that routed here sees the
+ * cleared flag rather than a cached `reauth_required: true`.
+ */
+export function useReauthenticate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ password }: { password: string }) => reauthenticate(password),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: accountKeys.sessionState });
+    },
+  });
 }

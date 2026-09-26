@@ -121,12 +121,17 @@ def main():
         ("/api/account/purse", "get"), ("/api/account/transactions", "get"),
         # Phase 5 client-entry handoff, also on CreditsController.
         ("/api/account/client-entry", "get"),
+        # Phase 5 forgot/reset and the step-up flow.
+        ("/api/auth/password/forgot", "post"), ("/api/auth/password/reset", "post"),
+        ("/api/auth/username/forgot", "post"),
+        ("/api/account/session", "get"), ("/api/account/reauthenticate", "post"),
     }
     actual = {(path, method) for path, methods in SPEC["paths"].items()
               for method in methods if method in ("get", "post", "put", "delete", "patch", "options")}
     check(actual == expected, "documented first slice matches the expected path and method set")
     headers = "\n".join((ROOT / "include/controllers" / name).read_text(encoding="utf-8")
-                        for name in ("AuthController.h", "AccountController.h", "CreditsController.h"))
+                        for name in ("AuthController.h", "AccountController.h",
+                                     "CreditsController.h", "SecurityController.h"))
     routes = {(path, method.lower()) for path, method in
               re.findall(r'ADD_METHOD_TO\([^,]+,\s*"([^"]+)",\s*drogon::(Get|Post)', headers)}
     options = set(re.findall(r'ADD_METHOD_TO\([^,]+,\s*"([^"]+)",\s*drogon::Post,\s*drogon::Options', headers))
@@ -302,6 +307,52 @@ def main():
     check(set(cleared) == {"hotel_session", "XSRF-TOKEN"} and
           all("max-age=0" in line.lower() for line in cleared.values()), "public cookies cleared")
     request("GET", "/api/me", 401, cookies=cookies)
+
+    # --- Phase 5 forgot / reset / step-up ---------------------------------
+    # These routes exist for a caller with NO session, which is why they carry
+    # CsrfPublicFilter rather than CsrfFilter. What is asserted is that the header
+    # requirement is real and that the responses do not disclose whether an
+    # account exists.
+    request("POST", "/api/auth/password/forgot", 403, {"username": "a", "email": "b@c.test"})
+    request("POST", "/api/auth/username/forgot", 403, {"email": "b@c.test"})
+    request("POST", "/api/auth/password/reset", 403, {"token": "x", "new_password": "abcdef"})
+
+    # A wrong password for the caller's own account: the endpoint must not
+    # distinguish it from an unknown account, so both are 200 with the same text.
+    body = {"username": "testuser", "email": "not-the-address@example.test"}
+    unknown, _ = request("POST", "/api/auth/password/forgot", 200, body, csrf="public")
+    check(unknown["message"].startswith("If those details match"),
+          "forgot answers without disclosing whether the account exists")
+
+    # The email was changed and restored during the profile checks above, so the
+    # live address is the one /api/me reported originally; use it for the
+    # matching case and assert the answer is byte-identical.
+    matched, _ = request("POST", "/api/auth/password/forgot", 200,
+                         {"username": "testuser", "email": old["mail"]}, csrf="public")
+    check(matched["message"] == unknown["message"],
+          "a matching and a non-matching request are indistinguishable")
+
+    # A reset token that was never issued is refused the same way an expired or
+    # spent one is.
+    request("POST", "/api/auth/password/reset", 401,
+            {"token": "0000000000000000000000000000000000000000000000000000000000000000",
+             "new_password": "abcdef"}, csrf="public")
+    # And a too-short password is a validation failure, not an invalid token.
+    request("POST", "/api/auth/password/reset", 400,
+            {"token": "x", "new_password": "abc"}, csrf="public")
+
+    names, _ = request("POST", "/api/auth/username/forgot", 200, {"email": old["mail"]},
+                       csrf="public")
+    check("testuser" in names["usernames"], "username recovery lists the account on the address")
+    check(names["mail_transport"] == "log-only",
+          "the response states that no mail transport is configured")
+    request("POST", "/api/auth/username/forgot", 200, {"email": "nobody@example.test"},
+            csrf="public")
+
+    # The step-up routes need a session, which the logout above removed.
+    request("GET", "/api/account/session", 401)
+    request("POST", "/api/account/reauthenticate", 403, {"password": "password123"})
+
     print(f"[PASS] OpenAPI references, route inventory, schemas, cookies, and live account behavior ({CHECKS} assertions)")
 
 

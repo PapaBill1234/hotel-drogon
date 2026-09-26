@@ -26,9 +26,11 @@
  * sufficient and is not touched here.
  */
 
-import { ACCOUNT_API_BASE, ApiRequestError, requestJson } from './api';
+import { ACCOUNT_API_BASE, ApiRequestError, PUBLIC_CSRF_MARKER, requestJson } from './api';
 import type {
   ClientEntryResponse,
+  ForgotPasswordResponse,
+  ForgotUsernameResponse,
   LoginRequest,
   MeResponse,
   PasswordChangeRequest,
@@ -40,6 +42,10 @@ import type {
   ProfileMottoRequest,
   ProfileMottoResponse,
   PurseResponse,
+  ReauthenticateResponse,
+  ResetPasswordRequest,
+  ResetPasswordResponse,
+  SessionStateResponse,
   TransactionsResponse,
   User,
 } from '../types/account';
@@ -218,6 +224,91 @@ export function fetchClientEntry(signal?: AbortSignal): Promise<ClientEntryRespo
     method: 'GET',
     path: `${ACCOUNT_API_BASE}/account/client-entry`,
     csrf: false,
+    signal,
+  });
+}
+
+/**
+ * `POST /api/auth/password/forgot` — request a reset link.
+ *
+ * These three routes are used by a visitor with **no session**, so the CSRF
+ * header is attached by value rather than read from a session cookie — there is
+ * no session to read it from. The server's `CsrfPublicFilter` requires the header
+ * to be present (a cross-origin caller cannot set it without a preflight), which
+ * is why the header is still sent; the literal token is a formality on routes
+ * that have nothing to compare it against. `login` is the same shape of request.
+ */
+export function requestPasswordReset(
+  username: string,
+  email: string,
+  signal?: AbortSignal,
+): Promise<ForgotPasswordResponse> {
+  return requestJson<ForgotPasswordResponse>({
+    method: 'POST',
+    path: `${ACCOUNT_API_BASE}/auth/password/forgot`,
+    body: { username, email },
+    csrf: true,
+    csrfValue: PUBLIC_CSRF_MARKER,
+    signal,
+  });
+}
+
+/** `POST /api/auth/password/reset` — spend a reset token and set a new password. */
+export function resetPassword(
+  token: string,
+  newPassword: string,
+  signal?: AbortSignal,
+): Promise<ResetPasswordResponse> {
+  const body: ResetPasswordRequest = { token, new_password: newPassword };
+  return requestJson<ResetPasswordResponse>({
+    method: 'POST',
+    path: `${ACCOUNT_API_BASE}/auth/password/reset`,
+    body,
+    csrf: true,
+    csrfValue: PUBLIC_CSRF_MARKER,
+    signal,
+  });
+}
+
+/** `POST /api/auth/username/forgot` — the account names registered to an address. */
+export function requestUsernameReminder(
+  email: string,
+  signal?: AbortSignal,
+): Promise<ForgotUsernameResponse> {
+  return requestJson<ForgotUsernameResponse>({
+    method: 'POST',
+    path: `${ACCOUNT_API_BASE}/auth/username/forgot`,
+    body: { email },
+    csrf: true,
+    csrfValue: PUBLIC_CSRF_MARKER,
+    signal,
+  });
+}
+
+/**
+ * `GET /api/account/session` — what the current session may do.
+ *
+ * Reports `reauth_required`, the legacy step-up flag. Requires a session.
+ */
+export function fetchSessionState(signal?: AbortSignal): Promise<SessionStateResponse> {
+  return requestJson<SessionStateResponse>({
+    method: 'GET',
+    path: `${ACCOUNT_API_BASE}/account/session`,
+    csrf: false,
+    signal,
+  });
+}
+
+/** `POST /api/account/reauthenticate` — prove the password and clear the flag. */
+export function reauthenticate(
+  password: string,
+  signal?: AbortSignal,
+): Promise<ReauthenticateResponse> {
+  return requestJson<ReauthenticateResponse>({
+    method: 'POST',
+    path: `${ACCOUNT_API_BASE}/account/reauthenticate`,
+    body: { password },
+    csrf: true,
     signal,
   });
 }

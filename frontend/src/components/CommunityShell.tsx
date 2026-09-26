@@ -185,9 +185,14 @@ function AnonymousSubnav() {
         <div id="subnavi-login-help" className="clearfix">
           <ul>
             <li className="register">
-              <a href="/account/password/forgot" id="forgot-password">
+              {/* A router Link, not a bare anchor: the destination is a
+                  client-side route now, so a plain <a> forced a full document
+                  load and a fresh SPA boot for an in-app navigation. The
+                  rendered href is unchanged, so the legacy markup and its
+                  stylesheet still match. */}
+              <Link to="/account/password/forgot" id="forgot-password">
                 <span>I forgot my password/username</span>
-              </a>
+              </Link>
             </li>
             <li>
               <a href="/register">
