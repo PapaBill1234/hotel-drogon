@@ -310,6 +310,20 @@ jobs:
           BASE_NEW: http://localhost:3000
         run: npx playwright test admin.spec.ts
 
+      # The Phase 5 existing-user journey through React. It runs here, before the
+      # parity comparison, for two reasons: it needs the same live stack, and it
+      # leaves `testuser` restored (the password restore is in a `finally`) with
+      # only `mail_verified` reset — which no baseline page renders, so the
+      # comparison below is unaffected. `PLAYWRIGHT_ACCOUNT` gates it exactly as
+      # `PLAYWRIGHT_ADMIN` gates the suite above, so a bare `npx playwright test`
+      # keeps its visual-parity meaning.
+      - name: Account journey browser flow (Phase 5 existing-user slice)
+        working-directory: tests/e2e
+        env:
+          PLAYWRIGHT_ACCOUNT: '1'
+          BASE_NEW: http://localhost:3000
+        run: npx playwright test account.spec.ts
+
       # The comparison runs in the PINNED Playwright container, not on the
       # runner's own Chromium. The image pins the Chromium build *and* the font
       # set, which is what makes the comparison environment genuinely the same as
