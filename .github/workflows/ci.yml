@@ -237,6 +237,11 @@ jobs:
       - name: Run Phase 3 smoke suite
         run: sh scripts/smoke_phase3.sh http://localhost:3000
 
+      - name: Validate the Phase 1 OpenAPI account contract against live routes
+        env:
+          ACCOUNT_CONTRACT_DISPOSABLE: '1'
+        run: python3 scripts/check_account_contract.py http://localhost:3000
+
       - name: Seed rank-5 staff account (high-trust boundary test)
         run: |
           # sha1('password123' . 'staff5') — the legacy scheme is username-dependent

@@ -1,0 +1,229 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "hotel-drogon implemented account API",
+    "version": "1.0.0",
+    "description": "Observed Phase 1 contract for existing Drogon routes only. This does not specify registration, password reset, remember-me, an account React journey, or a verified staff second factor. Error bodies and cookie behavior reflect the current handlers, including their limitations."
+  },
+  "servers": [{ "url": "/", "description": "Same origin as the React application" }],
+  "tags": [
+    { "name": "Auth" },
+    { "name": "Account" }
+  ],
+  "paths": {
+    "/api/auth/login": {
+      "options": {
+        "tags": ["Auth"],
+        "operationId": "loginOptions",
+        "summary": "Return an empty success for the login route's explicit OPTIONS handler",
+        "responses": { "200": { "description": "Empty response body." } }
+      },
+      "post": {
+        "tags": ["Auth"],
+        "operationId": "login",
+        "summary": "Create a public user session",
+        "description": "No CSRF token is required to log in. Missing username or password in a valid JSON object returns 401. Authentication system errors are also currently mapped to 401; a banned user receives 403.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginRequest" } } } },
+        "responses": {
+          "200": { "$ref": "#/components/responses/LoginSuccess" },
+          "400": { "$ref": "#/components/responses/InvalidJson" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Banned" },
+          "500": { "$ref": "#/components/responses/SessionFailure" }
+        }
+      }
+    },
+    "/api/auth/staff-login": {
+      "options": {
+        "tags": ["Auth"],
+        "operationId": "staffLoginOptions",
+        "summary": "Return an empty success for the staff-login route's explicit OPTIONS handler",
+        "responses": { "200": { "description": "Empty response body." } }
+      },
+      "post": {
+        "tags": ["Auth"],
+        "operationId": "staffLogin",
+        "summary": "Create a separate staff session",
+        "description": "No public session or CSRF token is required by this handler. Rank below 5 returns 403. The current code does not verify an enrolled TOTP secret: an omitted code is marked verified, a nonempty six-character code is marked verified, and another nonempty length still returns 200 with 2fa_verified=false. This response must not be treated as proof of real second-factor authentication or staff release readiness. Authentication failures, including a ban or service error, are mapped to 401 here.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StaffLoginRequest" } } } },
+        "responses": {
+          "200": { "$ref": "#/components/responses/StaffLoginSuccess" },
+          "400": { "$ref": "#/components/responses/InvalidJson" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "500": { "$ref": "#/components/responses/SessionFailure" }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": ["Auth"],
+        "operationId": "logout",
+        "summary": "Delete the public user session",
+        "description": "Requires a session-bound CSRF token. The handler returns 200 and clears hotel_session and XSRF-TOKEN even if deleting the Redis key reports failure. It does not clear hotel_staff_session. The CSRF filter runs before the handler, so a missing token or unusable public session returns 403.",
+        "security": [{ "userSession": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/CsrfHeader" }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/LogoutSuccess" },
+          "403": { "$ref": "#/components/responses/CsrfForbidden" }
+        }
+      }
+    },
+    "/api/me": {
+      "get": {
+        "tags": ["Account"],
+        "operationId": "getMe",
+        "summary": "Read the signed-in user's current profile",
+        "description": "The public hotel_session cookie is required. The response reads the current PolarIS user row rather than only the session snapshot. A missing or expired session returns 401. A missing row, or a database lookup failure currently collapsed to no row, returns 404.",
+        "security": [{ "userSession": [] }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/MeSuccess" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/UserNotFound" }
+        }
+      }
+    },
+    "/api/account/motto": {
+      "post": {
+        "tags": ["Account"],
+        "operationId": "updateMotto",
+        "summary": "Update the current user's motto",
+        "description": "The handler requires a JSON string. It silently truncates to 128 bytes rather than rejecting an overlong value. This differs from legacy profile.php, which rejects more than 127 characters; a multibyte string can be cut mid-character. The behavior is documented here, not endorsed for a future UI.",
+        "security": [{ "userSession": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/CsrfHeader" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MottoRequest" } } } },
+        "responses": {
+          "200": { "$ref": "#/components/responses/MottoSuccess" },
+          "400": { "$ref": "#/components/responses/BadRequestOrUpdateFailure" },
+          "403": { "$ref": "#/components/responses/CsrfForbidden" }
+        }
+      }
+    },
+    "/api/account/look": {
+      "post": {
+        "tags": ["Account"],
+        "operationId": "updateLook",
+        "summary": "Update the current user's avatar look and gender",
+        "description": "The handler requires a JSON string for look and does not enforce the legacy 256-character limit. Missing, non-string, or other-than-M/F gender is stored as M; legacy profile.php rejects an invalid gender.",
+        "security": [{ "userSession": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/CsrfHeader" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LookRequest" } } } },
+        "responses": {
+          "200": { "$ref": "#/components/responses/LookSuccess" },
+          "400": { "$ref": "#/components/responses/BadRequestOrUpdateFailure" },
+          "403": { "$ref": "#/components/responses/CsrfForbidden" }
+        }
+      }
+    },
+    "/api/account/email": {
+      "post": {
+        "tags": ["Account"],
+        "operationId": "updateEmail",
+        "summary": "Update the current user's email",
+        "description": "The current handler accepts any JSON string containing @; it does not perform full email validation. A successful update sets mail_verified to false.",
+        "security": [{ "userSession": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/CsrfHeader" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EmailRequest" } } } },
+        "responses": {
+          "200": { "$ref": "#/components/responses/EmailSuccess" },
+          "400": { "$ref": "#/components/responses/BadRequestOrUpdateFailure" },
+          "403": { "$ref": "#/components/responses/CsrfForbidden" }
+        }
+      }
+    },
+    "/api/account/password": {
+      "post": {
+        "tags": ["Account"],
+        "operationId": "changePassword",
+        "summary": "Change the current user's password",
+        "description": "The handler checks that both keys are present and that new_password has at least six bytes, then re-authenticates with current_password. On success the existing public session remains valid. Password reset and reauthentication routes are not implemented in this API slice.",
+        "security": [{ "userSession": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/CsrfHeader" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PasswordRequest" } } } },
+        "responses": {
+          "200": { "$ref": "#/components/responses/PasswordSuccess" },
+          "400": { "$ref": "#/components/responses/BadRequestOrUpdateFailure" },
+          "401": { "$ref": "#/components/responses/WrongCurrentPassword" },
+          "403": { "$ref": "#/components/responses/CsrfForbidden" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "userSession": { "type": "apiKey", "in": "cookie", "name": "hotel_session", "description": "Opaque public-session token in a Redis-backed session, issued by login. A separate hotel_staff_session is not sufficient for these account routes." }
+    },
+    "parameters": {
+      "CsrfHeader": {
+        "name": "X-XSRF-TOKEN",
+        "in": "header",
+        "required": false,
+        "description": "Required for a successful mutation unless the same session-bound token is supplied as JSON csrf_token or a form/query csrf_token parameter. The login response and readable XSRF-TOKEN cookie supply its value. The filter checks the submitted token against the Redis public session and runs before account authorization.",
+        "schema": { "type": "string" }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": ["error", "message", "status"],
+        "properties": { "error": { "type": "string" }, "message": { "type": "string" }, "status": { "type": "integer" }, "ban_reason": { "type": "string" }, "ban_expires": { "type": "string" } }
+      },
+      "User": {
+        "type": "object",
+        "required": ["id", "username", "real_name", "mail", "mail_verified", "rank", "credits", "pixels", "points", "look", "gender", "motto", "online", "account_created", "last_login", "is_staff"],
+        "properties": {
+          "id": { "type": "integer" }, "username": { "type": "string" }, "real_name": { "type": "string" },
+          "mail": { "type": "string" }, "mail_verified": { "type": "boolean" }, "rank": { "type": "integer" },
+          "credits": { "type": "integer" }, "pixels": { "type": "integer" }, "points": { "type": "integer" },
+          "look": { "type": "string" }, "gender": { "type": "string" }, "motto": { "type": "string" },
+          "online": { "type": "string" }, "account_created": { "type": "integer" }, "last_login": { "type": "integer" },
+          "is_staff": { "type": "boolean" }
+        }
+      },
+      "LoginRequest": { "type": "object", "required": ["username", "password"], "properties": { "username": { "type": "string" }, "password": { "type": "string" } } },
+      "StaffLoginRequest": { "type": "object", "required": ["username", "password"], "properties": { "username": { "type": "string" }, "password": { "type": "string" }, "totp_code": { "type": "string", "description": "Accepted by current code but not validated against an enrolled secret." } } },
+      "MottoRequest": { "type": "object", "required": ["motto"], "properties": { "motto": { "type": "string" }, "csrf_token": { "type": "string" } } },
+      "LookRequest": { "type": "object", "required": ["look"], "properties": { "look": { "type": "string" }, "gender": { "type": "string", "description": "M or F; invalid or absent input currently falls back to M." }, "csrf_token": { "type": "string" } } },
+      "EmailRequest": { "type": "object", "required": ["email"], "properties": { "email": { "type": "string", "description": "Only an @ character is checked by the current handler." }, "csrf_token": { "type": "string" } } },
+      "PasswordRequest": { "type": "object", "required": ["current_password", "new_password"], "properties": { "current_password": { "type": "string" }, "new_password": { "type": "string", "description": "At least six bytes according to the current handler." }, "csrf_token": { "type": "string" } } },
+      "UserSessionResponse": { "type": "object", "required": ["status", "user", "csrf_token"], "properties": { "status": { "const": "ok" }, "user": { "$ref": "#/components/schemas/User" }, "csrf_token": { "type": "string" } } },
+      "StaffSessionResponse": { "type": "object", "required": ["status", "user", "is_staff", "2fa_verified"], "properties": { "status": { "const": "ok" }, "user": { "$ref": "#/components/schemas/User" }, "is_staff": { "type": "boolean" }, "2fa_verified": { "type": "boolean", "description": "Current implementation's flag, not proof of an enrolled-secret challenge." } } },
+      "LogoutResponse": { "type": "object", "required": ["status", "message"], "properties": { "status": { "const": "ok" }, "message": { "const": "Logged out successfully." } } },
+      "MottoResponse": { "type": "object", "required": ["status", "motto"], "properties": { "status": { "const": "ok" }, "motto": { "type": "string" } } },
+      "LookResponse": { "type": "object", "required": ["status", "look", "gender"], "properties": { "status": { "const": "ok" }, "look": { "type": "string" }, "gender": { "type": "string" } } },
+      "EmailResponse": { "type": "object", "required": ["status", "email", "mail_verified"], "properties": { "status": { "const": "ok" }, "email": { "type": "string" }, "mail_verified": { "const": false } } },
+      "PasswordResponse": { "type": "object", "required": ["status", "message"], "properties": { "status": { "const": "ok" }, "message": { "const": "Password successfully changed." } } }
+    },
+    "responses": {
+      "LoginSuccess": {
+        "description": "Public session created. Two Set-Cookie headers: hotel_session is HttpOnly, SameSite=Lax, Path=/, Max-Age=604800; XSRF-TOKEN is readable by JavaScript, SameSite=Lax, Path=/, Max-Age=604800. The handlers do not set Secure.",
+        "headers": { "Set-Cookie": { "description": "hotel_session and XSRF-TOKEN are sent as separate header fields.", "schema": { "type": "string" } } },
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserSessionResponse" } } }
+      },
+      "StaffLoginSuccess": {
+        "description": "Separate staff session created. Set-Cookie hotel_staff_session is HttpOnly, SameSite=Strict, Path=/, Max-Age=7200. The handler does not set Secure.",
+        "headers": { "Set-Cookie": { "description": "hotel_staff_session cookie.", "schema": { "type": "string" } } },
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StaffSessionResponse" } } }
+      },
+      "LogoutSuccess": {
+        "description": "Public cookies cleared using Max-Age=0; the staff cookie is unchanged.",
+        "headers": { "Set-Cookie": { "description": "hotel_session and XSRF-TOKEN clearing fields.", "schema": { "type": "string" } } },
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LogoutResponse" } } }
+      },
+      "MeSuccess": { "description": "Current user and session CSRF token.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserSessionResponse" } } } },
+      "MottoSuccess": { "description": "Stored motto, after any truncation.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MottoResponse" } } } },
+      "LookSuccess": { "description": "Stored look and effective gender.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LookResponse" } } } },
+      "EmailSuccess": { "description": "Stored email with mail_verified reset to false.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EmailResponse" } } } },
+      "PasswordSuccess": { "description": "Password changed.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PasswordResponse" } } } },
+      "InvalidJson": { "description": "JSON body could not be read.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Unauthorized": { "description": "Invalid credentials or missing/expired public session, depending on route.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Forbidden": { "description": "Insufficient staff rank.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Banned": { "description": "Public login refused for a banned user; body also contains ban_reason and ban_expires.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "CsrfForbidden": { "description": "CSRF token missing, no active session, or token mismatch. The CSRF filter runs before account handlers.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "BadRequestOrUpdateFailure": { "description": "Request validation or database update failed; the body message distinguishes them.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "WrongCurrentPassword": { "description": "Current password did not match.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "UserNotFound": { "description": "User row unavailable after valid session; current service also maps a lookup failure here.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "SessionFailure": { "description": "Redis session creation failed after valid credentials.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+    }
+  }
+}
