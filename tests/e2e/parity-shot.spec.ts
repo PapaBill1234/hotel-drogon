@@ -20,10 +20,25 @@ import { VIEWPORT } from './playwright.config';
 const BASE_NEW = envOr('BASE_NEW', 'http://localhost:3000');
 const SHOT_NAME = envOr('SHOT_NAME', 'community-after.png');
 const SHOT_PATH = envOr('SHOT_PATH', '/community');
+// Optional: sign in first, so an authenticated page can be captured too. A
+// signed-out context reaches /me only as the sign-in form, which is not what
+// most of these shots are for.
+const LOGIN_USER = process.env.SHOT_LOGIN_USER ?? '';
+const LOGIN_PASS = process.env.SHOT_LOGIN_PASS ?? '';
 
 test('parity shot', async ({ browser }) => {
   const context = await browser.newContext({ viewport: VIEWPORT });
   const p = await context.newPage();
+
+  if (LOGIN_USER !== '') {
+    await p.goto(`${BASE_NEW}/account`, { waitUntil: 'networkidle' });
+    const form = p.getByTestId('account-signin-form');
+    await form.getByLabel('Username').fill(LOGIN_USER);
+    await form.getByLabel('Password').fill(LOGIN_PASS);
+    await p.getByTestId('login-submit').click();
+    await p.getByTestId('me-username').waitFor({ timeout: 15_000 });
+  }
+
   await p.goto(BASE_NEW + SHOT_PATH, { waitUntil: 'networkidle' });
 
   await p.waitForFunction(
