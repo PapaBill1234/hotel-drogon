@@ -2,13 +2,6 @@ node_modules/
 *.tsbuildinfo
 .smoke/
 
-# `frontend/dist` is a bind-mount source in compose.yaml. Docker auto-creates a
-# missing bind-mount source as *root*, and a later `npm run build` as an
-# unprivileged user then fails with EACCES while Vite empties the output
-# directory — which is exactly how CI's frontend-build step failed once the step
-# was added. The directory is therefore kept in the tree by committing
-# `dist/.gitignore` (which ignores everything beside itself), rather than by
-# ignoring the whole directory here: git will not descend into an ignored
-# directory, so a later `!` rule for a file inside it can never match.
+# Keep the generated directory for local builds while ignoring its outputs.
 /dist/*
 !/dist/.gitignore

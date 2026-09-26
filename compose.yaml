@@ -36,6 +36,10 @@ services:
       context: .
       dockerfile: Dockerfile
     entrypoint: ["/app/hotel_worker"]
+    # The worker has no HTTP listener. The backend image's /health probe would
+    # always report it unhealthy, so do not claim a health signal we cannot test.
+    healthcheck:
+      disable: true
     container_name: hotel_worker
     restart: unless-stopped
     environment:
@@ -84,6 +88,14 @@ services:
       timeout: 3s
       retries: 5
 
+  frontend-build:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: "no"
+    volumes:
+      - frontend_dist:/out
+
   proxy:
     image: nginx:alpine
     container_name: hotel_proxy
@@ -116,11 +128,14 @@ services:
       # nginx. The converted admin panel keeps the legacy URL shape, so its
       # stylesheets and icons have to come from the same read-only checkout.
       - ../legacy/phpretro-pdo/housekeeping/images:/var/www/housekeeping-images:ro
-      # React SPA build. Run `npm run build` in frontend/ first; nginx serves
-      # this and falls back to index.html for client-side routes.
-      - ./frontend/dist:/usr/share/nginx/html:ro
+      # Compose builds the React bundle and publishes it to this generated-assets
+      # volume before nginx starts. No host Node build or writable source mount.
+      - frontend_dist:/usr/share/nginx/html:ro
     depends_on:
-      - backend
+      backend:
+        condition: service_started
+      frontend-build:
+        condition: service_completed_successfully
     networks:
       - hotel-network
 
@@ -131,3 +146,4 @@ networks:
 volumes:
   mariadb_data:
   redis_data:
+  frontend_dist:

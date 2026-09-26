@@ -50,12 +50,24 @@ services:
       - ../../proxy:/etc/nginx/config:ro
       - ../../../legacy/phpretro-pdo/web-gallery:/var/www/web-gallery:ro
       - ../../../legacy/phpretro-pdo/housekeeping/images:/var/www/housekeeping-images:ro
-      - ../../frontend/dist:/usr/share/nginx/html:ro
+      - frontend_dist:/usr/share/nginx/html:ro
     depends_on:
-      - app
-      - legacy
+      app:
+        condition: service_started
+      legacy:
+        condition: service_started
+      frontend-build:
+        condition: service_completed_successfully
     networks:
       - cutover-net
+
+  frontend-build:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    restart: "no"
+    volumes:
+      - frontend_dist:/out
 
   # The new stack. Named `app` because that is the service key the cutover map
   # refers to (`app:8080`); see the comment in the primary compose.yaml about the
@@ -167,3 +179,4 @@ volumes:
   mariadb_data:
   redis_data:
   legacy_db_data:
+  frontend_dist:

@@ -6,12 +6,10 @@
 #
 # ## Why this one exists when compose.yaml here already does "CI-like"
 #
-# compose.yaml above deliberately omits the `frontend/dist` and `web-gallery`
-# mounts, because those are absent on a fresh runner for the *smoke* job's
-# purposes. That makes it useless for reproducing the parity suite, which needs
-# both. This file is the opposite trade: it mounts everything the real stack
-# mounts (so pages render) while keeping the disposable, namespaced
-# project/volumes/port that makes a fresh database safe to create.
+# compose.yaml above deliberately omits the React bundle and `web-gallery`
+# assets to reproduce missing-asset failures. This file builds the React bundle
+# through Compose and mounts the read-only legacy assets, matching the real
+# proxy while keeping a disposable database, project, and port.
 #
 # ## Isolation guarantees
 #
@@ -57,13 +55,17 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - ci-parity-net
+      ci-parity-net:
+        aliases:
+          - app
 
   worker:
     build:
       context: ../..
       dockerfile: Dockerfile
     entrypoint: ["/app/hotel_worker"]
+    healthcheck:
+      disable: true
     restart: "no"
     environment:
       APP_ENV: development
@@ -109,6 +111,14 @@ services:
       timeout: 3s
       retries: 5
 
+  frontend-build:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    restart: "no"
+    volumes:
+      - frontend_dist:/out
+
   proxy:
     image: nginx:alpine
     restart: "no"
@@ -122,9 +132,12 @@ services:
       - ../../proxy:/etc/nginx/config:ro
       - ../../../legacy/phpretro-pdo/web-gallery:/var/www/web-gallery:ro
       - ../../../legacy/phpretro-pdo/housekeeping/images:/var/www/housekeeping-images:ro
-      - ../../frontend/dist:/usr/share/nginx/html:ro
+      - frontend_dist:/usr/share/nginx/html:ro
     depends_on:
-      - backend
+      backend:
+        condition: service_started
+      frontend-build:
+        condition: service_completed_successfully
     networks:
       - ci-parity-net
 
@@ -135,3 +148,4 @@ networks:
 volumes:
   mariadb_data:
   redis_data:
+  frontend_dist:
