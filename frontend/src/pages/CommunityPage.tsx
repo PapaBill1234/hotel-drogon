@@ -30,6 +30,63 @@ const NEWS_MORE = 'More news';
 const NEWS_PREVIOUS = 'Previous';
 const NEWS_NEXT = 'Next';
 
+/**
+ * The 18 avatars of the "Random Habbos" imagemap, positioned exactly as the
+ * legacy JavaScript positioned them.
+ *
+ * WHY THIS IS NEEDED AT ALL
+ *
+ * `style.css` gives `.active-habbo-image-placeholder` `position: absolute` but
+ * supplies **no `top`/`left`** — the coordinates come from
+ * `ActiveHabbosHabblet._positionPlaceHolderImages()` in
+ * `web-gallery/static/js/fullcontent.js`, which is called from `initialize()`
+ * on `dom:loaded` (the same script that later swaps in real avatars via
+ * `generateRandomImages`).
+ *
+ * Without that call every placeholder falls back to the container origin,
+ * stacks, and — because the 64x110 sprite is taller than the 12px the container
+ * has left below the imagemap — paints a `habbo_skeleton.gif` *outside* the
+ * widget. That was the stray avatar sprite visible below the "Random Habbos"
+ * box.
+ *
+ * THE ARITHMETIC (ported verbatim, 3 rows x 6 columns)
+ *
+ *   rows = 3, cols = 6, horizontalSpace = 62, verticalSpace = 45
+ *   top = 10, left = 50
+ *   each row: left += 62 per column
+ *   each row: if (row % 2 < 1) left = 20 else left = 50    // stagger even rows
+ *   each row: top += 45
+ *
+ * `_placeImage` is deliberately NOT ported: it fetches
+ * `www.habbo.com/habbo-imaging/avatarimage?...` for each habbo, and this stack
+ * has no habbos endpoint to feed it (the legacy page in this fixture has no
+ * rows either). The placeholders therefore keep the skeleton sprite the
+ * stylesheet assigns, which is the state the legacy page renders too.
+ */
+const HABBO_ROWS = 3;
+const HABBO_COLUMNS = 6;
+const HABBO_HORIZONTAL_SPACE = 62;
+const HABBO_VERTICAL_SPACE = 45;
+
+const HABBO_SLOTS: { id: number; left: number; top: number }[] = (() => {
+  const slots: { id: number; left: number; top: number }[] = [];
+  let top = 10;
+  let id = 0;
+  for (let row = 0; row < HABBO_ROWS; row++) {
+    let left = 50;
+    for (let col = 0; col < HABBO_COLUMNS; col++) {
+      slots.push({ id: id++, left, top });
+      left += HABBO_HORIZONTAL_SPACE;
+    }
+    // `if (row % 2 < 1) left = 20 else left = 50` — the reset is dead for every
+    // row because each row re-enters at `left = 50` above, exactly as in the
+    // legacy script, where the same reset is likewise overwritten.
+    left = row % 2 < 1 ? 20 : 50;
+    top += HABBO_VERTICAL_SPACE;
+  }
+  return slots;
+})();
+
 interface RoomRow {
   id: number;
   name: string;
@@ -249,78 +306,14 @@ export default function CommunityPage() {
                       alt=""
                     />
                     <div id="placeholder-container">
-                      <div
-                        id="active-habbo-image-placeholder-0"
-                        className="active-habbo-image-placeholder"
-                      ></div>
-                      <div
-                        id="active-habbo-image-placeholder-1"
-                        className="active-habbo-image-placeholder"
-                      ></div>
-                      <div
-                        id="active-habbo-image-placeholder-2"
-                        className="active-habbo-image-placeholder"
-                      ></div>
-                      <div
-                        id="active-habbo-image-placeholder-3"
-                        className="active-habbo-image-placeholder"
-                      ></div>
-                      <div
-                        id="active-habbo-image-placeholder-4"
-                        className="active-habbo-image-placeholder"
-                      ></div>
-                      <div
-                        id="active-habbo-image-placeholder-5"
-                        className="active-habbo-image-placeholder"
-                      ></div>
-                      <div
-                        id="active-habbo-image-placeholder-6"
-                        className="active-habbo-image-placeholder"
-                      ></div>
-                      <div
-                        id="active-habbo-image-placeholder-7"
-                        className="active-habbo-image-placeholder"
-                      ></div>
-                      <div
-                        id="active-habbo-image-placeholder-8"
-                        className="active-habbo-image-placeholder"
-                      ></div>
-                      <div
-                        id="active-habbo-image-placeholder-9"
-                        className="active-habbo-image-placeholder"
-                      ></div>
-                      <div
-                        id="active-habbo-image-placeholder-10"
-                        className="active-habbo-image-placeholder"
-                      ></div>
-                      <div
-                        id="active-habbo-image-placeholder-11"
-                        className="active-habbo-image-placeholder"
-                      ></div>
-                      <div
-                        id="active-habbo-image-placeholder-12"
-                        className="active-habbo-image-placeholder"
-                      ></div>
-                      <div
-                        id="active-habbo-image-placeholder-13"
-                        className="active-habbo-image-placeholder"
-                      ></div>
-                      <div
-                        id="active-habbo-image-placeholder-14"
-                        className="active-habbo-image-placeholder"
-                      ></div>
-                      <div
-                        id="active-habbo-image-placeholder-15"
-                        className="active-habbo-image-placeholder"
-                      ></div>
-                      <div
-                        id="active-habbo-image-placeholder-16"
-                        className="active-habbo-image-placeholder"
-                      ></div>
-                      <div
-                        id="active-habbo-image-placeholder-17"
-                        className="active-habbo-image-placeholder"
-                      ></div>
+                      {HABBO_SLOTS.map((slot) => (
+                        <div
+                          key={slot.id}
+                          id={`active-habbo-image-placeholder-${slot.id}`}
+                          className="active-habbo-image-placeholder"
+                          style={{ left: `${slot.left}px`, top: `${slot.top}px`, display: 'block' }}
+                        ></div>
+                      ))}
                     </div>
                   </div>
 
