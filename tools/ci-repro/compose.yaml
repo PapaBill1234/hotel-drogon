@@ -1,9 +1,9 @@
 # Isolated CI-reproduction project.
 #
-# Purpose: reproduce GitHub Actions' fresh-machine conditions locally WITHOUT
-# touching the primary stack or its data. Mandated by the safety constraint in
-# docs/ai-run-state.md: CI reproduction must use a clearly isolated, disposable
-# Compose project.
+# Purpose: reproduce the historical missing-asset CI condition locally WITHOUT
+# touching the primary stack or its data. Current CI builds the React bundle
+# through Compose and fetches the legacy assets. The stable plan requires an
+# isolated, disposable Compose project for this reproduction.
 #
 # Isolation guarantees:
 #   * `name: ci-repro` puts every container, network and volume in its own
@@ -12,9 +12,9 @@
 #   * NO `container_name:` is set here. The primary compose.yaml pins names like
 #     `hotel_backend`; reusing those would collide with the running stack.
 #   * The proxy publishes on 3100, not 3000 (primary) or 8081 (legacy).
-#   * Deliberately does NOT mount `frontend/dist` or
-#     `../legacy/phpretro-pdo/web-gallery`, because neither exists on a fresh CI
-#     runner. Those two missing mounts are part of what CI actually exercises.
+#   * Deliberately does NOT mount a React bundle or
+#     `../legacy/phpretro-pdo/web-gallery`. These missing mounts reproduce the
+#     old failure condition, rather than the current green CI workflow.
 #
 # Usage:
 #   docker compose -p ci-repro -f tools/ci-repro/compose.yaml up -d --build
@@ -91,7 +91,7 @@ services:
       - "3100:80"
     volumes:
       - ../../proxy/nginx.conf:/etc/nginx/nginx.conf:ro
-      # NOTE: frontend/dist and web-gallery are intentionally NOT mounted.
+      # NOTE: the React bundle and web-gallery are intentionally NOT mounted.
     depends_on:
       - backend
     networks:

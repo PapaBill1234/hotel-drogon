@@ -2,9 +2,9 @@
 
 This mutable state follows [plan v2](cpp-drogon-conversion-plan.md) (`AI_CONTEXT_ID: hotel-drogon-plan-v2`). Read the plan and [current inventory](phase1-parity-inventory.md) first. The pre-v2 investigation diary and safety-policy wording remain in [the state archive](archive/ai-run-state-v1.md); the standing failure-escalation and data-safety rules now live in the stable plan.
 
-- **active_phase:** 2b
-- **selected_next_work_unit:** make Compose supply the frontend bundle and give the worker a truthful health state
-- **code baseline reviewed:** `e014caeb1e47314b0199421d37294f3602add768` (C++ source unchanged during the Phase 2b build-loop measurement)
+- **active_phase:** 1
+- **selected_next_work_unit:** document and live-validate the implemented auth, `/api/me`, and profile-mutation OpenAPI first slice
+- **implementation baseline reviewed:** `140e1e12729392f1a52de81c81b43d0dd15d318f` (C++ source unchanged during the Phase 2b delivery unit)
 
 ## Current phase and evidence
 
@@ -12,7 +12,7 @@ This mutable state follows [plan v2](cpp-drogon-conversion-plan.md) (`AI_CONTEXT
 | --- | --- | --- |
 | Phase 1 | **Unmet:** OpenAPI first slice absent. | Existing `/api/auth/*`, `/api/me` and profile-write routes must define the truthful contract. |
 | Phase 2 | Skeleton established in earlier work. | This workspace now has a read-only sibling PHPRetro checkout for local verification; a fresh clone still needs that external asset checkout. |
-| Phase 2b | **Incomplete:** Compose frontend build service absent; worker inherits an HTTP health check it cannot satisfy. | The development loop is measured and a small `.dockerignore` prevents docs, frontend dependencies, and local artifacts from invalidating the backend image. `compose.yaml` still bind-mounts out-of-band `frontend/dist`; `Dockerfile` probes `/health` for both binaries. |
+| Phase 2b | **Narrow exit met.** | Compose builds the locked React bundle into a generated volume before nginx starts. The worker disables the inherited HTTP probe and reports running without a health claim. The pinned image, local ASan/UBSan CTest, lints, isolated integration/browser/cutover checks, and all three jobs of [run 36224550725](https://github.com/PapaBill1234/hotel-drogon/actions/runs/36224550725) passed. |
 | Phase 3 | **Narrow exit met.** | Recorded Phase 3 smoke 12/12 and PolarIS isolation lint; separate staff cookie/rank gate. Staff login does not validate an enrolled TOTP secret, so staff 2FA remains a release gap. |
 | Phase 4 | **Narrow exit met.** | Recorded admin API 33/33, public API 17/17, admin browser 10/10, public visual parity 6/6 at 2%. These checks do not review admin visual fidelity or keyboard usability. |
 | Phases 5–10 | Not complete. | No React account journey, later feature-family UI, full cutover or release acceptance. See inventory. |
@@ -21,13 +21,15 @@ This mutable state follows [plan v2](cpp-drogon-conversion-plan.md) (`AI_CONTEXT
 
 **Measured build loop:** [the Phase 2b report](phase2b-build-loop-measurements.md) records a 41.82 s cold and 37.07 s warm clean C++ build, 7.07 s `.cpp` edit, 26.53 s shared-header edit, sub-0.2 s executable links, 3.30 s Node 20 frontend build, and 84/162/104 s for the three jobs of [green run 36221358776](https://github.com/PapaBill1234/hotel-drogon/actions/runs/36221358776). The unfiltered docs-only Docker rebuild took 38.82 s; with `.dockerignore` it took 2.86 s and all layers were cached. The filtered image, four lints, ASan/UBSan CTest with zero compiler warnings, isolated API smokes, admin browser, full visual parity on rerun, and cutover/rollback passed locally. The first local visual pass had an unexplained community screenshot difference of 3%; no tolerance or product code changed before the passing rerun. No new build tool was added.
 
+**Phase 2b delivery unit:** `frontend/Dockerfile` uses the inspected Node 20 image digest and `npm ci`; `.dockerignore` excludes host `dist` and dependencies. Compose copies the built bundle into `frontend_dist` and waits for that one-shot service before nginx starts. The worker's inherited server probe is disabled in Compose. In isolated fresh-volume projects with the verified read-only sibling PHPRetro assets, the frontend service exited 0, nginx served the React shell and hashed JavaScript, and the worker was running without a health object. Local checks passed: image CTest; ASan/UBSan CTest with zero compiler warnings; CSRF, PolarIS isolation, admin UI, and strict dependency-pin lints; Phase 3 smoke 12/12; admin API 33/33 with the rank-5 fixture; public API 17/17; admin browser 10/10; visual parity 6/6; cutover/rollback 8/8. A first parity-harness smoke attempt failed 0/12 because that harness lacked the `app` DNS alias used by the real proxy map; the alias was corrected and the rerun passed 12/12. [CI run 36224550725](https://github.com/PapaBill1234/hotel-drogon/actions/runs/36224550725) passed all three jobs, including the new fresh-checkout bundle and worker assertions. No backend feature or dependency-pin rule changed.
+
 ## Current workspace limits and decision gates
 
-- This workspace has a read-only sibling `legacy/phpretro-pdo` checkout and locally built `frontend/dist`; they are external or generated prerequisites, not tracked release artifacts. The primary hotel and legacy data were not reset; local integration used a disposable `ci-cutover` project, verified before start and teardown. Pre-existing untracked browser artifacts under `tests/e2e/.out/` were preserved.
+- This workspace has a read-only sibling `legacy/phpretro-pdo` checkout. A local `frontend/dist` may exist, but Compose ignores it and builds its own bundle. The primary hotel and legacy data were not reset or redeployed; the already-running primary worker still has its old unhealthy probe until that stack is recreated. Local verification used isolated `ci-delivery-20260926` and `ci-parity-delivery-20260926` projects with verified namespaced volumes, then removed only those projects and volumes. Pre-existing untracked browser artifacts under `tests/e2e/.out/` were preserved.
 - Registration into PolarIS `users` requires the Phase 5 audited-write decision and verified schema; do not present it as enabled.
 - Real staff step-up requires verified enrollment/secret data and end-to-end tests before staff release. The existing six-character check is not 2FA.
 - Homes API/conflict shape, rich-text renderer dependency, Sentry source, and legacy asset redistribution each retain their plan-defined decision gates at their respective milestones.
 
 ## Exact next work unit
 
-Make Compose build the React bundle that nginx serves without an out-of-band host build, and give the worker a truthful health state by disabling the inherited HTTP server probe or supplying a real worker probe. Verify with a clean isolated project, the declared read-only legacy assets, image CTest, ASan/UBSan, security lints, integration and browser checks, cutover/rollback, and all three CI jobs. Keep the stable plan and reusable runner byte-stable. After reproducible delivery, document the implemented OpenAPI first slice before starting the existing-user journey. Preserve primary hotel and legacy data.
+Complete the Phase 1 OpenAPI first slice for implemented auth, `/api/me`, and profile mutation routes. Inspect the corresponding legacy PHPRetro behavior and current controllers, then validate request bodies, responses, cookies, status codes, and failure behavior against live isolated routes. Do not document unsupported routes as working. Keep the stable plan and `AI_CONTEXT_ID` unchanged, preserve primary hotel and legacy data, and leave Phase 5 account UI work until the contract is validated.

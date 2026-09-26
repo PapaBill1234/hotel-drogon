@@ -192,9 +192,11 @@ suite.
    sh scripts/smoke_phase4_admin.sh http://localhost:3000
    python3 scripts/smoke_phase4_public.py http://localhost:3000
 
-   # frontend + browser suites
-   cd frontend && npm ci && npm run build && cd ..
-   docker compose exec -T proxy nginx -s reload
+   # Compose builds and publishes the frontend bundle before nginx starts
+   docker compose ps -a frontend-build
+   docker inspect hotel_worker --format '{{.State.Status}} {{if .State.Health}}probe-present{{else}}probe-disabled{{end}}'
+   curl -f http://localhost:3000/
+   # browser suites
    cd tests/e2e && PLAYWRIGHT_ADMIN=1 npx playwright test admin.spec.ts
    npm run test:visual:container
 

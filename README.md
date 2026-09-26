@@ -10,7 +10,7 @@ legacy PHPRetro PHP application and the abandoned Laravel/Inertia attempt.
 - Legacy behavior reference (read-only, not part of this repo):
   https://github.com/PapaBill1234/PHPRetro-PDO
 
-Status: **Phase 3 and Phase 4 narrow exits verified; Phase 2b and Phase 1
+Status: **Phase 2b, Phase 3, and Phase 4 narrow exits verified; Phase 1
 OpenAPI still incomplete.** See [current state](docs/ai-run-state.md) and
 [feature inventory](docs/phase1-parity-inventory.md) for the release gaps.
 
@@ -18,17 +18,19 @@ OpenAPI still incomplete.** See [current state](docs/ai-run-state.md) and
 
 ## Running the stack
 
-A fresh clone is not yet one-command runnable: `compose.yaml` requires a
-read-only sibling `../legacy/phpretro-pdo` checkout containing
-`web-gallery/` and `housekeeping/images/`, and nginx serves a
-`frontend/dist` bundle currently built outside Compose. The planned
-frontend build service and reproducible asset acquisition are open work.
+A fresh clone needs a read-only sibling `../legacy/phpretro-pdo` checkout
+containing `web-gallery/` and `housekeeping/images/`. Compose builds the React
+bundle from `frontend/package-lock.json` and publishes it to nginx through a
+generated-assets volume; no host `npm run build` is needed. Reproducible
+acquisition of the legacy assets remains open work.
 Do not package legacy assets until redistribution rights are verified.
 
 ```sh
 docker compose up -d --build
 # nginx is published on :3000
 curl http://localhost:3000/health
+# frontend-build should have exited 0; the worker runs without an HTTP probe
+docker compose ps -a frontend-build worker
 ```
 
 Seeded development accounts (both password `password123`):
@@ -56,12 +58,14 @@ plan's data-safety rule.
 # Static enforcement
 python3 scripts/check_csrf_rules.py       # every mutating route has CsrfFilter
 python3 scripts/check_polaris_access.py   # no direct Polaris SQL outside src/services/
+python3 scripts/check_admin_ui_coverage.py # admin routes and client calls agree
+python3 scripts/check_dependency_pins.py   # exact Ubuntu pins match the archive
 
 # Live integration (12 assertions: auth, sessions, authorization, CSRF)
 sh scripts/smoke_phase3.sh http://localhost:3000
 ```
 
-All three run in CI (`.github/workflows/ci.yml`); the smoke suite runs against a
+All five run in CI (`.github/workflows/ci.yml`); the smoke suite runs against a
 freshly built stack in a separate job.
 
 ## Architecture notes

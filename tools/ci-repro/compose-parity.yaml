@@ -1,8 +1,7 @@
 # Isolated FRESH-DATABASE reproduction for the visual-parity suite.
 #
-# Sibling of compose.yaml in this directory, and bound by the same safety
-# constraint quoted in docs/ai-run-state.md: any CI reproduction must run in its
-# own Compose project with its own throwaway volumes.
+# Sibling of compose.yaml in this directory, and bound by the stable plan's
+# data-safety rule: CI reproduction uses its own project and throwaway volumes.
 #
 # ## Why this one exists when compose.yaml here already does "CI-like"
 #

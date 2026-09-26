@@ -1,12 +1,12 @@
 # Isolated CI-reproduction project
 
-Two Compose files live here, both bound by the same safety rule: any CI
+The Compose files here follow the same safety rule: any CI
 reproduction runs in its own project with its own throwaway volumes.
 
 | File | Purpose |
 | --- | --- |
-| `compose.yaml` | Reproduces the **smoke job's** fresh-runner conditions. Deliberately omits the `frontend/dist` and `web-gallery` mounts, because a fresh runner has neither. |
-| `compose-parity.yaml` | Reproduces the **visual-parity job's** conditions instead: it mounts everything the real stack mounts (so pages render at all) but still uses a disposable project, network, volumes and port (3200), so a genuinely fresh database can be created safely. Added while diagnosing why parity failed on CI and passed locally. |
+| `compose.yaml` | Historical missing-asset smoke reproduction. It deliberately omits the React bundle and `web-gallery` mounts; the current CI job builds the bundle through Compose and fetches legacy assets. |
+| `compose-parity.yaml` | Reproduces the **visual-parity job's** conditions: Compose builds the React bundle, the proxy mounts read-only legacy assets, and a disposable project, network, volumes and port (3200) provide a fresh database. |
 | `compose-cutover.yaml` | Hosts the **cutover/rollback demonstration**: the new stack and the legacy PHP stack behind one proxy running the REAL `proxy/nginx.conf` and `proxy/cutover.map`, on port 3500. Separate because the production `compose.yaml` deliberately has no legacy PHP service, and adding one there would put an unused runtime in the deployed stack just to satisfy a test. |
 | `compose-no-webgallery.yaml` | Reproduces the **empty-`web-gallery` defect** that broke parity: the proxy mounts no legacy assets, exactly as a CI runner that never cloned them. Kept so the failure can be reproduced on demand rather than re-derived. |
 
@@ -50,11 +50,11 @@ Compose derives `ci-repro-<service>-1` / `ci-parity-<service>-1`.
 ## Usage
 
 ```sh
-# smoke-job conditions (no frontend/dist, no web-gallery)
+# historical missing-asset conditions (no React bundle, no web-gallery)
 docker compose -p ci-repro -f tools/ci-repro/compose.yaml up -d --build
 docker compose -p ci-repro -f tools/ci-repro/compose.yaml down -v
 
-# parity-job conditions (everything mounted, fresh database, port 3200)
+# parity-job conditions (Compose-built bundle, legacy assets, fresh database)
 docker compose -p ci-parity -f tools/ci-repro/compose-parity.yaml up -d --build
 docker compose -p ci-parity -f tools/ci-repro/compose-parity.yaml down -v
 ```
