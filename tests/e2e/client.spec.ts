@@ -47,6 +47,25 @@ async function signIn(page: Page, username: string, password: string) {
   await expect(page.getByTestId('me-username')).toBeVisible({ timeout: 15_000 });
 }
 
+/**
+ * Dump what the page actually shows, for a failure that only happens in CI.
+ *
+ * The client suite passed locally in every configuration tried while failing on a
+ * CI runner, and the job log is not reachable with the available credential, so
+ * the failure carried no evidence beyond "exit code 1". This prints the URL and
+ * the visible text to the test output, which *is* reachable, so the next run
+ * explains itself instead of inviting another guess. It is attached for the whole
+ * file rather than to one test because the failing assertion has not been
+ * identified with certainty.
+ */
+test.afterEach(async ({ page }, testInfo) => {
+  if (testInfo.status === testInfo.expectedStatus) return;
+  const text = (await page.locator('body').innerText().catch(() => '<unreadable>'))
+    .replace(/\s+/g, ' ')
+    .slice(0, 400);
+  console.log(`[client.spec diagnostic] url=${page.url()} body="${text}"`);
+});
+
 test.describe.configure({ mode: 'serial' });
 
 if (process.env.PLAYWRIGHT_CLIENT !== '1') {
