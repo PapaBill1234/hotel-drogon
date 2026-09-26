@@ -130,7 +130,17 @@ const AUDIT_PUBLIC: AuditPage[] = [
   { name: 'club', newPath: null, legacyPath: '/club' },
   { name: 'papers-disclaimer', newPath: null, legacyPath: '/papers/disclaimer' },
   { name: 'papers-privacy', newPath: null, legacyPath: '/papers/privacy' },
-  { name: 'register', newPath: '/register', legacyPath: '/register' },
+  {
+    // NOT an oversight and not styling: registration writes a new account into
+    // Polaris `users`, which the plan makes a Phase 5 DECISION GATE ("stop and
+    // ask" until an audited-write decision is recorded). App.tsx has no
+    // `/register` route, so the catch-all redirects to "/" and this page
+    // currently renders the landing page.
+    name: 'register',
+    newPath: null,
+    legacyPath: '/register',
+    note: 'decision gate: no route exists; catch-all serves the landing page',
+  },
   { name: 'forgot', newPath: '/forgot', legacyPath: '/forgot' },
   { name: 'maintenance', newPath: '/maintenance', legacyPath: '/maintenance' },
   { name: 'tag-search', newPath: null, legacyPath: '/tag/search' },
@@ -159,7 +169,11 @@ const AUDIT_SIGNED_IN: AuditPage[] = [
 
 /** Staff pages. The legacy panel is 30 pages; the new one is 8 routes. */
 const AUDIT_STAFF: AuditPage[] = [
-  { name: 'hk-login', newPath: '/housekeeping', legacyPath: '/housekeeping/' },
+  // The login page is `/housekeeping/login`, NOT `/housekeeping`: the latter is
+  // `AdminLayout`, which gates and renders "Staff sign-in required". Comparing
+  // the gated layout against legacy's login screen measured 99.4% and said
+  // nothing about styling.
+  { name: 'hk-login', newPath: '/housekeeping/login', legacyPath: '/housekeeping/' },
   { name: 'hk-dashboard', newPath: '/housekeeping/dashboard', legacyPath: '/housekeeping/dashboard', auth: 'staff' },
   { name: 'hk-news', newPath: '/housekeeping/news', legacyPath: '/housekeeping/news', auth: 'staff' },
   { name: 'hk-faq', newPath: '/housekeeping/faq', legacyPath: '/housekeeping/faq', auth: 'staff' },

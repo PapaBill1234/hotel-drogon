@@ -49,8 +49,45 @@ interface Finding {
 const findings: Finding[] = [];
 
 /**
- * Sign in, when the page needs it. Uses the same selectors as the account suite
- * so this cannot quietly diverge from how a real visitor signs in.
+ * Did the sign-in actually take?
+ *
+ * Without this the audit lies: a failed legacy sign-in still returns 200 and the
+ * page renders its PUBLIC fallback (me.php sends a guest to "/"), so the capture
+ * looks successful and the diff compares a signed-in page against the landing
+ * page. That is worse than not capturing at all, because it reads as a finding.
+ */
+async function isSignedIn(p: Page, base: string): Promise<boolean> {
+  if (base === BASE_NEW) {
+    return p
+      .getByTestId('me-username')
+      .isVisible()
+      .catch(() => false);
+  }
+  // Legacy. Verified against /me, /credits and /profile with a real session:
+  // the signed-in community header renders `#subnavi-user` and does NOT render
+  // `#subnavi-login`; a guest gets the exact inverse. Two other candidates were
+  // measured and rejected — `#tab-register-now` is present on the SIGNED-IN
+  // header too (it becomes the Housekeeping tab for rank > 4), and a "logout"
+  // link is absent on profile.php and credits.php.
+  return p.evaluate(() => {
+    const user = document.getElementById('subnavi-user') !== null;
+    const guest = document.getElementById('subnavi-login') !== null;
+    return user && !guest;
+  });
+}
+
+/**
+ * Sign in, when the page needs it.
+ *
+ * The two stacks could not be more different here, so each gets its own path:
+ *
+ *  - **New**: `POST /api/auth/login` driven through the `/account` form.
+ *  - **Legacy**: `index.php`'s `form.login-habblet` posts to
+ *    `/account/submit` with a hidden `csrf_token`, and `account.php` runs
+ *    `Csrf::requireValid()` on it. The visible button is the styled anchor; the
+ *    real `<input type=submit>` is pushed to `margin-left:-10000px` by
+ *    `LoginFormUI.init()`, so this submits the form directly rather than
+ *    clicking an element that is deliberately off-screen.
  */
 async function signIn(p: Page, base: string, kind: 'user' | 'staff') {
   const username = kind === 'staff' ? (process.env.AUDIT_STAFF_USER ?? 'admin') : USER;
@@ -66,19 +103,19 @@ async function signIn(p: Page, base: string, kind: 'user' | 'staff') {
     return;
   }
 
-  // Legacy has no /account page; its sign-in is the form on index.php (or the
-  // housekeeping login, which is its own page and its own form).
+  // Legacy. The staff panel has its own login page and its own form.
   await p.goto(kind === 'staff' ? `${base}/housekeeping/` : `${base}/`, {
     waitUntil: 'domcontentloaded',
   });
-  const userField = p.locator('input[name="username"]').first();
-  await userField.waitFor({ state: 'visible', timeout: 15_000 });
-  await userField.fill(username);
-  await p.locator('input[name="password"]').first().fill(password);
-  await p.locator('input[type="submit"]').first().click();
-  // A successful legacy sign-in lands on the user's own page.
+  const form = p.locator('form').filter({ has: p.locator('input[name="password"]') }).first();
+  await form.locator('input[name="username"]').waitFor({ state: 'attached', timeout: 15_000 });
+  await form.locator('input[name="username"]').fill(username);
+  await form.locator('input[name="password"]').fill(password);
+  // `requestSubmit()` fires the submit event and runs validation, unlike
+  // `form.submit()`, which bypasses both.
+  await form.evaluate((f: HTMLFormElement) => f.requestSubmit());
   await p.waitForLoadState('domcontentloaded').catch(() => {});
-  await p.waitForTimeout(1000);
+  await p.waitForTimeout(1200);
 }
 
 test.describe.configure({ mode: 'serial' });
@@ -126,9 +163,11 @@ for (const page of selected) {
         // Sign-in is best-effort: a stack where it does not work is a finding
         // ("could not authenticate"), not a reason to lose the whole audit.
         if (page.auth) {
-          await signIn(p, base, page.auth).catch((err) => {
-            finding.note = `${finding.note} [${side} sign-in failed: ${String(err).slice(0, 60)}]`.trim();
-          });
+          try {
+            await signIn(p, base, page.auth);
+          } catch (err) {
+            finding.note = `${finding.note} [${side} sign-in threw: ${String(err).slice(0, 60)}]`.trim();
+          }
         }
         const resp = await p.goto(base + rel, {
           waitUntil: 'domcontentloaded',
@@ -138,6 +177,19 @@ for (const page of selected) {
         await p.waitForLoadState('load').catch(() => {});
         await p.evaluate(() => document.fonts.ready).catch(() => {});
         await p.waitForTimeout(400);
+
+        // The guard is checked ON THE TARGET PAGE, not on the sign-in page.
+        // Checking it before navigating measured the login screen, which is
+        // "not signed in" for the wrong reason and passed for a guest — so
+        // me.php's guest redirect to "/" was captured under `me`'s name and
+        // scored as a visual difference. Verify where it matters.
+        if (page.auth && !(await isSignedIn(p, base))) {
+          if (side === 'legacy') finding.legacyStatus = 'UNAUTH';
+          else finding.newStatus = 'UNAUTH';
+          finding.note = `${finding.note} [${side}: sign-in did not take; not captured]`.trim();
+          continue;
+        }
+
         await p.screenshot({ path: path.join(OUT, `${page.name}--${side}.png`) });
       } catch (err) {
         status = `ERR`;
