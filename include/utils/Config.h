@@ -38,6 +38,24 @@ struct AppConfig {
     std::string csrf_header_name = "X-XSRF-TOKEN";
     std::string secret_key = "change-me-in-production";
 
+    // Client SSO tickets.
+    //
+    // A ticket this website issues is a bearer credential: PolarIS matches it
+    // against `users.auth_ticket` at game login, consumes it, and — as the pinned
+    // emulator documents in its own source — restores it during its reconnect
+    // grace and leaves it on the row afterwards. Nothing in the emulator enforces
+    // a lifetime, so the issuer does: the website voids its own ticket at this
+    // deadline (`UserAccountService::voidIssuedAuthTicket`) and leaves a value the
+    // client can never present. This is therefore a real security window, not a
+    // timeout: it must exceed a client launch (the browser boots the client and
+    // then connects) and it is the longest a captured ticket can be replayed.
+    uint32_t sso_ticket_ttl_seconds = 120;
+
+    // How often the void sweep looks for tickets past their deadline. Smaller is
+    // a tighter bound on the window between the deadline and the row being
+    // voided; larger is less database traffic.
+    uint32_t sso_ticket_sweep_seconds = 5;
+
     static AppConfig loadFromEnv();
     static std::string resolveHost(const std::string& host);
 };

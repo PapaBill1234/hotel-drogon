@@ -120,7 +120,7 @@ function ClientEntry() {
                   )}
                   <p data-testid="client-ticket-state">
                     {data.sso_ticket !== ''
-                      ? 'An SSO ticket is stored on your account.'
+                      ? `An SSO ticket is stored on your account. It stops working at ${voidTime(data.sso_ticket_void_at)}, after which this page can issue a new one.`
                       : 'No SSO ticket was stored.'}
                   </p>
                 </div>
@@ -152,6 +152,20 @@ function Shell({ children }: { children: React.ReactNode }) {
       </div>
     </div>
   );
+}
+
+/**
+ * The local time a ticket stops working, or an empty string when the server did
+ * not report one. Rendered from the server's deadline rather than recomputed
+ * here: the window is the server's to enforce, and a client-side guess would
+ * disagree with it.
+ */
+function voidTime(epochSeconds: number): string {
+  if (!epochSeconds) return 'an unreported time';
+  return new Date(epochSeconds * 1000).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 /**

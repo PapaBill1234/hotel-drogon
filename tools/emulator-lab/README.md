@@ -93,11 +93,39 @@ whole path through room rendering, as well as signed-out refusal.
 
 The ticket appears in the Octane URL and browser history. The pinned emulator
 consumes it at game login, then restores it during its disconnect grace period
-and leaves it in `users.auth_ticket` after the full disconnect. Its game lookup
-does not enforce `auth_ticket_expires_at` for a CMS-issued ticket. **This bridge
-is for loopback development only** until the emulator has a verified replay
-bound and the launch can use a reviewed HTTPS origin. No game assets are
+and leaves it in `users.auth_ticket` after the full disconnect, and its game
+lookup does not enforce `auth_ticket_expires_at`. The website therefore bounds
+the ticket itself: a ticket it issues is voided `SSO_TICKET_TTL_SECONDS` after
+issue (30 in this overlay, 120 by default), and the void writes a value longer
+than the 128 characters PolarIS accepts as a presented ticket — an empty column
+would be exactly what the emulator's restore writes the dead ticket back into.
+Signing out voids it immediately. **This bridge is for loopback development
+only** until the launch can use a reviewed HTTPS origin. No game assets are
 redistributed by this Compose overlay.
+
+## Check the replay bound
+
+`sso-replay.spec.ts` walks the five paths in order — login, reconnect inside the
+window, full disconnect, sign-out, and a ticket past its window — and asserts the
+last three twice over: against the emulator's SSO endpoint and against the client
+itself, because those are two different doors in PolarIS.
+
+```powershell
+$repo = (Resolve-Path .).Path
+$out = Join-Path (Resolve-Path ../upstream).Path 'emulator-lab-replay-out'
+docker run --rm --network host --mount "type=bind,source=$repo,target=/repo,readonly" --mount "type=bind,source=$out,target=/out" -e BASE_NEW=http://127.0.0.1:3204 -e CMS_BASE=http://127.0.0.1:3204 -e OCTANE_BASE=http://127.0.0.1:3201 -e PLAYWRIGHT_SSO_REPLAY=1 -e SSO_TICKET_TTL_SECONDS=90 -e PLAYWRIGHT_ARGS=sso-replay.spec.ts -e PLAYWRIGHT_CONFIG=playwright.emulator.config.ts mcr.microsoft.com/playwright:v1.63.0-noble bash /repo/tests/e2e/run-in-container.sh
+```
+
+`SSO_TICKET_TTL_SECONDS` must match the value the CMS was started with, because
+the suite waits out the window it is given. It also has to exceed a client
+launch: the reconnect case disposes the first connection and waits for a second
+one to boot and present the same ticket, so the suite refuses a window under 60
+seconds instead of reporting a flake. The emulator's own view of each path is in
+its log:
+
+```powershell
+docker logs ci-emulator-sso-20260926-emulator-1 --since 10m | Select-String "SessionResume|logged in|disconnected"
+```
 
 The browser command below uses the disposable database. Its registration
 endpoint limits each IP to five accounts, so use a fresh isolated lab volume

@@ -7,6 +7,7 @@
 #include "utils/Readiness.h"
 #include "services/ContentService.h"
 #include "services/TransactionService.h"
+#include "services/UserAccountService.h"
 #include <functional>
 #include <memory>
 #include <string>
@@ -181,6 +182,26 @@ int main(int argc, char* argv[]) {
                         "created_at BIGINT DEFAULT 0, "
                         "resolved_at BIGINT DEFAULT 0, "
                         "resolved_by INT DEFAULT 0"
+                        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+                        // Website-owned, one row per user: the deadline at which
+                        // this website voids the SSO ticket it issued. PolarIS has
+                        // no column for it and matches `users.auth_ticket` at game
+                        // login without consulting an expiry, so the bound has to
+                        // live somewhere the website controls. A row per user
+                        // rather than a log: a fresh ticket replaces its
+                        // predecessor's deadline, and the audit table keeps the
+                        // history. `ticket` is deliberately the same plaintext the
+                        // ticket column already holds — a hash could not be
+                        // compared against the row at void time.
+                        "CREATE TABLE IF NOT EXISTS phpretro_sso_tickets ("
+                        "user_id INT PRIMARY KEY, "
+                        "ticket VARCHAR(256) NOT NULL, "
+                        "issued_at BIGINT NOT NULL, "
+                        "void_at BIGINT NOT NULL, "
+                        "voided_at BIGINT DEFAULT 0, "
+                        "reason VARCHAR(64) DEFAULT '', "
+                        "KEY idx_void_at (void_at)"
                         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
                     };
 
@@ -223,6 +244,29 @@ int main(int argc, char* argv[]) {
                                        // Schema and seed are both done: now, and only
                                        // now, does /health report ready.
                                        hotel::utils::Readiness::markReady();
+
+                                       // The SSO ticket void sweep. Started here, and
+                                       // not earlier, so it can never run before the
+                                       // database and Redis clients are usable — the
+                                       // sweep's whole job is to leave a value the
+                                       // client cannot present, and a sweep that
+                                       // silently did nothing would look identical to
+                                       // one with nothing to do.
+                                       const uint32_t sweepSeconds =
+                                           hotel::services::UserAccountService::ssoTicketSweepSeconds();
+                                       HOTEL_LOG_INFO(
+                                           "SSO ticket sweep every {}s; website-issued tickets "
+                                           "are voided {}s after issue",
+                                           sweepSeconds,
+                                           hotel::services::UserAccountService::ssoTicketTtlSeconds()
+                                       );
+                                       drogon::app().getLoop()->runEvery(
+                                           sweepSeconds,
+                                           []() {
+                                               hotel::services::UserAccountService::
+                                                   voidExpiredAuthTickets();
+                                           }
+                                       );
                                    }
                                 >> [](const drogon::orm::DrogonDbException& e) {
                                        HOTEL_LOG_WARN("Seeding default users: {}", e.base().what());

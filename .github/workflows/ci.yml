@@ -123,6 +123,14 @@ jobs:
     name: Phase 3 Integration Smoke (live stack)
     runs-on: ubuntu-24.04
     needs: cpp-build-and-test
+    env:
+      # The website voids each SSO ticket it issues at this deadline, because
+      # Polaris matches `users.auth_ticket` at game login without consulting an
+      # expiry and restores a consumed ticket after a disconnect. Short here so
+      # `check_sso_replay_bound.sh` can watch the void happen inside the job;
+      # Compose interpolates it into the backend service.
+      SSO_TICKET_TTL_SECONDS: "10"
+      SSO_TICKET_SWEEP_SECONDS: "2"
 
     steps:
       - name: Check out repository
@@ -241,6 +249,15 @@ jobs:
         env:
           ACCOUNT_CONTRACT_DISPOSABLE: '1'
         run: python3 scripts/check_account_contract.py http://localhost:3000
+
+      # The bound the OpenAPI slice above only states is asserted here against the
+      # row: a website-issued ticket must not be replayable after its window, and
+      # the value left behind must not be one the client could present.
+      - name: SSO ticket replay bound (the void reaches the row)
+        env:
+          SSO_TICKET_TTL_SECONDS: '10'
+          SSO_TICKET_SWEEP_SECONDS: '2'
+        run: sh scripts/check_sso_replay_bound.sh http://localhost:3000
 
       - name: Seed rank-5 staff account (high-trust boundary test)
         run: |

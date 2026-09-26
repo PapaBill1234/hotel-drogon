@@ -105,13 +105,75 @@ public:
      * declares only `auth_ticket varchar(256)` — so the write would have failed
      * against a real PolarIS database. The parameter was never read by anything
      * (the method had no callers), so it is removed rather than left inert.
+     *
+     * ## The void this schedules
+     *
+     * The write is paired with a deadline, recorded in the website-owned
+     * `phpretro_sso_tickets` table, at which `voidIssuedAuthTicket` replaces the
+     * ticket with a tombstone. Without that, the ticket has no lifetime at all:
+     * the pinned emulator matches `users.auth_ticket` at game login **without
+     * consulting any expiry** (its own comment says a stale expiry used to block
+     * third-party CMSes that only write this column), consumes it, then restores
+     * it during its reconnect grace and leaves it on the row after a full
+     * disconnect. A ticket taken from browser history would therefore open the
+     * account indefinitely.
+     *
+     * The deadline is recorded **before** the ticket is written, and a failure
+     * there fails the whole call: a caller must never receive a credential the
+     * website has no plan to void. The record lives in the database rather than in
+     * Redis so it survives a cache restart — a ticket whose deadline was lost
+     * would be exactly the unbounded credential this exists to prevent.
+     *
+     * `callback(success, voidAtEpochSeconds)` reports both the write and the
+     * deadline it was scheduled for, so the caller can state the window rather
+     * than describe it.
      */
     static void generateAuthTicket(
         uint32_t userId,
         const std::string& ticket,
         const std::string& ipAddress,
-        std::function<void(bool success)> callback
+        std::function<void(bool success, uint64_t voidAtEpochSeconds)> callback
     );
+
+    /** How long an issued SSO ticket stays valid. See `AppConfig`. */
+    static uint32_t ssoTicketTtlSeconds();
+
+    /** How often `voidExpiredAuthTickets` runs. See `AppConfig`. */
+    static uint32_t ssoTicketSweepSeconds();
+
+    /**
+     * Void the user's website-issued ticket now, and close its record.
+     *
+     * Used for two things, which is why it is named for the ticket rather than
+     * for either caller: the sweep acting when the deadline passes, and sign-out,
+     * where the user is ending the session and the client credential must end
+     * with it.
+     *
+     * The row is only touched when it still holds the ticket this website issued
+     * (or when it is empty, which is the state a consumed ticket leaves behind and
+     * the state the emulator's restore would otherwise write into). A ticket
+     * rotated in the meantime, or one another issuer wrote, is left alone. No
+     * recorded ticket means nothing this website issued is outstanding, and the
+     * call reports `false` rather than guessing at the row.
+     */
+    static void voidIssuedAuthTicket(
+        uint32_t userId,
+        const std::string& reason,
+        const std::string& ipAddress,
+        std::function<void(bool voided)> callback
+    );
+
+    /**
+     * Void every issued ticket whose deadline has passed.
+     *
+     * Called on a timer by the server, in bounded batches, oldest first. A record
+     * that outlived its deadline while the process was down is picked up on the
+     * next run — late, not skipped — which is the reason the schedule is durable
+     * rather than a cache entry. A second pass over the same record changes
+     * nothing: the closed record is no longer selected, and an already-tombstoned
+     * row no longer matches the guard, so no audit entry is written twice.
+     */
+    static void voidExpiredAuthTickets();
 
     // --- password reset ------------------------------------------------
 

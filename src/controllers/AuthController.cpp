@@ -418,7 +418,7 @@ void AuthController::logout(
 
             services::SessionManager::destroyUserSession(
                 token,
-                [userId, sendLoggedOut](bool /*success*/) {
+                [req, userId, sendLoggedOut](bool /*success*/) {
                     if (userId == 0) {
                         // No session to attribute the token to. The cookies are
                         // still cleared, which is what the caller asked for.
@@ -426,7 +426,22 @@ void AuthController::logout(
                         return;
                     }
                     services::UserAccountService::clearRememberToken(
-                        userId, [sendLoggedOut](bool /*cleared*/) { sendLoggedOut(); });
+                        userId,
+                        [req, userId, sendLoggedOut](bool /*cleared*/) {
+                            // Signing out ends the client credential as well as
+                            // the browser session. Waiting for the ticket's own
+                            // deadline would leave a captured ticket usable after
+                            // the user had deliberately signed out — the same
+                            // reasoning that clears the remember-me digest above.
+                            // A failure here does not fail the sign-out: the
+                            // session is already gone, and the ticket still has
+                            // its scheduled void.
+                            services::UserAccountService::voidIssuedAuthTicket(
+                                userId,
+                                "logout",
+                                req->peerAddr().toIp(),
+                                [sendLoggedOut](bool /*voided*/) { sendLoggedOut(); });
+                        });
                 });
         });
 }

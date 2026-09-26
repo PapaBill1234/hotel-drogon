@@ -38,6 +38,28 @@ public:
     static std::string generateSsoTicket();
 
     /**
+     * The value that replaces a website-issued SSO ticket when the website voids
+     * it — a tombstone, not a ticket.
+     *
+     * Two properties matter, and both are deliberate:
+     *
+     * 1. **It cannot be presented.** It is longer than the 128 characters both
+     *    PolarIS doors cap a presented ticket at (`SecureLoginEvent` rejects a
+     *    longer value before any lookup, and `SessionEndpoints.handleSsoToken`
+     *    answers 400 for one), while still fitting `users.auth_ticket`
+     *    `varchar(256)`. So even a leaked tombstone is not a credential.
+     * 2. **It is not empty.** The emulator restores a consumed ticket during its
+     *    reconnect grace, but only into an empty column — its own restore is
+     *    `WHERE id = ? AND (auth_ticket = '' OR auth_ticket IS NULL)`. Clearing
+     *    the ticket to `''` would let that restore put the dead ticket back;
+     *    leaving a non-empty tombstone is what makes the void final.
+     *
+     * The prefix keeps it recognisable in a row to anyone debugging, and the
+     * random tail keeps two voids from looking like the same value.
+     */
+    static std::string generateVoidSsoTicket();
+
+    /**
      * A remember-me token in the format the legacy website wrote.
      *
      * `includes/functions.php`'s `GenerateTicket("remember")`:

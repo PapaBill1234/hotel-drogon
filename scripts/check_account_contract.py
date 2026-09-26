@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -193,6 +194,7 @@ def main():
     # is deliberately not asserted.
     request("POST", "/api/account/client-entry", 403)
     request("POST", "/api/account/client-entry", 403, cookies=cookies)
+    issued_at = int(time.time())
     entry, _ = request("POST", "/api/account/client-entry", 200,
                        cookies=cookies, csrf=token)
     parts = entry["sso_ticket"].split("-")
@@ -202,6 +204,16 @@ def main():
           "SSO ticket segments are lowercase hex")
     check(len(entry["sso_ticket"]) <= 256, "SSO ticket fits users.auth_ticket varchar(256)")
     check(entry["sso_ticket"] != "", "a ticket was generated and stored")
+    # The website owns the ticket's lifetime: Polaris matches `auth_ticket` at
+    # game login without consulting an expiry, consumes it, then restores it
+    # during its reconnect grace and leaves it on the row. So the deadline has to
+    # be stated, and it has to reflect the configured window rather than a
+    # constant someone typed into the response.
+    check(isinstance(entry["sso_ticket_void_at"], int) and entry["sso_ticket_void_at"] > 0,
+          "the response states when the issued ticket is voided")
+    configured_ttl = int(os.environ.get("SSO_TICKET_TTL_SECONDS", "120"))
+    check(issued_at < entry["sso_ticket_void_at"] <= issued_at + configured_ttl + 2,
+          f"the stated void deadline is within the configured {configured_ttl}s window")
     check(isinstance(entry["notes"], str) and entry["notes"] != "",
           "the response states what the handoff does and does not claim")
     # A second call must not hand back the same ticket: the page issues a fresh

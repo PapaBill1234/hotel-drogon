@@ -2,10 +2,15 @@
 #include "services/BanService.h"
 #include "services/AuditService.h"
 #include "services/ContentService.h"
+#include "utils/Config.h"
 #include "utils/Crypto.h"
 #include "utils/Logger.h"
 #include <algorithm>
 #include <chrono>
+#include <ctime>
+#include <memory>
+#include <utility>
+#include <vector>
 
 // The password-reset methods use Drogon's Redis client and `drogon::app()`,
 // which live in the umbrella header. The service header pulls in only the ORM
@@ -355,7 +360,7 @@ uint32_t UserAccountService::rememberMeDays(const std::string& siteCookieTime) {
     //   time() + (60 * 60 * 24 * (int) $settings->find("site_cookie_time"))
     // The installer seeded it to 14 with the label "Rememberme Expire In /
     // Number of days", so that is the fallback for a missing, non-numeric or
-    // non-positive value — the legacy default, not a number invented here.
+    // non-positive value â€” the legacy default, not a number invented here.
     //
     // Pure on purpose: the caller reads the setting (an async query) and passes
     // the raw string in, so the parsing and defaulting are unit-testable without
@@ -451,30 +456,208 @@ void UserAccountService::clearRememberToken(
         };
 }
 
+uint32_t UserAccountService::ssoTicketTtlSeconds() {
+    // Read once: the value is process configuration, and a sweep that changed its
+    // own deadline mid-flight would make the window untestable.
+    static const uint32_t ttl = utils::AppConfig::loadFromEnv().sso_ticket_ttl_seconds;
+    return ttl;
+}
+
+uint32_t UserAccountService::ssoTicketSweepSeconds() {
+    static const uint32_t seconds = utils::AppConfig::loadFromEnv().sso_ticket_sweep_seconds;
+    return seconds;
+}
+
+namespace {
+
+/**
+ * Replace the row's ticket with a tombstone, but only where that is this
+ * website's ticket to void.
+ *
+ * `auth_ticket = ''` is included deliberately and is the subtle half: a consumed
+ * ticket leaves the column empty, and the emulator's reconnect grace restores a
+ * ticket **only into an empty column**. Voiding the empty row is what stops the
+ * dead ticket coming back. A ticket this website did not issue, or a newer one
+ * that replaced it, is left untouched.
+ */
+void writeSsoTombstone(
+    const drogon::orm::DbClientPtr& db,
+    uint32_t userId,
+    const std::string& issuedTicket,
+    const std::string& reason,
+    const std::string& ipAddress,
+    std::function<void(bool written)> callback
+) {
+    const std::string tombstone = utils::Crypto::generateVoidSsoTicket();
+
+    *db << "UPDATE users SET auth_ticket = ? WHERE id = ? AND (auth_ticket = ? OR auth_ticket = '')"
+        << tombstone << userId << issuedTicket
+        >> [userId, reason, ipAddress, callback](const drogon::orm::Result& result) {
+               const bool written = result.affectedRows() > 0;
+               if (written) {
+                   AuditService::logAction(userId, "void_sso_ticket", "user", userId,
+                                           "Client SSO ticket voided (" + reason + ")", ipAddress);
+               }
+               callback(written);
+           }
+        >> [callback](const drogon::orm::DrogonDbException& e) {
+               HOTEL_LOG_ERROR("UserAccountService::writeSsoTombstone error: {}", e.base().what());
+               callback(false);
+           };
+}
+
+} // namespace
+
 void UserAccountService::generateAuthTicket(
     uint32_t userId,
     const std::string& ticket,
     const std::string& ipAddress,
-    std::function<void(bool success)> callback
+    std::function<void(bool success, uint64_t voidAtEpochSeconds)> callback
 ) {
     auto db = drogon::app().getDbClient("default");
     if (!db) {
-        if (callback) callback(false);
+        HOTEL_LOG_ERROR("UserAccountService::generateAuthTicket: no database client");
+        callback(false, 0);
         return;
     }
 
-    // `users.auth_ticket` only. PolarIS declares `auth_ticket varchar(256)` and
-    // no expiry column; see the note on the declaration.
-    *db << "UPDATE users SET auth_ticket = ? WHERE id = ?"
-        << ticket << userId
-        >> [userId, ipAddress, callback](const drogon::orm::Result& /*r*/) {
-            AuditService::logAction(userId, "issue_sso_ticket", "user", userId, "Client SSO ticket issued", ipAddress);
-            if (callback) callback(true);
-        }
+    const uint32_t ttl = ssoTicketTtlSeconds();
+    const uint64_t issuedAt = static_cast<uint64_t>(std::time(nullptr));
+    const uint64_t deadline = issuedAt + ttl;
+
+    // The deadline is recorded FIRST, and a failure there means no ticket is
+    // written at all. The order is what makes the bound a property of issuance
+    // rather than of a later job: a caller can never receive a credential the
+    // website has no record of, and therefore nothing to void.
+    //
+    // One row per user (the table's primary key is `user_id`): a fresh ticket
+    // replaces the previous schedule rather than queueing behind it, so the sweep
+    // can only ever act on the deadline of the ticket that is actually valid.
+    *db << "INSERT INTO phpretro_sso_tickets (user_id, ticket, issued_at, void_at, voided_at, reason) "
+           "VALUES (?, ?, ?, ?, 0, '') "
+           "ON DUPLICATE KEY UPDATE ticket = ?, issued_at = ?, void_at = ?, voided_at = 0, reason = ''"
+        << userId << ticket << issuedAt << deadline << ticket << issuedAt << deadline
+        >> [db, userId, ticket, ipAddress, deadline, callback](const drogon::orm::Result& /*r*/) {
+               *db << "UPDATE users SET auth_ticket = ? WHERE id = ?" << ticket << userId
+                   >> [userId, ipAddress, deadline, callback](const drogon::orm::Result& /*r*/) {
+                          AuditService::logAction(userId, "issue_sso_ticket", "user", userId,
+                                                  "Client SSO ticket issued", ipAddress);
+                          callback(true, deadline);
+                      }
+                   >> [callback](const drogon::orm::DrogonDbException& e) {
+                          HOTEL_LOG_ERROR("UserAccountService::generateAuthTicket error: {}",
+                                          e.base().what());
+                          callback(false, 0);
+                      };
+           }
         >> [callback](const drogon::orm::DrogonDbException& e) {
-            HOTEL_LOG_ERROR("UserAccountService::generateAuthTicket error: {}", e.base().what());
-            if (callback) callback(false);
-        };
+               HOTEL_LOG_ERROR("UserAccountService::generateAuthTicket schedule error: {}",
+                               e.base().what());
+               callback(false, 0);
+           };
+}
+
+void UserAccountService::voidIssuedAuthTicket(
+    uint32_t userId,
+    const std::string& reason,
+    const std::string& ipAddress,
+    std::function<void(bool voided)> callback
+) {
+    auto db = drogon::app().getDbClient("default");
+    if (!db) {
+        HOTEL_LOG_ERROR("UserAccountService::voidIssuedAuthTicket: no database client");
+        callback(false);
+        return;
+    }
+
+    // The recorded ticket, not the row's current value: the guard inside
+    // `writeSsoTombstone` needs the value this website issued in order to leave
+    // anything else alone. No record means nothing issued by this website is
+    // outstanding, and guessing at the row would clear a credential that belongs
+    // to another issuer.
+    *db << "SELECT ticket FROM phpretro_sso_tickets WHERE user_id = ? AND voided_at = 0 LIMIT 1"
+        << userId
+        >> [db, userId, reason, ipAddress, callback](const drogon::orm::Result& rows) {
+               if (rows.empty()) {
+                   callback(false);
+                   return;
+               }
+
+               const std::string issuedTicket = rows[0]["ticket"].as<std::string>();
+               writeSsoTombstone(
+                   db, userId, issuedTicket, reason, ipAddress,
+                   [db, userId, reason, callback](bool written) {
+                       // Marked voided whether or not the row still held it: the
+                       // deadline has passed or the user has signed out, and a
+                       // record left open could only clear a ticket issued after
+                       // this one.
+                       const uint64_t now = static_cast<uint64_t>(std::time(nullptr));
+                       *db << "UPDATE phpretro_sso_tickets SET voided_at = ?, reason = ? "
+                              "WHERE user_id = ? AND voided_at = 0"
+                           << now << reason << userId
+                           >> [callback, written](const drogon::orm::Result& /*r*/) {
+                                  callback(written);
+                              }
+                           >> [callback, written](const drogon::orm::DrogonDbException& e) {
+                                  HOTEL_LOG_ERROR(
+                                      "UserAccountService::voidIssuedAuthTicket mark error: {}",
+                                      e.base().what());
+                                  callback(written);
+                              };
+                   });
+           }
+        >> [callback](const drogon::orm::DrogonDbException& e) {
+               HOTEL_LOG_ERROR("UserAccountService::voidIssuedAuthTicket read error: {}",
+                               e.base().what());
+               callback(false);
+           };
+}
+
+void UserAccountService::voidExpiredAuthTickets() {
+    auto db = drogon::app().getDbClient("default");
+    if (!db) return;
+
+    const uint64_t now = static_cast<uint64_t>(std::time(nullptr));
+
+    // Bounded batch, oldest first: a backlog is worked off over successive runs
+    // instead of in one long transaction. A record that outlived its deadline
+    // while the process was down is still here, so the void is late rather than
+    // skipped.
+    *db << "SELECT user_id, ticket FROM phpretro_sso_tickets "
+           "WHERE voided_at = 0 AND void_at <= ? ORDER BY void_at ASC LIMIT 25"
+        << now
+        >> [db](const drogon::orm::Result& due) {
+               if (due.empty()) return;
+
+               auto pending = std::make_shared<std::vector<std::pair<uint32_t, std::string>>>();
+               pending->reserve(due.size());
+               for (const auto& row : due) {
+                   pending->emplace_back(row["user_id"].as<uint32_t>(),
+                                         row["ticket"].as<std::string>());
+               }
+
+               // Sequential driver: the codebase's pattern for a bounded list of
+               // asynchronous steps. Only the database is touched here — the void
+               // deliberately holds no Redis round trip, because issuing a Redis
+               // command from inside another Redis callback deadlocks Drogon's
+               // connection pool (observed: five leaked connections, then a hang
+               // and a SIGSEGV).
+               auto index = std::make_shared<size_t>(0);
+               auto step = std::make_shared<std::function<void()>>();
+               *step = [db, pending, index, step]() {
+                   while (*index < pending->size()) {
+                       const auto entry = (*pending)[(*index)++];
+                       UserAccountService::voidIssuedAuthTicket(
+                           entry.first, "window_expired", "", [step](bool /*voided*/) { (*step)(); });
+                       return;
+                   }
+               };
+               (*step)();
+           }
+        >> [](const drogon::orm::DrogonDbException& e) {
+               HOTEL_LOG_ERROR("UserAccountService::voidExpiredAuthTickets error: {}",
+                               e.base().what());
+           };
 }
 
 void UserAccountService::findByUsernameAndVerifiedMail(
@@ -534,8 +717,8 @@ void UserAccountService::listUsernamesForMail(
 }
 
 uint32_t UserAccountService::passwordResetTtlSeconds() {
-    // 30 minutes. There is no legacy value to copy — the legacy flow had no
-    // token — so this is a deliberate choice: long enough to fetch mail and act,
+    // 30 minutes. There is no legacy value to copy â€” the legacy flow had no
+    // token â€” so this is a deliberate choice: long enough to fetch mail and act,
     // short enough that a leaked link is not durable. The expiry is enforced by
     // Redis itself, so it holds even if this process restarts.
     return 1800;
@@ -616,7 +799,7 @@ void UserAccountService::consumePasswordResetToken(
     redis->execCommandAsync(
         [db, newPassword, ipAddress, callback](const drogon::nosql::RedisResult& r) {
             if (r.type() != drogon::nosql::RedisResultType::kString) {
-                // Unknown, expired, or already consumed — one answer for all
+                // Unknown, expired, or already consumed â€” one answer for all
                 // three, so a caller cannot probe which tokens exist.
                 callback(false, true, "This reset link is invalid or has expired.");
                 return;

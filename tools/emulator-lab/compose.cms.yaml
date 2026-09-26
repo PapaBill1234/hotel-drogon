@@ -19,6 +19,13 @@ services:
       REDIS_PORT: 6379
       REDIS_DB: 0
       OCTANE_CLIENT_URL: http://127.0.0.1:3201/
+      # The lab runs the replay suite, whose waits follow this window. It has to
+      # exceed a client launch — the reconnect path disposes the first connection,
+      # parks it, and the second has to boot and present the same ticket before
+      # the deadline — so 90 s, not the 120 s production default and not the 10 s
+      # the CI stack uses to watch the void happen quickly.
+      SSO_TICKET_TTL_SECONDS: ${SSO_TICKET_TTL_SECONDS:-90}
+      SSO_TICKET_SWEEP_SECONDS: ${SSO_TICKET_SWEEP_SECONDS:-5}
     depends_on:
       database:
         condition: service_healthy

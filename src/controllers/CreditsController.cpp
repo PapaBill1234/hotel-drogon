@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <regex>
 
 using Json::Value;
@@ -175,7 +176,20 @@ void CreditsController::clientEntry(
             // `phpretro_site_settings` table, so they are a website-side fact and
             // can be verified here; whether the emulator then accepts the ticket
             // is emulator behaviour and is not claimed.
+            //
+            // The four lookups are issued together and complete on Drogon's
+            // database loop threads, which run CONCURRENTLY: this join is shared
+            // mutable state reached from more than one thread, so it is guarded.
+            // It was not, and the endpoint crashed the server — AddressSanitizer
+            // caught two callbacks inserting into one `std::map` at once
+            // (`std::map::operator[]` → red-black tree corruption → SIGSEGV,
+            // exit 139), which took roughly eight to ten consecutive requests to
+            // reproduce. `remaining` was racy in the same way, and its failure
+            // mode was the quieter one: two callbacks could both see zero and
+            // answer the request twice, or the counter could miss zero entirely
+            // and never answer it at all.
             struct Settings {
+                std::mutex mutex;
                 std::map<std::string, std::string> values;
                 int remaining = 4;
                 bool clientDcrPresent = false;
@@ -183,12 +197,20 @@ void CreditsController::clientEntry(
             auto state = std::make_shared<Settings>();
 
             auto finishIfDone = [state, req, callback, userId = user.id]() {
-                if (--state->remaining > 0) return;
+                std::map<std::string, std::string> values;
+                {
+                    std::lock_guard<std::mutex> lock(state->mutex);
+                    if (--state->remaining > 0) return;
+                    // The last callback out copies the finished set while still
+                    // holding the lock: every other writer has already released
+                    // it, so this is the only reader and no writer remains.
+                    values = state->values;
+                }
 
-                const std::string& host = state->values[kSettingHotelIp];
-                const std::string& port = state->values[kSettingHotelPort];
-                const std::string& mus = state->values[kSettingHotelMus];
-                const std::string& dcr = state->values[kSettingClientDcr];
+                const std::string& host = values[kSettingHotelIp];
+                const std::string& port = values[kSettingHotelPort];
+                const std::string& mus = values[kSettingHotelMus];
+                const std::string& dcr = values[kSettingClientDcr];
 
                 // A setting that is absent *or present but empty* is the same
                 // fact to a client: nothing to connect to. Both are reported, and
@@ -207,8 +229,11 @@ void CreditsController::clientEntry(
                 const bool ready = !octaneUrl.empty() || legacyReady;
 
                 // Issue a fresh ticket on every request, as legacy client.php
-                // did. The pinned emulator may restore it after disconnect, so
-                // rotation alone does not establish a replay lifetime.
+                // did. Rotation on its own is not a lifetime — the pinned
+                // emulator restores a consumed ticket after disconnect and its
+                // game lookup ignores any expiry — so the ticket is issued with a
+                // scheduled void, and `sso_ticket_void_at` reports that deadline
+                // instead of leaving the caller to assume one.
                 const std::string ticket = utils::Crypto::generateSsoTicket();
                 services::UserAccountService::generateAuthTicket(
                     userId,
@@ -216,7 +241,8 @@ void CreditsController::clientEntry(
                     req->peerAddr().toIp(),
                     [callback, state, host, port, mus, dcr, octaneUrl, ticket, ready,
                      legacyReady, missing](
-                        bool stored
+                        bool stored,
+                        uint64_t voidAt
                     ) {
                         Value root;
                         root["status"] = "ok";
@@ -228,6 +254,8 @@ void CreditsController::clientEntry(
                         root["handoff_available"] = ready && stored;
                         root["octane_url"] = octaneUrl;
                         root["sso_ticket"] = stored ? ticket : "";
+                        root["sso_ticket_void_at"] =
+                            stored ? Json::Value(static_cast<Json::UInt64>(voidAt)) : Json::Value(0);
                         root["missing_settings"] = missing;
 
                         Value connection;
@@ -245,7 +273,9 @@ void CreditsController::clientEntry(
                         root["notes"] =
                             std::string(stored
                                             ? "An SSO ticket was issued and stored in "
-                                              "users.auth_ticket."
+                                              "users.auth_ticket; this website voids it at the "
+                                              "reported deadline, after which it cannot be "
+                                              "replayed."
                                             : "The SSO ticket could not be stored, so no ticket "
                                               "is available.") +
                             (!octaneUrl.empty()
@@ -255,8 +285,10 @@ void CreditsController::clientEntry(
                                        : " No client origin or hotel connection is configured, "
                                          "so no handoff is offered; see missing_settings.") +
                             " Only a client login proves acceptance. The pinned emulator "
-                            "may restore a consumed ticket after disconnect, so this "
-                            "Octane bridge is limited to loopback development.";
+                            "ignores ticket expiry at game login and restores a consumed "
+                            "ticket during its reconnect grace, so this website treats the "
+                            "deadline as its own responsibility and replaces the ticket with "
+                            "a value the client cannot present.";
 
                         auto resp = drogon::HttpResponse::newHttpJsonResponse(root);
                         resp->setStatusCode(drogon::k200OK);
@@ -269,7 +301,13 @@ void CreditsController::clientEntry(
                 services::ContentService::getSetting(
                     key,
                     [state, key, finishIfDone](std::optional<std::string> value) mutable {
-                        state->values[key] = value.value_or("");
+                        // The write and the count happen under the same lock, so
+                        // the callback that takes `remaining` to zero is
+                        // guaranteed to see every other value.
+                        {
+                            std::lock_guard<std::mutex> lock(state->mutex);
+                            state->values[key] = value.value_or("");
+                        }
                         finishIfDone();
                     });
             }

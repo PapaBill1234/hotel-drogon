@@ -272,7 +272,7 @@
         "tags": ["Credits"],
         "operationId": "createClientEntry",
         "summary": "Rotate the caller's SSO ticket and report client launch options",
-        "description": "The converted `client.php` handoff. A CSRF-protected POST writes only the caller's `users.auth_ticket` with a fresh legacy-format ticket and an audit entry. `octane_url` is a validated loopback-only development client origin; an empty value means it is not configured. `handoff_ready` means this origin or the legacy hotel host and port are configured. `handoff_available` also requires a stored ticket. These are website-side facts; only an emulator login proves acceptance. The ticket is passed to Octane in a query string required by that client, so it may appear in browser history and client-side access logs. The pinned emulator consumes the ticket at game login but restores it during disconnect grace and does not enforce an expiry for a website-issued ticket; production Octane launch remains blocked pending a replay bound.",
+        "description": "The converted `client.php` handoff. A CSRF-protected POST writes only the caller's `users.auth_ticket` with a fresh legacy-format ticket and an audit entry, and schedules that value's void at `sso_ticket_void_at`. `octane_url` is a validated loopback-only development client origin; an empty value means it is not configured. `handoff_ready` means this origin or the legacy hotel host and port are configured. `handoff_available` also requires a stored ticket. These are website-side facts; only an emulator login proves acceptance. The ticket is passed to Octane in a query string required by that client, so it may appear in browser history and client-side access logs — `sso_ticket_void_at` is what bounds that exposure. At the deadline the website replaces the ticket with a value the client cannot present (longer than the 128 characters PolarIS accepts as a presented ticket), because the pinned emulator matches `users.auth_ticket` at game login without consulting any expiry, consumes it, then restores it during its reconnect grace and leaves it on the row after a full disconnect. Signing out voids the ticket immediately. Rotation on each request is not a lifetime by itself: the emulator's restore is what makes a deadline necessary.",
         "security": [{ "userSession": [] }],
         "parameters": [{ "$ref": "#/components/parameters/CsrfHeader" }],
         "responses": {
@@ -378,13 +378,14 @@
         }
       },
       "ClientEntryResponse": {        "type": "object",
-        "required": ["status", "handoff_ready", "handoff_available", "octane_url", "sso_ticket", "missing_settings", "connection", "notes"],
+        "required": ["status", "handoff_ready", "handoff_available", "octane_url", "sso_ticket", "sso_ticket_void_at", "missing_settings", "connection", "notes"],
         "properties": {
           "status": { "const": "ok" },
           "handoff_ready": { "type": "boolean", "description": "A validated Octane origin or legacy hotel host and port are configured." },
           "handoff_available": { "type": "boolean", "description": "handoff_ready AND the SSO ticket was stored. Emulator acceptance is separate." },
           "octane_url": { "type": "string", "description": "Validated Octane origin ending in a slash, or empty when unconfigured." },
           "sso_ticket": { "type": "string", "description": "Legacy 8-4-4-4-12 lowercase-hex ticket, also stored in users.auth_ticket. Empty when storing failed." },
+          "sso_ticket_void_at": { "type": "integer", "description": "Unix epoch seconds at which this website voids the ticket, or 0 when none was stored. The website enforces it: at and after this instant the row holds a value the client cannot present, so the ticket is not replayable even though PolarIS itself would still accept it. Defaults to 120 seconds after issue (SSO_TICKET_TTL_SECONDS, clamped to 5-3600)." },
           "missing_settings": { "type": "array", "items": { "type": "string" }, "description": "phpretro_site_settings keys that are absent or empty." },
           "connection": {
             "type": "object",

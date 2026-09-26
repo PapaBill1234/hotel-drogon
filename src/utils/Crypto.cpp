@@ -79,6 +79,13 @@ std::string Crypto::generateSsoTicket() {
            segment(12);
 }
 
+std::string Crypto::generateVoidSsoTicket() {
+    // 5 + 190 = 195 characters: past the 128 both PolarIS doors cap a presented
+    // ticket at, inside `auth_ticket varchar(256)`, and never empty. See the
+    // declaration for why each of those matters.
+    return "void-" + randomHex(95);
+}
+
 std::string Crypto::generateRememberToken() {
     // Legacy `GenerateTicket("remember")`:
     //   substr(bin2hex(random_bytes(3)), 0, 6)   -> 6 hex chars
@@ -89,7 +96,8 @@ std::string Crypto::generateRememberToken() {
     return randomHex(3) + "-" + randomHex(10) + "-" + randomHex(10);
 }
 
-std::string Crypto::randomAlphanumeric(size_t length) {    static constexpr char charset[] =
+std::string Crypto::randomAlphanumeric(size_t length) {
+    static constexpr char charset[] =
         "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     std::vector<unsigned char> randBytes(length);
     RAND_bytes(randBytes.data(), static_cast<int>(length));

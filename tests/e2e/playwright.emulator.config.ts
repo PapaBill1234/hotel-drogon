@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: '.',
-  testMatch: ['**/emulator-lab.spec.ts', '**/cms-octane.spec.ts'],
+  testMatch: ['**/emulator-lab.spec.ts', '**/cms-octane.spec.ts', '**/sso-replay.spec.ts'],
   workers: 1,
   timeout: 120_000,
   reporter: [['list'], ['html', { open: 'never' }]],

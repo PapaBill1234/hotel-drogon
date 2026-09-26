@@ -131,6 +131,12 @@ export interface PasswordChangeResponse extends ApiEnvelope {
  * `handoff_ready` means an Octane origin or legacy connection is configured.
  * `handoff_available` additionally requires that the ticket was stored.
  * Emulator acceptance is verified separately by the isolated browser test.
+ *
+ * The ticket is not valid forever, and the page says so: `sso_ticket_void_at` is
+ * when this website replaces it with a value the client cannot present. That
+ * deadline is the website's own, because PolarIS matches `auth_ticket` at game
+ * login without consulting an expiry and restores a consumed ticket after a
+ * disconnect.
  */
 export interface ClientEntryResponse extends ApiEnvelope {
   handoff_ready: boolean;
@@ -139,6 +145,8 @@ export interface ClientEntryResponse extends ApiEnvelope {
   octane_url: string;
   /** Empty when the ticket could not be stored. */
   sso_ticket: string;
+  /** Unix epoch seconds; 0 when no ticket was stored. */
+  sso_ticket_void_at: number;
   /** Names of the `phpretro_site_settings` keys that are absent or empty. */
   missing_settings: string[];
   connection: {

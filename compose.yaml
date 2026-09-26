@@ -18,6 +18,12 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_DB: 0
+      # The website owns the lifetime of the SSO tickets it issues, because
+      # Polaris matches `users.auth_ticket` at game login without consulting an
+      # expiry. Overridden in CI so the void can be observed inside a test run;
+      # see scripts/check_sso_replay_bound.sh.
+      SSO_TICKET_TTL_SECONDS: ${SSO_TICKET_TTL_SECONDS:-120}
+      SSO_TICKET_SWEEP_SECONDS: ${SSO_TICKET_SWEEP_SECONDS:-5}
     depends_on:
       mariadb:
         condition: service_healthy

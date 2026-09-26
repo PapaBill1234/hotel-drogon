@@ -52,6 +52,24 @@ static bool getEnvAsBool(const char* key, bool defaultValue) {
     return defaultValue;
 }
 
+// Clamped rather than merely parsed, because both of these values trade a
+// security window against latency: a zero or negative TTL would void a ticket
+// before a client could present it, and an absurd one would quietly undo the
+// bound this setting exists to create.
+static uint32_t getEnvAsUint32Clamped(const char* key, uint32_t defaultValue, uint32_t min,
+                                      uint32_t max) {
+    const char* val = std::getenv(key);
+    if (val && *val) {
+        try {
+            long parsed = std::stol(val);
+            if (parsed < static_cast<long>(min)) return min;
+            if (parsed > static_cast<long>(max)) return max;
+            return static_cast<uint32_t>(parsed);
+        } catch (...) {}
+    }
+    return defaultValue;
+}
+
 std::string AppConfig::resolveHost(const std::string& host) {
     if (host.empty() || host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0") {
         return host;
@@ -99,6 +117,12 @@ AppConfig AppConfig::loadFromEnv() {
     cfg.session_cookie_name = getEnvOrDefault("SESSION_COOKIE_NAME", "hotel_session");
     cfg.csrf_header_name = getEnvOrDefault("CSRF_HEADER_NAME", "X-XSRF-TOKEN");
     cfg.secret_key = getEnvOrDefault("APP_SECRET", "change-me-in-production");
+
+    // 5 s is the floor rather than 1 s: a ticket that dies before a browser can
+    // finish loading the client is a broken launch, not a tighter bound. The
+    // ceiling keeps the replay window a window.
+    cfg.sso_ticket_ttl_seconds = getEnvAsUint32Clamped("SSO_TICKET_TTL_SECONDS", 120, 5, 3600);
+    cfg.sso_ticket_sweep_seconds = getEnvAsUint32Clamped("SSO_TICKET_SWEEP_SECONDS", 5, 1, 60);
 
     return cfg;
 }
