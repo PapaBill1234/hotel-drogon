@@ -7,36 +7,12 @@ import { useClientEntry } from '../../hooks/useCredits';
 /**
  * `/client` — the converted client entry.
  *
- * ## What this is, and what it deliberately is not
- *
  * The legacy `client.php` embedded a **Shockwave/Director** object
  * (`clsid:166B1BCA-…`) whose `sw8` parameter carried
  * `use.sso.ticket=1;sso.ticket=<users.auth_ticket>` and whose `sw2`/`sw3`
- * parameters carried the hotel's host, port and MUS port. Modern browsers cannot
- * run that plugin, and the plan tracks the browser-native client as **milestone
- * 6**, an explicitly separate deliverable that may not be counted as
- * first-release scope.
- *
- * So this is a **handoff**, matching the convention the legacy codebase already
- * established for emulator-bound actions (`docs/phase-reports/client-handoff.md`:
- * an honest page that tells the user to do the action in the client, with no
- * faked website-side grant). It does not embed a plugin, does not pretend a
- * client is running, and does not present a button that would silently do
- * nothing.
- *
- * ## What is real here
- *
- * The server issues a genuine SSO ticket in the format the legacy site wrote and
- * stores it in `users.auth_ticket`, the column PolarIS defines; the settings it
- * reports are the website's own. What is **not** verified — and is recorded in
- * the inventory as a gap rather than claimed — is whether the emulator accepts
- * that ticket, because no PolarIS/Nitro source or running emulator is available
- * to this project.
- *
- * When the connection settings are absent the page says so and lists them. On a
- * stack that has never had a client configured (which is every stack this
- * repository can currently produce) that is the true state, and the alternative
- * — inventing `hotel_ip`/`hotel_port` defaults — would be a fabricated success.
+ * parameters carried the hotel's host, port and MUS port. The browser-native
+ * Octane client instead consumes `?sso=<users.auth_ticket>` at its root. The
+ * backend only advertises that launch when an operator has configured its URL.
  */
 export default function ClientPage() {
   const { data: session, isPending } = useSessionState();
@@ -94,14 +70,16 @@ function ClientEntry() {
                   {data.handoff_available ? (
                     <div className="open enter-btn">
                       {/*
-                        The target is the emulator the settings describe, not a
-                        page this application serves. `sso_ticket` is passed in
-                        the same `use.sso.ticket` form the legacy Shockwave
-                        parameters used, so a client reading them gets the same
-                        material.
+                        Octane consumes `?sso=`. The old hotel:// form remains
+                        available only for a separately configured legacy client.
                       */}
                       <a
-                        href={`${clientScheme(data.connection.host, data.connection.port)}?use.sso.ticket=1&sso.ticket=${encodeURIComponent(data.sso_ticket)}`}
+                        href={data.octane_url
+                          ? `${data.octane_url}?sso=${encodeURIComponent(data.sso_ticket)}`
+                          : `${clientScheme(data.connection.host, data.connection.port)}?use.sso.ticket=1&sso.ticket=${encodeURIComponent(data.sso_ticket)}`}
+                        target={data.octane_url ? '_blank' : undefined}
+                        rel={data.octane_url ? 'noreferrer' : undefined}
+                        referrerPolicy="no-referrer"
                         data-testid="client-open"
                       >
                         Enter PHPRetro<i></i>
@@ -119,15 +97,15 @@ function ClientEntry() {
                 <div id="info">
                   {data.handoff_available ? (
                     <p data-testid="client-ready-note">
-                      Your entry ticket has been issued. This site hands you to the hotel
-                      client; it does not run one, and whether the hotel accepts the ticket
-                      is decided by the hotel itself.
+                      {data.octane_url
+                        ? 'Your entry ticket is ready. Open Octane to enter the hotel.'
+                        : 'Your entry ticket is ready for the configured hotel client.'}
                     </p>
                   ) : (
                     <>
                       <p>
-                        An entry ticket can only be issued once the hotel connection is
-                        configured. The following settings are missing or empty:
+                        An entry ticket was prepared, but no client launch is configured.
+                        The following legacy connection settings are missing or empty:
                       </p>
                       <ul data-testid="client-missing-settings">
                         {data.missing_settings.map((key) => (

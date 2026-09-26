@@ -63,10 +63,41 @@ The full smoke verifies that Octane serves a mounted `.nitro` file and has
 its standalone login screen disabled. A pinned Playwright run created a
 disposable emulator account through the lab API, obtained its SSO ticket,
 entered Octane through `?sso=`, created a room, and captured a rendered floor,
-walls, and avatar. No Octane login or registration form appeared. This proves
-the isolated emulator/client ticket path, not a Drogon CMS-to-game handoff.
-The website's `/client` route still needs an explicit launch integration;
-website registration remains decision-gated by the plan.
+walls, and avatar. No Octane login or registration form appeared. This first
+check proves the isolated emulator/client ticket path. The optional CMS overlay
+below verifies a Drogon-issued ticket too. Website registration remains
+decision-gated by the plan.
+
+## Launch from the Drogon CMS
+
+The optional `compose.cms.yaml` overlay adds Drogon, Redis, the React bundle,
+and the normal nginx proxy to the **same disposable lab project and database**.
+It sets `OCTANE_CLIENT_URL=http://127.0.0.1:3201/`, so the CMS `/client` page
+offers a browser-native launch after an existing user signs in. This setting
+accepts loopback origins only. The CMS proxy is <http://127.0.0.1:3204/>.
+Use a distinct Compose project name and verify its containers and volumes
+before starting; never attach the primary website database to this emulator.
+
+```powershell
+$env:NITRO_FILES_DIR = (Resolve-Path '../upstream/Nitro-Files-lab-v1').Path
+docker compose -p ci-emulator-sso -f tools/emulator-lab/compose.yaml -f tools/emulator-lab/compose.assets.yaml -f tools/emulator-lab/compose.cms.yaml up -d --build
+docker compose -p ci-emulator-sso -f tools/emulator-lab/compose.yaml -f tools/emulator-lab/compose.assets.yaml -f tools/emulator-lab/compose.cms.yaml ps
+```
+
+In the disposable database, Drogon's seeded existing user is `testuser` with
+password `password123`. Browse to `http://127.0.0.1:3204/account`, sign in,
+then open `/client`. That page requests a fresh ticket with a CSRF-protected
+POST, passes it to Octane as `?sso=`, and keeps Octane's standalone login and
+registration disabled. The pinned Playwright `cms-octane.spec.ts` verifies the
+whole path through room rendering, as well as signed-out refusal.
+
+The ticket appears in the Octane URL and browser history. The pinned emulator
+consumes it at game login, then restores it during its disconnect grace period
+and leaves it in `users.auth_ticket` after the full disconnect. Its game lookup
+does not enforce `auth_ticket_expires_at` for a CMS-issued ticket. **This bridge
+is for loopback development only** until the emulator has a verified replay
+bound and the launch can use a reviewed HTTPS origin. No game assets are
+redistributed by this Compose overlay.
 
 The browser command below uses the disposable database. Its registration
 endpoint limits each IP to five accounts, so use a fresh isolated lab volume
@@ -79,6 +110,11 @@ $out = Join-Path (Resolve-Path ../upstream).Path 'emulator-lab-sso-out'
 docker run --rm --network host --mount "type=bind,source=$repo,target=/repo,readonly" --mount "type=bind,source=$out,target=/out" -e BASE_NEW=http://127.0.0.1:3201 -e PLAYWRIGHT_ARGS=emulator-lab.spec.ts -e PLAYWRIGHT_CONFIG=playwright.emulator.config.ts mcr.microsoft.com/playwright:v1.63.0-noble bash /repo/tests/e2e/run-in-container.sh
 ```
 
+With the CMS overlay running, change `PLAYWRIGHT_ARGS` to
+`cms-octane.spec.ts` to test CMS sign-in, `/client`, and room rendering. Keep
+the report directory outside Git; the ticket-bearing URL must not be copied
+into a public report.
+
 One optional camera effect image, `shadow_multiply_02.png`, is missing from
 the local asset pack. Room rendering passed, but camera visuals remain a gap.
 
@@ -87,3 +123,7 @@ To stop the lab while preserving its isolated database:
 ```powershell
 docker compose -p hotel-emulator-lab -f tools/emulator-lab/compose.yaml -f tools/emulator-lab/compose.assets.yaml stop
 ```
+
+For the CMS overlay, use the same project name it was started with and include
+`compose.cms.yaml` in the stop command. Stopping preserves the disposable
+volumes; never use this lab command on the primary hotel or legacy project.

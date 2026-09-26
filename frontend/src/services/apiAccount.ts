@@ -254,7 +254,7 @@ export function fetchTransactions(signal?: AbortSignal): Promise<TransactionsRes
 }
 
 /**
- * `GET /api/account/client-entry` — SSO ticket and hotel connection settings.
+ * `POST /api/account/client-entry` — rotate the SSO ticket and report launch options.
  *
  * Reports `handoff_available: false` with the missing setting names when the
  * stack has no client configured, rather than inventing a host. See the type's
@@ -262,9 +262,9 @@ export function fetchTransactions(signal?: AbortSignal): Promise<TransactionsRes
  */
 export function fetchClientEntry(signal?: AbortSignal): Promise<ClientEntryResponse> {
   return requestJson<ClientEntryResponse>({
-    method: 'GET',
+    method: 'POST',
     path: `${ACCOUNT_API_BASE}/account/client-entry`,
-    csrf: false,
+    csrf: true,
     signal,
   });
 }

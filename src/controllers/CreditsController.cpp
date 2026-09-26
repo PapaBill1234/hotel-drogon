@@ -6,8 +6,10 @@
 #include "utils/Crypto.h"
 #include "utils/Logger.h"
 #include <json/json.h>
+#include <cstdlib>
 #include <map>
 #include <memory>
+#include <regex>
 
 using Json::Value;
 
@@ -35,6 +37,31 @@ constexpr const char* kSettingHotelIp = "hotel_ip";
 constexpr const char* kSettingHotelPort = "hotel_port";
 constexpr const char* kSettingHotelMus = "hotel_mus";
 constexpr const char* kSettingClientDcr = "client_dcr";
+
+// The client consumes `?sso=...` at its root. Keep this opt-in bridge local to
+// the disposable lab until PolarIS enforces ticket expiry after disconnect.
+// Reject paths, query strings, fragments and userinfo that could forward a
+// live ticket elsewhere.
+std::string octaneClientUrl() {
+    const char* configured = std::getenv("OCTANE_CLIENT_URL");
+    if (!configured || !*configured) return "";
+    const std::string url(configured);
+    static const std::regex kLoopbackOrigin(
+        R"(^http://(localhost|127\.0\.0\.1)(:[0-9]{1,5})?/?$)");
+    std::smatch match;
+    if (!std::regex_match(url, match, kLoopbackOrigin)) {
+        HOTEL_LOG_WARN("OCTANE_CLIENT_URL is not a permitted client origin");
+        return "";
+    }
+    if (match[2].matched) {
+        const int port = std::stoi(match[2].str().substr(1));
+        if (port == 0 || port > 65535) {
+            HOTEL_LOG_WARN("OCTANE_CLIENT_URL has an invalid port");
+            return "";
+        }
+    }
+    return url.back() == '/' ? url : url + '/';
+}
 
 /**
  * Load the signed-in user, answering 404/401 itself when that is not possible.
@@ -175,18 +202,20 @@ void CreditsController::clientEntry(
                 if (mus.empty()) missing.append(kSettingHotelMus);
                 if (dcr.empty()) missing.append(kSettingClientDcr);
 
-                const bool ready = host.empty() == false && port.empty() == false;
+                const std::string octaneUrl = octaneClientUrl();
+                const bool legacyReady = !host.empty() && !port.empty();
+                const bool ready = !octaneUrl.empty() || legacyReady;
 
-                // Issue a fresh ticket on every request. The legacy page did the
-                // same (`new HoloUser($user->name, $user->password, true)` writes
-                // a new `auth_ticket`), so a ticket is single-use-ish rather than
-                // a long-lived credential sitting in a page.
+                // Issue a fresh ticket on every request, as legacy client.php
+                // did. The pinned emulator may restore it after disconnect, so
+                // rotation alone does not establish a replay lifetime.
                 const std::string ticket = utils::Crypto::generateSsoTicket();
                 services::UserAccountService::generateAuthTicket(
                     userId,
                     ticket,
                     req->peerAddr().toIp(),
-                    [callback, state, host, port, mus, dcr, ticket, ready, missing](
+                    [callback, state, host, port, mus, dcr, octaneUrl, ticket, ready,
+                     legacyReady, missing](
                         bool stored
                     ) {
                         Value root;
@@ -197,6 +226,7 @@ void CreditsController::clientEntry(
                         // ticket.
                         root["handoff_ready"] = ready;
                         root["handoff_available"] = ready && stored;
+                        root["octane_url"] = octaneUrl;
                         root["sso_ticket"] = stored ? ticket : "";
                         root["missing_settings"] = missing;
 
@@ -218,12 +248,15 @@ void CreditsController::clientEntry(
                                               "users.auth_ticket."
                                             : "The SSO ticket could not be stored, so no ticket "
                                               "is available.") +
-                            (ready
-                                 ? " The hotel connection settings are present."
-                                 : " The hotel connection settings are not configured, so no "
-                                   "handoff is offered; see missing_settings.") +
-                            " Whether the hotel client accepts the ticket is emulator "
-                            "behaviour and is not verified by this application.";
+                            (!octaneUrl.empty()
+                                 ? " A browser-native Octane origin is configured."
+                                 : legacyReady
+                                       ? " The legacy hotel connection settings are present."
+                                       : " No client origin or hotel connection is configured, "
+                                         "so no handoff is offered; see missing_settings.") +
+                            " Only a client login proves acceptance. The pinned emulator "
+                            "may restore a consumed ticket after disconnect, so this "
+                            "Octane bridge is limited to loopback development.";
 
                         auto resp = drogon::HttpResponse::newHttpJsonResponse(root);
                         resp->setStatusCode(drogon::k200OK);

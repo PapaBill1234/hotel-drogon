@@ -120,7 +120,7 @@ def main():
         # Phase 5 credits surface, served by CreditsController.
         ("/api/account/purse", "get"), ("/api/account/transactions", "get"),
         # Phase 5 client-entry handoff, also on CreditsController.
-        ("/api/account/client-entry", "get"),
+        ("/api/account/client-entry", "post"),
         # Phase 5 forgot/reset and the step-up flow.
         ("/api/auth/password/forgot", "post"), ("/api/auth/password/reset", "post"),
         ("/api/auth/username/forgot", "post"),
@@ -191,8 +191,10 @@ def main():
     # settings are reported honestly — including the fact that a disposable stack
     # has none. Whether an emulator accepts the ticket is emulator behaviour and
     # is deliberately not asserted.
-    request("GET", "/api/account/client-entry", 401)
-    entry, _ = request("GET", "/api/account/client-entry", 200, cookies=cookies)
+    request("POST", "/api/account/client-entry", 403)
+    request("POST", "/api/account/client-entry", 403, cookies=cookies)
+    entry, _ = request("POST", "/api/account/client-entry", 200,
+                       cookies=cookies, csrf=token)
     parts = entry["sso_ticket"].split("-")
     check([len(p) for p in parts] == [8, 4, 4, 4, 12],
           "SSO ticket uses the legacy 8-4-4-4-12 segment shape")
@@ -204,12 +206,14 @@ def main():
           "the response states what the handoff does and does not claim")
     # A second call must not hand back the same ticket: the page issues a fresh
     # one each time it is opened.
-    second, _ = request("GET", "/api/account/client-entry", 200, cookies=cookies)
+    second, _ = request("POST", "/api/account/client-entry", 200,
+                        cookies=cookies, csrf=token)
     check(second["sso_ticket"] != entry["sso_ticket"], "each request issues a fresh ticket")
     # The stack this runs against has never had a client configured, so the
     # honest answer is "not configured" and every required setting is named.
     check(entry["handoff_ready"] is False, "unconfigured stack does not claim a ready handoff")
     check(entry["handoff_available"] is False, "unconfigured stack offers no handoff")
+    check(entry["octane_url"] == "", "unconfigured stack has no Octane origin")
     for required in ("hotel_ip", "hotel_port", "hotel_mus", "client_dcr"):
         check(required in entry["missing_settings"], f"{required} reported as missing")
 

@@ -40,7 +40,7 @@ export function useTransactions() {
 }
 
 /**
- * `GET /api/account/client-entry` — SSO ticket and connection settings.
+ * `POST /api/account/client-entry` — CSRF-protected ticket rotation and launch options.
  *
  * `staleTime: 0` and no retry, like the others: the request issues a **fresh
  * ticket** each time it runs, so a cached answer would hand the page a ticket

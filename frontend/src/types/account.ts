@@ -123,20 +123,20 @@ export interface PasswordChangeResponse extends ApiEnvelope {
 }
 
 /**
- * `GET /api/account/client-entry`
+ * `POST /api/account/client-entry`
  *
  * The materials a client needs to connect, plus an explicit statement of whether
  * the website can actually offer a handoff.
  *
- * `handoff_ready` means every setting a client needs is present and non-empty —
- * a website-side fact. `handoff_available` additionally requires that the SSO
- * ticket was stored. **Neither claims that a client exists, is running, or
- * accepts the ticket**: that is emulator behaviour this application cannot
- * observe, and the plan forbids implying otherwise.
+ * `handoff_ready` means an Octane origin or legacy connection is configured.
+ * `handoff_available` additionally requires that the ticket was stored.
+ * Emulator acceptance is verified separately by the isolated browser test.
  */
 export interface ClientEntryResponse extends ApiEnvelope {
   handoff_ready: boolean;
   handoff_available: boolean;
+  /** Validated origin for browser-native Octane, empty when not configured. */
+  octane_url: string;
   /** Empty when the ticket could not be stored. */
   sso_ticket: string;
   /** Names of the `phpretro_site_settings` keys that are absent or empty. */

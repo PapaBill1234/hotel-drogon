@@ -12,16 +12,8 @@ import { envOr } from './pages';
 // Gated exactly like the other suites, so a bare `npx playwright test` keeps its
 // visual-parity meaning.
 //
-// ## What this suite deliberately does NOT assert
-//
-// It does not assert that a hotel client accepts the ticket. The legacy entry was
-// a Shockwave/Director embed that modern browsers cannot run, the browser-native
-// client is a separate milestone, and no PolarIS/Nitro source or running emulator
-// is available here. Claiming otherwise in a test would be inventing the exact
-// emulator capability the plan forbids inventing. What is asserted is everything
-// the website itself can be held to: authorization, the ticket's format and
-// storage, the settings being reported honestly, and the absence of a control
-// that pretends to work.
+// This default-stack suite checks ticket issuance and refusal paths. The
+// isolated emulator-lab suite checks whether the issued ticket enters Octane.
 
 const BASE_NEW = envOr('BASE_NEW', 'http://localhost:3000');
 const PLAIN_USER = envOr('PLAIN_USER', 'testuser');
@@ -45,6 +37,13 @@ async function submitSignIn(page: Page, username: string, password: string) {
 async function signIn(page: Page, username: string, password: string) {
   await submitSignIn(page, username, password);
   await expect(page.getByTestId('me-username')).toBeVisible({ timeout: 15_000 });
+}
+
+async function postClientEntry(page: Page) {
+  const csrf = (await page.context().cookies()).find(cookie => cookie.name === 'XSRF-TOKEN');
+  return page.request.post(`${BASE_NEW}/api/account/client-entry`, {
+    headers: csrf ? { 'X-XSRF-TOKEN': csrf.value } : {},
+  });
 }
 
 /**
@@ -85,10 +84,16 @@ if (process.env.PLAYWRIGHT_CLIENT !== '1') {
     expect(anonymous).toBeTruthy();
     if (!anonymous) return;
 
-    const response = await anonymous.request.get(`${BASE_NEW}/api/account/client-entry`);
-    expect(response.status()).toBe(401);
+    const response = await anonymous.request.post(`${BASE_NEW}/api/account/client-entry`);
+    expect(response.status()).toBe(403);
 
     await anonymous.close();
+  });
+
+  test('a signed-in ticket request without CSRF is refused', async ({ page }) => {
+    await signIn(page, PLAIN_USER, PLAIN_PASS);
+    const response = await page.request.post(`${BASE_NEW}/api/account/client-entry`);
+    expect(response.status()).toBe(403);
   });
 
   test('/client is a real route, not a redirect to the front page', async ({ page }) => {
@@ -105,7 +110,7 @@ if (process.env.PLAYWRIGHT_CLIENT !== '1') {
   test('the server issues a ticket in the legacy format', async ({ page }) => {
     await signIn(page, PLAIN_USER, PLAIN_PASS);
 
-    const response = await page.request.get(`${BASE_NEW}/api/account/client-entry`);
+    const response = await postClientEntry(page);
     expect(response.status()).toBe(200);
     const body = await response.json();
 
@@ -114,7 +119,7 @@ if (process.env.PLAYWRIGHT_CLIENT !== '1') {
     expect(body.notes).toBeTruthy();
 
     // Each request rotates the ticket, so a cached one would be stale.
-    const second = await (await page.request.get(`${BASE_NEW}/api/account/client-entry`)).json();
+    const second = await (await postClientEntry(page)).json();
     expect(second.sso_ticket).not.toBe(body.sso_ticket);
   });
 
@@ -122,7 +127,7 @@ if (process.env.PLAYWRIGHT_CLIENT !== '1') {
     await signIn(page, PLAIN_USER, PLAIN_PASS);
 
     const body = await (
-      await page.request.get(`${BASE_NEW}/api/account/client-entry`)
+      await postClientEntry(page)
     ).json();
 
     // This stack has never had a client configured: none of `hotel_ip`,
