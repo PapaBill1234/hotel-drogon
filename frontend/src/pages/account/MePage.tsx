@@ -4,9 +4,11 @@ import { useNavigate } from 'react-router-dom';
 
 import AccountPage from '../../components/AccountPage';
 import { useClearSessionCache, useLogout } from '../../hooks/useAccount';
+import { useCampaigns } from '../../hooks/usePublicContent';
 import { creditsKeys } from '../../hooks/useCredits';
 import { fetchClientEntry } from '../../services/apiAccount';
 import { launchUrl } from '../../services/clientEntry';
+import { holoText } from '../../services/legacy';
 import type { User } from '../../types/account';
 
 /**
@@ -244,6 +246,63 @@ function MeContent({ user }: { user: User }) {
               <p className="last"></p>
             </div>
           </div>
+
+          {/*
+            `me.php:196-229` — the "Hot Campaigns" habblet, which sits in
+            `#column1` BELOW the personal-info box. Its data is real and already
+            published: `me.php` runs
+
+              SELECT name, `desc`, image, url FROM phpretro_campaigns
+              WHERE visible = '1' ORDER BY sort_order ASC, id DESC
+
+            and `/api/public/campaigns` serves exactly that list, which is why
+            this block could be ported rather than deferred. On this fixture the
+            table is empty, so the box renders header-only — which is what legacy
+            renders too, and is visible in the audit capture.
+          */}
+          <HotCampaigns />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * `me.php:196-229`. `$input->IsEven($i)` picks `even`/`odd` per row, and both
+ * the image and the link go through `str_replace("%path%", PATH, …)` — a token
+ * an operator can put in a campaign row, NOT a URL prefix. Reproduced with `/`
+ * substituted for `PATH`, which is this deployment's value.
+ */
+function HotCampaigns() {
+  const { data } = useCampaigns();
+  const campaigns = data?.items ?? [];
+
+  function withPath(value: string): string {
+    return value.split('%path%').join('');
+  }
+
+  return (
+    <div className="habblet-container ">
+      <div className="cbb clearfix orange ">
+        <h2 className="title">Hot Campaigns</h2>
+        <div id="hotcampaigns-habblet-list-container">
+          <ul id="hotcampaigns-habblet-list">
+            {campaigns.map((campaign, index) => (
+              <li key={campaign.id} className={index % 2 === 0 ? 'even' : 'odd'}>
+                <div className="hotcampaign-container">
+                  <a href={withPath(campaign.url)}>
+                    {/* eslint-disable-next-line jsx-a11y/alt-text */}
+                    <img src={withPath(campaign.image)} style={{ float: 'left' }} alt="" />
+                  </a>
+                  <h3>{holoText(campaign.name)}</h3>
+                  <p>{holoText(campaign.desc)}</p>
+                  <p className="link">
+                    <a href={withPath(campaign.url)}>Go there &raquo;</a>
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
     </div>
