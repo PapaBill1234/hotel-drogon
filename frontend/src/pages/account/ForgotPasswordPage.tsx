@@ -8,6 +8,7 @@ import {
   useResetPassword,
   isUnauthenticated,
 } from '../../hooks/useAccount';
+import { useSettings } from '../../hooks/usePublicContent';
 
 /**
  * `/account/password/forgot` — the converted `forgot.php`.
@@ -58,7 +59,15 @@ export default function ForgotPasswordPage() {
         div.right-column { float: right; width: 49% }
         label { display: block }
         input { width: 98% }
-        input.process-button { width: auto; float: right }
+        /*
+         * forgot.php writes this as input.process-button, which matches
+         * nothing here: the port renders a real <button> rather than an
+         * <input type=submit>, so the rule has to name both or the submit
+         * control keeps the default inline-block flow instead of floating
+         * right the way the legacy one does. The .submit class carries the
+         * button skin; this only adds the width and float.
+         */
+        input.process-button, button.process-button { width: auto; float: right }
       `}</style>
       <div className="left-column">
         <PasswordResetRequestForm />
@@ -115,39 +124,53 @@ function PasswordResetRequestForm() {
 
   return (
     <div className="cbb clearfix">
-      <h2 className="title">Forgotten your password?</h2>
+      {/* `en.php:509` — `$loc['forgot.pass']`. Kept in the legacy capitalisation:
+          "Forgotten Your Password?", not "Forgotten your password?". */}
+      <h2 className="title">Forgotten Your Password?</h2>
       <div className="box-content">
         {notice !== null && <p data-testid="forgot-notice">{notice}</p>}
+        {/* `en.php:515` — `$loc['forgot.pass.content']`. */}
         <p>
-          Enter your account name and the email address on the account. If they match a
-          verified address, a reset link will be sent to it.
+          Don&apos;t panic! Please enter your account information below and we&apos;ll send you
+          an email telling you how to reset your password.
         </p>
-        <form onSubmit={(e) => void onSubmit(e)}>
+        <form id="forgottenpw-form" onSubmit={(e) => void onSubmit(e)}>
           <p>
-            <label htmlFor="forgottenpw-username">Account name</label>
+            {/* `en.php:514` — `$loc['forgot.username']` is "Username". */}
+            <label htmlFor="forgottenpw-username">Username</label>
             <input
               id="forgottenpw-username"
-              name="username"
+              name="forgottenpw-username"
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
             />
           </p>
           <p>
+            {/* `en.php:513` — `$loc['forgot.email']`. */}
             <label htmlFor="forgottenpw-email">Email address</label>
             <input
               id="forgottenpw-email"
-              name="email"
+              name="forgottenpw-email"
               type="text"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
           </p>
           <p>
-            <button type="submit" disabled={mutation.isPending} data-testid="forgot-submit">
-              {mutation.isPending ? 'Sending…' : 'Recover password'}
+            {/* `en.php:516` — `$loc['forgot.button']`, and the legacy id and
+                class. `.process-button` is what floats it right. */}
+            <button
+              type="submit"
+              id="forgottenpw-submit"
+              className="submit process-button"
+              disabled={mutation.isPending}
+              data-testid="forgot-submit"
+            >
+              Request password email
             </button>
           </p>
+          <input type="hidden" name="origin" value="default" />
         </form>
         <p>
           <Link to="/account">Back to sign in</Link>
@@ -163,6 +186,9 @@ function UsernameReminderForm() {
   const [transport, setTransport] = useState<'log-only' | 'smtp' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const mutation = useRequestUsernameReminder();
+  // `SHORTNAME` is the `site_shortname` setting, not a build constant.
+  const { data: settingsData } = useSettings();
+  const shortname = settingsData?.settings['site_shortname'] ?? '';
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -179,24 +205,37 @@ function UsernameReminderForm() {
 
   return (
     <div className="cbb clearfix">
-      <h2 className="title">Forgotten your account name?</h2>
+      {/* `en.php:518` — `$loc['forgot.name']` is
+          "Forgotten Your ".SHORTNAME." Name?", which renders as "Forgotten Your
+          Retro Name?" on this site. SHORTNAME is the `site_shortname` setting,
+          not a constant, so it is read at runtime rather than hard-coded. */}
+      <h2 className="title">{`Forgotten Your ${shortname} Name?`}</h2>
       <div className="box-content">
         {error !== null && <p data-testid="username-error">{error}</p>}
-        <p>Enter the email address on the account and its names will be listed.</p>
-        <form onSubmit={(e) => void onSubmit(e)}>
+        {/* `en.php:519` — `$loc['forgot.name.message']`. */}
+        <p>No problem - just enter your email address below and we&apos;ll send you a list of your accounts.</p>
+        <form id="accountlist-form" onSubmit={(e) => void onSubmit(e)}>
           <p>
+            {/* `en.php:513` — `$loc['forgot.email']`. */}
             <label htmlFor="accountlist-owner-email">Email address</label>
             <input
               id="accountlist-owner-email"
-              name="email"
+              name="accountlist-owner-email"
               type="text"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
           </p>
           <p>
-            <button type="submit" disabled={mutation.isPending} data-testid="username-submit">
-              {mutation.isPending ? 'Looking…' : 'Get account names'}
+            {/* `en.php:521` — `$loc['forgot.button.get.accounts']`. */}
+            <button
+              type="submit"
+              id="accountlist-submit"
+              className="submit process-button"
+              disabled={mutation.isPending}
+              data-testid="username-submit"
+            >
+              Get my accounts
             </button>
           </p>
         </form>

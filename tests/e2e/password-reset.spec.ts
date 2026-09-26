@@ -155,12 +155,16 @@ if (process.env.PLAYWRIGHT_RESET !== '1') {
   test('an unmatched account and a matched one are indistinguishable', async ({ page }) => {
     await page.goto(`${BASE_NEW}/account/password/forgot`);
 
-    await page.getByLabel('Account name').fill('nobody-at-all');
+    // Located by id, not by label text: the field's label is the LEGACY copy
+    // ("Username", `en.php:514` `$loc['forgot.username']`), restored for visual
+    // parity after the audit measured this page at 86% different. A label-based
+    // lookup silently encodes whatever wording the port happened to use.
+    await page.locator('#forgottenpw-username').fill('nobody-at-all');
     await page.locator('#forgottenpw-email').fill('nobody@example.test');
     await page.getByTestId('forgot-submit').click();
     const unmatched = await page.getByTestId('forgot-notice').textContent();
 
-    await page.getByLabel('Account name').fill(PLAIN_USER);
+    await page.locator('#forgottenpw-username').fill(PLAIN_USER);
     await page.locator('#forgottenpw-email').fill(userMail);
     await page.getByTestId('forgot-submit').click();
     await expect(page.getByTestId('forgot-notice')).toHaveText(unmatched ?? '');
