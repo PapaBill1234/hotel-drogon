@@ -1,5 +1,7 @@
-import { Fragment, useEffect } from 'react';
+import { Fragment, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 
+import { useLogin } from '../hooks/useAccount';
 import { useFaq, useSettings } from '../hooks/usePublicContent';
 import { LandingStyles } from '../components/LegacyStyles';
 import { splitPromoPhrases } from '../services/legacy';
@@ -61,6 +63,63 @@ const LINK_PRIVACY = 'Privacy Policy';
 export default function LandingPage() {
   const { data: settingsData } = useSettings();
   const { data: faqData } = useFaq();
+
+  // The sign-in box is this page's primary action, so it submits through the API
+  // rather than posting to a page. The legacy markup had
+  // `action="/account/submit" method="post"`; here `action` is only the
+  // no-JavaScript fallback (a GET to the sign-in screen), because a POST to a
+  // client-side route cannot be served — the SPA catch-all is a static file, and
+  // nginx answers a POST to a static file with **405 Not Allowed**. That was the
+  // bug: pressing "Sign in" produced a bare nginx 405 instead of signing in.
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const mutation = useLogin();
+  const navigate = useNavigate();
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoginError(null);
+    if (username.trim() === '' || password === '') {
+      setLoginError('Username and password are required.');
+      return;
+    }
+    try {
+      await mutation.mutateAsync({ username: username.trim(), password, rememberMe });
+      navigate('/me', { replace: true });
+    } catch (err) {
+      setLoginError(err instanceof Error ? err.message : 'Sign-in failed.');
+    }
+  }
+
+  // `LoginFormUI.init()` below installs the legacy submit path on the styled
+  // button, and that path is a trap: fullcontent.js binds
+  //   $("login-submit-new-button").observe("click", ... $("...").up("form").submit())
+  // and Prototype's `Form.submit()` calls the DOM's `form.submit()` directly,
+  // which **does not fire a submit event**. React's `onSubmit` therefore never
+  // runs: the browser performs a native POST to the form's `action`
+  // (`/account/submit`), the SPA catch-all answers with a static file, and nginx
+  // returns **405 Not Allowed** — the exact failure a user reported.
+  //
+  // A capture-phase listener on the button runs *before* Prototype's bubble-phase
+  // observer, so stopping propagation there keeps the legacy code from ever
+  // reaching its `.submit()` call, and `preventDefault` suppresses the native
+  // submission. The API call then goes through `onSubmit` as it does everywhere
+  // else, so CSRF is untouched.
+  const submitLatest = useRef(onSubmit);
+  submitLatest.current = onSubmit;
+  useEffect(() => {
+    const el = document.getElementById('login-submit-new-button');
+    if (!el) return;
+    const intercept = (event: Event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void submitLatest.current(event as unknown as FormEvent<HTMLFormElement>);
+    };
+    el.addEventListener('click', intercept, true);
+    return () => el.removeEventListener('click', intercept, true);
+  }, []);
 
   const settings = settingsData?.settings ?? {};
   // `SHORTNAME` was a config constant; it is also published as `site_shortname`
@@ -205,7 +264,7 @@ export default function LandingPage() {
                       {/* `Csrf::field()` emitted a hidden input here; the SPA
                           entry has no CSRF hook, and a hidden input has no
                           visual effect. */}
-                      <form action="/account/submit" method="post" className="login-habblet">
+                      <form action="/account" method="get" className="login-habblet" onSubmit={(e) => void onSubmit(e)}>
                         <ul>
                           <li>
                             <label htmlFor="login-username" className="login-text">
@@ -217,7 +276,8 @@ export default function LandingPage() {
                               className="login-field"
                               name="username"
                               id="login-username"
-                              defaultValue=""
+                              value={username}
+                              onChange={(e) => setUsername(e.target.value)}
                             />
                           </li>
                           <li>
@@ -230,6 +290,8 @@ export default function LandingPage() {
                               className="login-field"
                               name="password"
                               id="login-password"
+                              value={password}
+                              onChange={(e) => setPassword(e.target.value)}
                             />
                             <input
                               type="submit"
@@ -262,6 +324,8 @@ export default function LandingPage() {
                               value="true"
                               name="_login_remember_me"
                               id="login-remember-me"
+                              checked={rememberMe}
+                              onChange={(e) => setRememberMe(e.target.checked)}
                             />
                             <label htmlFor="login-remember-me">{REMEMBER_ME}</label>
                           </li>
@@ -276,6 +340,11 @@ export default function LandingPage() {
                             </a>
                           </li>
                         </ul>
+                        {loginError !== null && (
+                          <p className="error" data-testid="landing-login-error">
+                            {loginError}
+                          </p>
+                        )}
                       </form>
                     </div>
                   </div>

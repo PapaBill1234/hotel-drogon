@@ -391,6 +391,20 @@ jobs:
           BASE_NEW: http://localhost:3000
         run: npx playwright test remember-me.spec.ts
 
+      # The landing page's sign-in box. This exists because nothing asserted the
+      # form worked and it shipped broken: the markup carried the legacy
+      # `action="/account/submit" method="post"`, and the legacy `LoginFormUI`
+      # submit path calls Prototype's `Form.submit()`, which fires no submit
+      # event -- so React's handler never ran and the browser POSTed to a static
+      # file, which nginx answers with 405 Not Allowed. The suite clicks the
+      # button a user actually clicks and asserts a real sign-in.
+      - name: Landing sign-in browser flow
+        working-directory: tests/e2e
+        env:
+          PLAYWRIGHT_LANDING_LOGIN: '1'
+          BASE_NEW: http://localhost:3000
+        run: npx playwright test landing-login.spec.ts
+
       # The comparison runs in the PINNED Playwright container, not on the
       # runner's own Chromium. The image pins the Chromium build *and* the font
       # set, which is what makes the comparison environment genuinely the same as
