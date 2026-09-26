@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { AUDIT_PAGES } from './pages';
 import type { AuditPage } from './pages';
+import { totp } from './totp';
 import { VIEWPORT } from './playwright.config';
 
 // Visual AUDIT across the whole migration — not the parity gate.
@@ -56,8 +57,13 @@ const findings: Finding[] = [];
  * looks successful and the diff compares a signed-in page against the landing
  * page. That is worse than not capturing at all, because it reads as a finding.
  */
-async function isSignedIn(p: Page, base: string): Promise<boolean> {
+async function isSignedIn(p: Page, base: string, kind: 'user' | 'staff' = 'user'): Promise<boolean> {
   if (base === BASE_NEW) {
+    if (kind === 'staff') {
+      // The React panel's session strip and nav, both rendered only once the
+      // separate staff session exists.
+      return p.evaluate(() => document.querySelector('.hk-nav') !== null);
+    }
     // `#myhabbo` is the new-stack marker that holds on EVERY signed-in page.
     // `[data-testid="me-username"]` was the obvious choice and is wrong: it only
     // exists on /me, so /credits and /account/profile were reported UNAUTH while
@@ -65,12 +71,27 @@ async function isSignedIn(p: Page, base: string): Promise<boolean> {
     // /account/profile with marker-matrix.spec.ts.
     return p.evaluate(() => document.getElementById('myhabbo') !== null);
   }
-  // Legacy. Verified against /me, /credits and /profile with a real session:
-  // the signed-in community header renders `#subnavi-user` and does NOT render
-  // `#subnavi-login`; a guest gets the exact inverse. Two other candidates were
-  // measured and rejected — `#tab-register-now` is present on the SIGNED-IN
-  // header too (it becomes the Housekeeping tab for rank > 4), and a "logout"
-  // link is absent on profile.php and credits.php.
+
+  if (kind === 'staff') {
+    // The legacy panel is its own world: it has no community header at all, so
+    // the `#subnavi-user` check below can never pass on a housekeeping page.
+    // Verified with hk-login-probe.spec.ts — after a TOTP login,
+    // /housekeeping/dashboard renders `.panel` and the `#item` nav rows, and the
+    // login form is gone.
+    return p.evaluate(() => {
+      const panel = document.querySelector('.panel') !== null;
+      const nav = document.getElementById('item') !== null;
+      const loginForm = document.getElementById('loginform') !== null;
+      return panel && nav && !loginForm;
+    });
+  }
+
+  // Legacy community pages. Verified against /me, /credits and /profile with a
+  // real session: the signed-in community header renders `#subnavi-user` and
+  // does NOT render `#subnavi-login`; a guest gets the exact inverse. Two other
+  // candidates were measured and rejected — `#tab-register-now` is present on
+  // the SIGNED-IN header too (it becomes the Housekeeping tab for rank > 4), and
+  // a "logout" link is absent on profile.php and credits.php.
   return p.evaluate(() => {
     const user = document.getElementById('subnavi-user') !== null;
     const guest = document.getElementById('subnavi-login') !== null;
@@ -90,12 +111,33 @@ async function isSignedIn(p: Page, base: string): Promise<boolean> {
  *    real `<input type=submit>` is pushed to `margin-left:-10000px` by
  *    `LoginFormUI.init()`, so this submits the form directly rather than
  *    clicking an element that is deliberately off-screen.
+ *
+ * Staff pages are a third case: legacy `housekeeping/index.php` has its own login
+ * page AND requires a TOTP code for any account at or above the `staff_2fa_rank`
+ * setting (5). The `hkstaff` fixture is provisioned at rank 5 with a known
+ * secret, and `totp()` computes the code — without it not one legacy staff page
+ * is reachable, which is why every housekeeping row used to read UNAUTH.
  */
 async function signIn(p: Page, base: string, kind: 'user' | 'staff') {
-  const username = kind === 'staff' ? (process.env.AUDIT_STAFF_USER ?? 'admin') : USER;
-  const password = kind === 'staff' ? (process.env.AUDIT_STAFF_PASS ?? PASS) : PASS;
+  const staff = kind === 'staff';
+  const username = staff
+    ? (process.env.AUDIT_STAFF_USER ?? 'hkstaff')
+    : (process.env.AUDIT_USER ?? USER);
+  const password = staff
+    ? (process.env.AUDIT_STAFF_PASS ?? PASS)
+    : (process.env.AUDIT_PASS ?? PASS);
 
   if (base === BASE_NEW) {
+    if (staff) {
+      // The React panel has no TOTP field requirement yet (recorded as a Phase 3
+      // partial), so the plain staff login is enough here.
+      await p.goto(`${base}/housekeeping/login`, { waitUntil: 'domcontentloaded' });
+      await p.locator('input[name="username"]').fill(username);
+      await p.locator('input[name="password"]').fill(password);
+      await p.getByTestId('login-submit').click();
+      await p.getByTestId('admin-session').waitFor({ timeout: 15_000 });
+      return;
+    }
     await p.goto(`${base}/account`, { waitUntil: 'domcontentloaded' });
     const form = p.getByTestId('account-signin-form');
     await form.getByLabel('Username').fill(username);
@@ -106,13 +148,20 @@ async function signIn(p: Page, base: string, kind: 'user' | 'staff') {
   }
 
   // Legacy. The staff panel has its own login page and its own form.
-  await p.goto(kind === 'staff' ? `${base}/housekeeping/` : `${base}/`, {
+  await p.goto(staff ? `${base}/housekeeping/` : `${base}/`, {
     waitUntil: 'domcontentloaded',
   });
   const form = p.locator('form').filter({ has: p.locator('input[name="password"]') }).first();
   await form.locator('input[name="username"]').waitFor({ state: 'attached', timeout: 15_000 });
   await form.locator('input[name="username"]').fill(username);
   await form.locator('input[name="password"]').fill(password);
+  if (staff) {
+    const secret = process.env.AUDIT_STAFF_TOTP_SECRET ?? 'JBSWY3DPEHPK3PXP';
+    const field = form.locator('input[name="totp_code"]');
+    if ((await field.count()) > 0) {
+      await field.fill(totp(secret));
+    }
+  }
   // `requestSubmit()` fires the submit event and runs validation, unlike
   // `form.submit()`, which bypasses both.
   await form.evaluate((f: HTMLFormElement) => f.requestSubmit());
@@ -185,7 +234,7 @@ for (const page of selected) {
         // "not signed in" for the wrong reason and passed for a guest — so
         // me.php's guest redirect to "/" was captured under `me`'s name and
         // scored as a visual difference. Verify where it matters.
-        if (page.auth && !(await isSignedIn(p, base))) {
+        if (page.auth && !(await isSignedIn(p, base, page.auth))) {
           if (side === 'legacy') finding.legacyStatus = 'UNAUTH';
           else finding.newStatus = 'UNAUTH';
           finding.note = `${finding.note} [${side}: sign-in did not take; not captured]`.trim();

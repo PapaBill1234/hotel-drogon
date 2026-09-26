@@ -75,8 +75,8 @@ export default function AdminLayout() {
 
   if (me.isLoading || (isStaffByRank && staff.isLoading)) {
     return (
-      <HousekeepingShell pageName="Dashboard">
-        <div className="page_main hk-admin">
+      <HousekeepingShell pageName="Dashboard" onClose={() => void signOut()}>
+        <div className="page_main hk-admin hk-scope">
           <div className="hk-content" data-testid="admin-loading">
             Checking your staff session…
           </div>
@@ -109,7 +109,7 @@ export default function AdminLayout() {
   const session = staff.data;
 
   return (
-    <HousekeepingShell pageName="Dashboard">
+    <HousekeepingShell pageName="Dashboard" onClose={() => void signOut()}>
       {/*
         The window chrome now comes from HousekeepingShell, which ports
         `templates/housekeeping_header.php`; the panel had hand-rolled its own
@@ -119,7 +119,7 @@ export default function AdminLayout() {
         inside `page_main` are this panel's own content styling.
       */}
       <div className="page_main">
-        <div className="hk-session-bar hk-admin" data-testid="admin-session">
+        <div className="hk-session-bar hk-admin hk-scope" data-testid="admin-session">
           {session.username} (rank {session.rank}) ·{' '}
           {session.high_trust
             ? 'high-trust content enabled'
@@ -135,7 +135,7 @@ export default function AdminLayout() {
           </button>
         </div>
 
-        <div className="hk-body hk-admin">
+        <div className="hk-body hk-admin hk-scope">
           <nav className="hk-nav" aria-label="Housekeeping sections">
             {NAV_GROUPS.map((group) => (
               <div className="hk-nav-group" key={group.title}>
@@ -198,7 +198,7 @@ function AccessBlocked({
 
   return (
     <HousekeepingShell pageName="Access Denied">
-      <div className="page_main hk-admin">
+      <div className="page_main hk-admin hk-scope">
         <div className="hk-page-title">{title}</div>
         <div className="hk-content" data-testid="admin-blocked" data-reason={reason}>
           <div className="hk-notice hk-notice-error">{body}</div>

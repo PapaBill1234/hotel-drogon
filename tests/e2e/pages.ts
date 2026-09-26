@@ -166,7 +166,20 @@ const AUDIT_SIGNED_IN: AuditPage[] = [
     auth: 'user',
   },
   { name: 'pixels', newPath: null, legacyPath: '/credits/pixels', auth: 'user' },
-  { name: 'client', newPath: '/client', legacyPath: '/client', auth: 'user' },
+  {
+    // Legacy `/client` for a SIGNED-IN user does not render a client page: it
+    // 302s to `/client_popup/install_shockwave`, the "install Shockwave" notice,
+    // because the hotel client was a Shockwave/Director embed. Measured with
+    // marker-matrix.spec.ts. The new `/client` is a ticket-and-launch page, so
+    // the two are not the same artefact and the pair is recorded, not scored.
+    name: 'client',
+    newPath: '/client',
+    legacyPath: '/client',
+    auth: 'user',
+    note:
+      'legacy redirects a signed-in visitor to /client_popup/install_shockwave; ' +
+      'there is no legacy client page to compare',
+  },
   {
     name: 'reauthenticate',
     newPath: '/account/reauthenticate',

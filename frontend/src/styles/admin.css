@@ -39,6 +39,36 @@
   text-align: left;
 }
 
+/*
+ * The panel's content styling now hangs off `.hk-admin`, but the WINDOW CHROME
+ * around it is the ported legacy one (`HousekeepingShell`), so `.hk-admin` is no
+ * longer the outermost element — it sits inside `.page_main`. Applying the full
+ * `.hk-admin` block there made the content area claim `min-height: 100vh` and
+ * paint its own page background, which pushed the nav and the table out of the
+ * window. This modifier keeps every descendant rule (they are all scoped under
+ * `.hk-admin`) while dropping the three properties that only make sense on the
+ * page root: the viewport height, the outer padding and the page background.
+ */
+.hk-admin.hk-scope {
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+}
+
+/*
+ * The legacy chrome positions itself absolutely and paints its nav bar
+ * (`.panel_header` > `#item`) across the window, so content placed under it is
+ * covered: `elementFromPoint` at the logout button's centre returned `UL#item`,
+ * and the admin suite's logout click hung because Playwright could not reach the
+ * control. Lifting `page_main` into its own stacking layer puts the content
+ * above the decorative chrome, which is where the legacy pages put theirs too.
+ * `position: relative` rather than absolute so it keeps flowing in the panel.
+ */
+.panel .page_main {
+  position: relative;
+  z-index: 1;
+}
+
 .hk-admin * {
   box-sizing: border-box;
 }

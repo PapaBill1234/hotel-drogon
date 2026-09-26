@@ -9,8 +9,8 @@
 import { test } from '@playwright/test';
 import { envOr } from './pages';
 
-const BASE = envOr('BASE', 'http://localhost:3000');
-const KIND = envOr('USER_FIELD', 'new');
+const BASE = envOr('BASE_NEW', 'http://localhost:3000');
+const KIND = envOr('USER_FIELD', BASE.includes(':8081') ? 'legacy' : 'new');
 const USER = process.env.AUDIT_USER ?? 'audituser';
 const PASS = process.env.AUDIT_PASS ?? 'password123';
 const PATHS = (process.env.PATHS ?? '/me,/profile,/credits,/credits/history,/account/profile')

@@ -29,20 +29,29 @@ import { useEffect, useState, type ReactNode } from 'react';
  *     <content>
  *     .page_footer   .buttons > .footer_button (Homepage)
  *     .copylight     "Powered by PHPRetro" + design credit + Sulake line
- *
- * The close button goes to `/housekeeping/logout` in legacy. This panel's staff
- * session is separate from the public one, so it points at the same route and
- * the app handles the sign-out.
  */
 export default function HousekeepingShell({
   pageName,
   showChrome = true,
+  onClose,
   children,
 }: {
   /** `$page['name']`, used for the `<title>` as `housekeeping_header.php:25`. */
   pageName: string;
   /** False on the login screen, which omits the nav rows but keeps the window. */
   showChrome?: boolean;
+  /**
+   * The close button's action, rendered only when given.
+   *
+   * Legacy's close button is `<a href="/housekeeping/logout">`, and
+   * `housekeeping/logout.php` ends the staff session and returns to the login
+   * screen. `/housekeeping/logout` is NOT a route in the React app, so a plain
+   * anchor there falls through to the catch-all and lands on "/" — which the
+   * admin suite caught as a hung logout test. Callers pass their own sign-out;
+   * where none exists (the login screen) the button is omitted rather than
+   * rendered as a link that goes somewhere unrelated.
+   */
+  onClose?: () => void;
   children: ReactNode;
 }) {
   return (
@@ -85,12 +94,21 @@ export default function HousekeepingShell({
 
         <div className="panel_title">
           <span className="text">PHPRetro 4.0 Housekeeping</span>
-          <div className="close_button">
-            <a href="/housekeeping/logout">
-              {/* eslint-disable-next-line jsx-a11y/alt-text */}
-              <img src="/housekeeping/images/button_close.gif" alt="Logout" />
-            </a>
-          </div>
+          {onClose !== undefined && (
+            <div className="close_button">
+              <a
+                href="#"
+                data-testid="hk-close"
+                onClick={(e) => {
+                  e.preventDefault();
+                  onClose();
+                }}
+              >
+                {/* eslint-disable-next-line jsx-a11y/alt-text */}
+                <img src="/housekeeping/images/button_close.gif" alt="Logout" />
+              </a>
+            </div>
+          )}
         </div>
 
         {showChrome && <HousekeepingNav />}
