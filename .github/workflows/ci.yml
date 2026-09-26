@@ -412,7 +412,15 @@ jobs:
 
       - name: Dump service logs on failure
         if: failure()
-        run: docker compose logs --tail=200
+        run: |
+          docker compose logs --tail=200
+          # A failed browser request coincided with a backend restart in runs
+          # 36242573933 and 36243418211. Preserve the daemon's die/oom event
+          # so the next failure distinguishes a process crash from host OOM.
+          docker inspect hotel_backend --format 'backend state={{json .State}} restart_count={{.RestartCount}}' || true
+          docker events --since 20m --until "$(date --iso-8601=seconds)" \
+            --filter container=hotel_backend \
+            --format '{{.Time}} {{.Action}} {{json .Actor.Attributes}}' || true
 
   # Phase 2b's "route-switch/proxy map with cutover AND rollback" exit condition.
   #
