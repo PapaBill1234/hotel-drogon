@@ -1,0 +1,11 @@
+# Add only after validating an operator-supplied Nitro-Files directory. Docker
+# must fail if it is missing; an empty auto-created bind would hide the gap.
+services:
+  client:
+    volumes:
+      - type: bind
+        source: ${NITRO_FILES_DIR:?Set NITRO_FILES_DIR to the approved Nitro-Files directory}
+        target: /workspace/Nitro-Files
+        read_only: true
+        bind:
+          create_host_path: false

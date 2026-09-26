@@ -107,7 +107,7 @@ export default defineConfig({
       // (playwright.capture.config.ts) so a bare `npx playwright test` never
       // reports a capture failure as a parity failure.
       name: 'chromium',
-      testIgnore: '**/capture-references.spec.ts',
+      testIgnore: ['**/capture-references.spec.ts', '**/emulator-lab.spec.ts'],
       use: {
         ...devices['Desktop Chrome'],
         viewport: VIEWPORT,

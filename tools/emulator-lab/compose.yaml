@@ -1,0 +1,65 @@
+name: hotel-emulator-lab
+
+# Independent development hotel. Never attach its database to the primary stack:
+# Polaris applies its own migrations at startup.
+services:
+  database:
+    image: mariadb:10.11@sha256:7f22313fc130a377a44999965bcb0a08dd5b21e8502824c1b864f792f9bc66ab
+    environment:
+      MARIADB_ROOT_PASSWORD: lab_root_only
+      MARIADB_DATABASE: polaris_lab
+      MARIADB_USER: polaris_lab
+      MARIADB_PASSWORD: lab_password_only
+    volumes:
+      - polaris_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks: [lab]
+
+  emulator:
+    build:
+      context: ../../../upstream/Polaris-Emulator/Emulator
+      dockerfile: ../../../hotel-drogon/tools/emulator-lab/polaris.Dockerfile
+    environment:
+      DB_HOSTNAME: database
+      DB_PORT: "3306"
+      DB_DATABASE: polaris_lab
+      DB_USERNAME: polaris_lab
+      DB_PASSWORD: lab_password_only
+      DB_MIGRATE_ON_STARTUP: "true"
+      EMU_HOST: 0.0.0.0
+      EMU_PORT: "3000"
+      RCON_HOST: 127.0.0.1
+    depends_on:
+      database:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3202:2096"
+      - "127.0.0.1:3203:3000"
+    volumes:
+      - polaris_backups:/app/backups/database
+    networks: [lab]
+
+  client:
+    build:
+      context: .
+      dockerfile: octane.Dockerfile
+      additional_contexts:
+        octane_src: ../../../upstream/Octane
+        renderer_src: ../../../upstream/Octane-Renderer
+    depends_on:
+      - emulator
+    ports:
+      - "127.0.0.1:3201:5173"
+    networks: [lab]
+
+networks:
+  lab:
+    driver: bridge
+
+volumes:
+  polaris_data:
+  polaris_backups:
