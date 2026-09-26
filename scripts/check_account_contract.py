@@ -170,17 +170,49 @@ def main():
             {"current_password": "wrongpass", "new_password": "password456"}, cookies=cookies, csrf=token)
 
     try:
-        motto, _ = request("POST", "/api/account/motto", 200, {"motto": "x" * 129}, cookies=cookies, csrf=token)
-        check(motto["motto"] == "x" * 128, "motto truncated to 128 bytes")
+        # Profile validation is asserted against LEGACY profile.php, not against
+        # whatever the handler happened to do first:
+        #
+        #   if (mb_strlen($motto) > 127 || mb_strlen($look) > 256
+        #       || !in_array($gender, ['M','F'], true)) -> 'Invalid profile details.'
+        #
+        # An earlier revision truncated the motto to 128 bytes and coerced an
+        # unknown gender to M. Both were silent changes from legacy, so the
+        # contract now requires rejection, and the boundary is checked from both
+        # sides so the assertion cannot pass on a handler that rejects everything.
+        request("POST", "/api/account/motto", 400, {"motto": "x" * 128}, cookies=cookies, csrf=token)
+        motto, _ = request("POST", "/api/account/motto", 200, {"motto": "x" * 127}, cookies=cookies, csrf=token)
+        check(motto["motto"] == "x" * 127, "127-character motto stored intact")
+        trimmed, _ = request("POST", "/api/account/motto", 200,
+                             {"motto": "  padded motto  "}, cookies=cookies, csrf=token)
+        check(trimmed["motto"] == "padded motto", "motto trimmed like legacy profile.php")
+
+        # The figure boundary is legacy's 256 versus PolarIS's `varchar(255)`:
+        # 256 cannot be stored at all, so 400 is the correct explicit answer and
+        # 255 must still succeed.
+        request("POST", "/api/account/look", 400,
+                {"look": "l" * 256, "gender": "M"}, cookies=cookies, csrf=token)
+        request("POST", "/api/account/look", 400,
+                {"look": "hd-180-1", "gender": "X"}, cookies=cookies, csrf=token)
+        request("POST", "/api/account/look", 400,
+                {"look": "hd-180-1", "gender": "invalid", "csrf_token": token}, cookies=cookies)
         look, _ = request("POST", "/api/account/look", 200,
-                          {"look": "hd-180-1", "gender": "invalid", "csrf_token": token}, cookies=cookies)
-        check(look["gender"] == "M", "invalid gender falls back to M")
+                          {"look": "l" * 255, "gender": "F"}, cookies=cookies, csrf=token)
+        check(look["gender"] == "F", "valid gender F stored rather than coerced")
+        check(look["look"] == "l" * 255, "255-character figure stored intact")
+        look, _ = request("POST", "/api/account/look", 200,
+                          {"look": "hd-180-1"}, cookies=cookies, csrf=token)
+        check(look["gender"] == "M", "absent gender still stores M")
+
         email, _ = request("POST", "/api/account/email", 200,
                            {"email": "contract@example.test"}, cookies=cookies, csrf=token)
         check(email["mail_verified"] is False, "email update resets verification")
         updated, _ = request("GET", "/api/me", 200, cookies=cookies)
         check(updated["user"]["mail"] == email["email"] and
-              updated["user"]["motto"] == motto["motto"], "profile writes visible through /api/me")
+              updated["user"]["motto"] == trimmed["motto"] and
+              updated["user"]["look"] == look["look"] and
+              updated["user"]["gender"] == look["gender"],
+              "profile writes visible through /api/me")
         password, _ = request("POST", "/api/account/password", 200,
                               {"current_password": "password123", "new_password": "password456"},
                               cookies=cookies, csrf=token)

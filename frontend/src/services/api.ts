@@ -1,11 +1,17 @@
 /**
- * Typed fetch helpers for the anonymous `/api/public` surface.
+ * Typed fetch helpers for the anonymous `/api/public` surface, plus the shared
+ * request machinery for the whole **public** API surface.
  *
- * All endpoints are GET + anonymous and default to a same-origin relative path,
- * which the Vite dev server proxies to the Drogon backend (see
- * `vite.config.ts`). The helpers return only the data the pages need: they
- * unwrap nothing, because the legacy templates read the payload fields
- * directly.
+ * This module — and `apiAdmin.ts` for the staff panel — are the only two places
+ * in the frontend allowed to open a request; `scripts/check_admin_ui_coverage.py`
+ * enforces that. Account calls therefore import `requestJson` from here instead
+ * of calling `fetch()` themselves, so the cookie and CSRF policy lives in one
+ * place per surface rather than being re-derived per feature.
+ *
+ * All endpoints are same-origin relative paths, which the Vite dev server
+ * proxies to the Drogon backend (see `vite.config.ts`). The public helpers
+ * return only the data the pages need: they unwrap nothing, because the legacy
+ * templates read the payload fields directly.
  */
 
 import type {
@@ -22,37 +28,115 @@ import type {
 
 export const API_BASE = '/api/public';
 
+/** The account surface shares the origin but not the `/public` prefix. */
+export const ACCOUNT_API_BASE = '/api';
+
+export const CSRF_COOKIE_NAME = 'XSRF-TOKEN';
+export const CSRF_HEADER_NAME = 'X-XSRF-TOKEN';
+
 export class ApiRequestError extends Error {
   readonly status: number;
+  /** Present only on a banned-user login refusal (`AuthResult.errorCode == 3`). */
+  readonly banReason?: string;
+  readonly banExpires?: string;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, banReason?: string, banExpires?: string) {
     super(message);
     this.name = 'ApiRequestError';
     this.status = status;
+    this.banReason = banReason;
+    this.banExpires = banExpires;
+  }
+
+  /** True when the failure means "no valid public session" (missing/expired). */
+  get isUnauthenticated(): boolean {
+    return this.status === 401;
   }
 }
 
-async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: 'GET',
-    headers: { Accept: 'application/json' },
+function readCookie(name: string): string {
+  const match = document.cookie.match(
+    new RegExp(`(?:^|;\\s*)${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}=([^;]*)`),
+  );
+  return match ? decodeURIComponent(match[1]) : '';
+}
+
+/**
+ * The current double-submit CSRF token, refreshed from the cookie on every call.
+ *
+ * `XSRF-TOKEN` is issued readable (not HttpOnly) by `AuthController::login`
+ * precisely so a decoupled frontend can echo it. Nothing is cached in
+ * `localStorage`, so a server-side session change cannot leave a stale token.
+ */
+export function csrfToken(): string {
+  return readCookie(CSRF_COOKIE_NAME);
+}
+
+interface RequestJsonInit {
+  method: 'GET' | 'POST';
+  /** Absolute API path beginning with `/`. */
+  path: string;
+  body?: unknown;
+  /**
+   * Send the double-submit token. False only for the routes the CSRF filter
+   * deliberately exempts — login has no session to bind a token to yet.
+   */
+  csrf: boolean;
+  signal?: AbortSignal;
+}
+
+/**
+ * Perform one JSON request against the public API surface.
+ *
+ * Errors carry the server's HTTP status and whatever the body supplied:
+ * `{error, message, status}`, plus `ban_reason` / `ban_expires` on a 403 login
+ * refusal. Callers branch on `ApiRequestError`, never on a bare `Error`.
+ */
+export async function requestJson<T>(init: RequestJsonInit): Promise<T> {
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (init.body !== undefined) headers['Content-Type'] = 'application/json';
+
+  if (init.csrf) {
+    const token = csrfToken();
+    // Never fabricate a token: an empty header would be a silent CSRF bypass
+    // attempt, and the filter rejects it anyway. Omitting it produces the
+    // server's own explicit 403, which is the honest failure to surface.
+    if (token) headers[CSRF_HEADER_NAME] = token;
+  }
+
+  const response = await fetch(init.path, {
+    method: init.method,
+    headers,
     credentials: 'same-origin',
-    signal,
+    body: init.body === undefined ? undefined : JSON.stringify(init.body),
+    signal: init.signal,
   });
+
+  const text = await response.text();
+  let parsed: unknown = null;
+  try {
+    parsed = text.length > 0 ? JSON.parse(text) : null;
+  } catch {
+    parsed = null;
+  }
+  const body = (parsed ?? {}) as {
+    error?: string;
+    message?: string;
+    ban_reason?: string;
+    ban_expires?: string;
+  };
 
   if (!response.ok) {
     // Error bodies are `{error, message, status}`; fall back to the HTTP text.
-    let message = `${response.status} ${response.statusText}`;
-    try {
-      const body = (await response.json()) as { message?: string; error?: string };
-      message = body.message ?? body.error ?? message;
-    } catch {
-      /* keep the status line */
-    }
-    throw new ApiRequestError(response.status, message);
+    const message = body.message ?? body.error ?? `${response.status} ${response.statusText}`;
+    throw new ApiRequestError(response.status, message, body.ban_reason, body.ban_expires);
   }
 
-  return (await response.json()) as T;
+  return body as T;
+}
+
+async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+  return requestJson<T>({ method: 'GET', path: `${API_BASE}${path}`, csrf: false, signal });
 }
 
 /** `GET /api/public/landing` — five newest articles plus the promo phrases. */

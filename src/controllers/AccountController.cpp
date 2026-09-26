@@ -8,6 +8,56 @@ using Json::Value;
 
 namespace hotel::controllers {
 
+namespace {
+
+/**
+ * Profile field limits, taken from legacy `profile.php` and the PolarIS `users`
+ * schema rather than invented:
+ *
+ *   if (mb_strlen($motto) > 127 || mb_strlen($look) > 256
+ *       || !in_array($gender, ['M','F'], true)) { $notice = 'Invalid profile details.'; }
+ *
+ * The legacy page **rejected** out-of-range input and **trimmed** accepted input
+ * before measuring and storing it. The handlers below used to truncate the motto
+ * to 128 bytes and silently coerce an unknown gender to `M`; both were behaviour
+ * changes from legacy, and the truncation could cut a multibyte motto
+ * mid-character. They now reject, with the legacy message.
+ *
+ * `kLookMaxChars` is one *less* than legacy's 256, and that is not a weakening:
+ * `users.look` is `varchar(255)` in PolarIS, so a 256-character figure exceeds
+ * what the column can hold and the write fails at the database either way.
+ * Rejecting it here turns a database error into the same explicit 400 the other
+ * invalid values get. The limit can only be relaxed by widening a PolarIS column,
+ * which the plan's rule 1 forbids changing for convenience.
+ */
+constexpr std::size_t kMottoMaxChars = 127;
+constexpr std::size_t kLookMaxChars = 255;
+
+/** Legacy `profile.php`'s single failure notice, used for validation rejections. */
+void replyInvalidProfileDetails(
+    const std::function<void(const drogon::HttpResponsePtr&)>& callback
+) {
+    Value err;
+    err["error"] = "Bad Request";
+    err["message"] = "Invalid profile details.";
+    err["status"] = 400;
+    auto resp = drogon::HttpResponse::newHttpJsonResponse(err);
+    resp->setStatusCode(drogon::k400BadRequest);
+    callback(resp);
+}
+
+/** Legacy `profile.php` ran `trim()` on both fields before validating them. */
+std::string trimmed(const std::string& value) {
+    const auto begin = value.find_first_not_of(" \t\n\r\f\v");
+    if (begin == std::string::npos) {
+        return "";
+    }
+    const auto end = value.find_last_not_of(" \t\n\r\f\v");
+    return value.substr(begin, end - begin + 1);
+}
+
+} // namespace
+
 void AccountController::updateMotto(
     const drogon::HttpRequestPtr& req,
     std::function<void(const drogon::HttpResponsePtr&)>&& callback
@@ -27,9 +77,10 @@ void AccountController::updateMotto(
                 return;
             }
 
-            std::string newMotto = (*json)["motto"].asString();
-            if (newMotto.length() > 128) {
-                newMotto = newMotto.substr(0, 128);
+            std::string newMotto = trimmed((*json)["motto"].asString());
+            if (newMotto.length() > kMottoMaxChars) {
+                replyInvalidProfileDetails(callback);
+                return;
             }
 
             std::string ip = req->peerAddr().toIp();
@@ -83,12 +134,24 @@ void AccountController::updateLook(
                 return;
             }
 
-            std::string newLook = (*json)["look"].asString();
-            std::string newGender = (json->isMember("gender") && (*json)["gender"].isString()) ? (*json)["gender"].asString() : "M";
-            if (newGender != "M" && newGender != "F") {
-                newGender = "M";
+            std::string newLook = trimmed((*json)["look"].asString());
+
+            // Legacy required a gender of exactly M or F when submitted. The
+            // field is optional here because the API also serves callers that
+            // only change the figure; when it IS supplied it must be valid.
+            std::string newGender = "M";
+            if (json->isMember("gender") && (*json)["gender"].isString()) {
+                newGender = (*json)["gender"].asString();
+                if (newGender != "M" && newGender != "F") {
+                    replyInvalidProfileDetails(callback);
+                    return;
+                }
             }
 
+            if (newLook.length() > kLookMaxChars) {
+                replyInvalidProfileDetails(callback);
+                return;
+            }
             std::string ip = req->peerAddr().toIp();
             services::UserAccountService::updateLook(
                 session.user_id,

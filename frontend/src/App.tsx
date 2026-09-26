@@ -16,6 +16,10 @@ import AdminCampaignsPage from './pages/admin/AdminCampaignsPage';
 import AdminCollectiblesPage from './pages/admin/AdminCollectiblesPage';
 import AdminSettingsPage from './pages/admin/AdminSettingsPage';
 import HousekeepingLoginPage from './pages/admin/HousekeepingLoginPage';
+import LoginPage from './pages/account/LoginPage';
+import LogoutPage from './pages/account/LogoutPage';
+import MePage from './pages/account/MePage';
+import ProfilePage from './pages/account/ProfilePage';
 
 /**
  * The legacy stylesheets target body-level selectors (`body#news #column1`,
@@ -43,6 +47,17 @@ const BODY_BY_PATH: Record<string, { id: string; className: string }> = {
   '/help': { id: 'home', className: 'anonymous' }, // help.php
   '/credits/collectables': { id: 'home', className: 'anonymous' }, // collectables.php
   '/maintenance': { id: '', className: '' }, // maintenance_header.php: plain <body>
+  // me.php and profile.php both set $page['bodyid'] = 'home' and require
+  // community_header.php, which adds class="anonymous" only for a guest — these
+  // two routes are guest-refused, so the class is empty.
+  //
+  // The styling for both lives in v2/styles/personal.css (#new-personal-info,
+  // #link-bar), which the community stylesheet set already contains.
+  '/me': { id: 'home', className: '' },
+  '/account/profile': { id: 'home', className: '' },
+  // account.php rendered the sign-in screen with the community header too.
+  '/account': { id: 'home', className: '' },
+  '/logout': { id: 'home', className: '' },
 };
 
 function LegacyBodyAttributes() {
@@ -118,6 +133,14 @@ export default function App() {
         <Route path="/help" element={<HelpPage />} />
         <Route path="/credits/collectables" element={<CollectablesPage />} />
         <Route path="/maintenance" element={<MaintenancePage />} />
+
+        {/* Account surface. `/account` is the sign-in destination the anonymous
+            header form posts to, matching the legacy `account.php` entry point;
+            `/me` and `/account/profile` are `me.php` and `profile.php`. */}
+        <Route path="/account" element={<LoginPage />} />
+        <Route path="/logout" element={<LogoutPage />} />
+        <Route path="/me" element={<MePage />} />
+        <Route path="/account/profile" element={<ProfilePage />} />
 
         <Route path="/housekeeping" element={<AdminLayout />}>
           <Route index element={<AdminHomePage />} />

@@ -10,9 +10,10 @@ legacy PHPRetro PHP application and the abandoned Laravel/Inertia attempt.
 - Legacy behavior reference (read-only, not part of this repo):
   https://github.com/PapaBill1234/PHPRetro-PDO
 
-Status: **Phase 2b, Phase 3, and Phase 4 narrow exits verified; Phase 1
-OpenAPI still incomplete.** See [current state](docs/ai-run-state.md) and
-[feature inventory](docs/phase1-parity-inventory.md) for the release gaps.
+Status: **Phases 1, 2b, 3 and 4 narrow exits verified; Phase 5's existing-user
+account journey now works through React.** See [current
+state](docs/ai-run-state.md) and [feature
+inventory](docs/phase1-parity-inventory.md) for the release gaps.
 
 ---
 
@@ -63,10 +64,21 @@ python3 scripts/check_dependency_pins.py   # exact Ubuntu pins match the archive
 
 # Live integration (12 assertions: auth, sessions, authorization, CSRF)
 sh scripts/smoke_phase3.sh http://localhost:3000
+python3 scripts/smoke_phase4_public.py http://localhost:3000
+
+# The account API contract against its live routes. Requires a DISPOSABLE,
+# seeded stack: it writes profile fields and a password, and restores them in a
+# finally block, but it must never point at data you care about.
+ACCOUNT_CONTRACT_DISPOSABLE=1 python3 scripts/check_account_contract.py http://localhost:3000
+
+# Browser suites (each gated so a bare `npx playwright test` keeps its
+# visual-parity meaning). From tests/e2e:
+#   PLAYWRIGHT_ACCOUNT=1 npx playwright test account.spec.ts
+#   PLAYWRIGHT_ADMIN=1   npx playwright test admin.spec.ts
 ```
 
-All five run in CI (`.github/workflows/ci.yml`); the smoke suite runs against a
-freshly built stack in a separate job.
+All of these run in CI (`.github/workflows/ci.yml`); the smoke and browser suites
+run against a freshly built stack in a separate job.
 
 ## Architecture notes
 
@@ -86,6 +98,19 @@ layer. `check_polaris_access.py` fails the build if direct SQL reappears outside
 get `hotel_session` (7 days), staff get `hotel_staff_session` (2 hours, distinct
 Redis prefix, rank-gated). `XSRF-TOKEN` is issued as a non-HttpOnly cookie for
 double-submit CSRF.
+
+**Account routes keep the legacy URL shape.** `/account` is the sign-in screen
+(`account.php`), `/me` is `me.php`, `/account/profile` is `profile.php`, and
+`/logout` ends the public session. The signed-in branch of the page header is
+rendered by `CommunityShell` from the same `community_header.php` markup, so
+`v2/styles/personal.css` styles `/me` with the classes it was written for. A
+guarded page renders the sign-in form **in place** rather than redirecting, which
+is what `includes/session.php` achieved by carrying the original destination.
+
+**Two modules may open a request, one per surface.** `services/api.ts` (public,
+including the account routes) and `services/apiAdmin.ts` (staff).
+`scripts/check_admin_ui_coverage.py` fails the build if a third module calls
+`fetch()` itself, so cookie and CSRF policy stay in one place per surface.
 
 **Drogon 1.8.7 on Ubuntu 24.04 links jsoncpp, not nlohmann.** Controllers must
 use `Json::Value` / `isMember()` / `asString()`. (`nlohmann-json3-dev` remains a
