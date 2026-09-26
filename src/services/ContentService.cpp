@@ -178,6 +178,25 @@ void ContentService::ensureSchema(const DbClientPtr& db,
         "setting_key VARCHAR(100) NOT NULL, setting_value VARCHAR(255) NOT NULL,"
         "updated_by INT NULL, updated_at INT NOT NULL,"
         "PRIMARY KEY (setting_key)"
+        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+        // The /community "Latest news" promo lives in a SECOND news table that
+        // the legacy schema shipped as `hotelview_news` (CleanDB.sql, dumped
+        // from camwijsnew). Column shapes are copied from that dump verbatim:
+        // title VARCHAR(100), text VARCHAR(500), image VARCHAR(200), and the
+        // button_* columns that community.php selected but never rendered.
+        //
+        // Deliberately NOT folded into phpretro_news: articles.php reads that
+        // one by id, and /articles/{id} links minted by the promo widget are
+        // resolved against it. Keeping the tables separate is what makes the
+        // two pages agree with legacy.
+        "CREATE TABLE IF NOT EXISTS hotelview_news ("
+        "id INT NOT NULL AUTO_INCREMENT, title VARCHAR(100) NOT NULL,"
+        "text VARCHAR(500) NOT NULL, button_text VARCHAR(50) NOT NULL DEFAULT '',"
+        "button_type ENUM('client','web') NOT NULL DEFAULT 'web',"
+        "button_link VARCHAR(200) NOT NULL DEFAULT '',"
+        "image VARCHAR(200) NOT NULL DEFAULT '',"
+        "PRIMARY KEY (id)"
         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
     };
 
@@ -209,9 +228,30 @@ void ContentService::ensureSchema(const DbClientPtr& db,
                "('site_name','PHPRetro',NULL,UNIX_TIMESTAMP()),"
                "('site_url','',NULL,UNIX_TIMESTAMP()),"
                "('site_promo_phrases','Welcome to the hotel|Hey there!|Come on in!',NULL,UNIX_TIMESTAMP())"
-            >> [onComplete](const Result&) {
-                   HOTEL_LOG_INFO("ContentService: content schema ready.");
-                   if (onComplete) onComplete();
+            >> [db, onComplete](const Result&) {
+                   // Ship row from the legacy schema dump. Without it a fresh
+                   // install renders the /community promo as the blank filler
+                   // slots the legacy page fell back to, which is what the
+                   // visual baseline was captured against.
+                   //
+                   // INSERT IGNORE on a fixed id: idempotent across restarts and
+                   // it never overwrites an operator's own promo row.
+                   *db << "INSERT IGNORE INTO hotelview_news "
+                          "(id, title, text, button_text, button_type, button_link, image) "
+                          "VALUES (1, 'Open Your Summer Calendar!', "
+                          "'Between the 1st and 31st od July, every day you will recive a free "
+                          "gift from your Summer Calendar. Open yours Now!', "
+                          "'Open it!', 'client', 'openView/calendar', "
+                          "'web_promo_small/spromo_h20_calrew.png')"
+                       >> [onComplete](const Result&) {
+                              HOTEL_LOG_INFO("ContentService: content schema ready.");
+                              if (onComplete) onComplete();
+                          }
+                       >> [onComplete](const DrogonDbException& e) {
+                              HOTEL_LOG_WARN("ContentService hotelview_news seed: {}",
+                                             e.base().what());
+                              if (onComplete) onComplete();
+                          };
                }
             >> [onComplete](const DrogonDbException& e) {
                    HOTEL_LOG_WARN("ContentService settings seed: {}", e.base().what());
@@ -329,6 +369,38 @@ void ContentService::listPublicNews(
            }
         >> [callback](const DrogonDbException& e) {
                HOTEL_LOG_ERROR("ContentService::listPublicNews: {}", e.base().what());
+               callback({});
+           };
+}
+
+void ContentService::listHotelviewNews(
+    uint32_t limit,
+    std::function<void(std::vector<HotelviewNews>)> callback) {
+    auto db = drogon::app().getDbClient("default");
+    if (!db) { callback({}); return; }
+    // community.php: `ORDER BY id DESC LIMIT 5`. Clamped so the public route
+    // cannot be used to dump the whole table.
+    if (limit == 0 || limit > 20) limit = 5;
+
+    std::string sql =
+        "SELECT id, title, text, image FROM hotelview_news ORDER BY id DESC LIMIT ?";
+    *db << sql
+        << static_cast<int>(limit)
+        >> [callback](const Result& r) {
+               std::vector<HotelviewNews> out;
+               out.reserve(r.size());
+               for (const auto& row : r) {
+                   HotelviewNews n;
+                   n.id = row["id"].as<uint32_t>();
+                   n.title = row["title"].as<std::string>();
+                   n.text = row["text"].as<std::string>();
+                   n.image = row["image"].as<std::string>();
+                   out.push_back(std::move(n));
+               }
+               callback(std::move(out));
+           }
+        >> [callback](const DrogonDbException& e) {
+               HOTEL_LOG_ERROR("ContentService::listHotelviewNews: {}", e.base().what());
                callback({});
            };
 }

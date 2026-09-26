@@ -18,6 +18,7 @@ import type {
   BannersResponse,
   CampaignsResponse,
   CollectiblesResponse,
+  CommunityNewsResponse,
   FaqResponse,
   LandingResponse,
   MaintenanceResponse,
@@ -194,6 +195,18 @@ export function fetchNews(limit?: number, signal?: AbortSignal): Promise<NewsLis
 /** `GET /api/public/news/{id}` */
 export function fetchNewsItem(id: number, signal?: AbortSignal): Promise<NewsArticle> {
   return getJson<NewsArticle>(`/news/${encodeURIComponent(String(id))}`, signal);
+}
+
+/**
+ * `GET /api/public/community-news` — the `hotelview_news` rows behind the
+ * `/community` promo widget. Not the same feed as `fetchNews`.
+ */
+export function fetchCommunityNews(
+  limit?: number,
+  signal?: AbortSignal,
+): Promise<CommunityNewsResponse> {
+  const query = limit === undefined ? '' : `?limit=${encodeURIComponent(String(limit))}`;
+  return getJson<CommunityNewsResponse>(`/community-news${query}`, signal);
 }
 
 /** `GET /api/public/faq` — active entries ordered by category then sort_order. */

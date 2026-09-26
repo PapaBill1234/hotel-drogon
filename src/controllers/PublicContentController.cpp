@@ -186,6 +186,37 @@ void PublicContentController::newsItem(const drogon::HttpRequestPtr& /*req*/,
     });
 }
 
+// ========================================================= community news
+
+void PublicContentController::communityNews(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const drogon::HttpResponsePtr&)>&& cb) {
+    uint32_t limit = 5;
+    const std::string limitParam = req->getParameter("limit");
+    if (!limitParam.empty()) {
+        try { limit = static_cast<uint32_t>(std::stoul(limitParam)); } catch (...) {}
+    }
+    // `text` is returned RAW. community.php ran it through HoloText() +
+    // nl2br(), which is presentation; the page applies the same two steps so
+    // the escaping happens once, at render time, exactly like legacy.
+    services::ContentService::listHotelviewNews(
+        limit, [cb](std::vector<services::HotelviewNews> items) {
+            Value out(Json::arrayValue);
+            for (const auto& n : items) {
+                Value v;
+                v["id"] = n.id;
+                v["title"] = n.title;
+                v["text"] = n.text;
+                v["image"] = n.image;
+                out.append(v);
+            }
+            Value v;
+            v["items"] = out;
+            v["count"] = static_cast<Json::UInt>(items.size());
+            cb(json(v));
+        });
+}
+
 // ==================================================================== faq
 
 void PublicContentController::faq(const drogon::HttpRequestPtr& /*req*/,
