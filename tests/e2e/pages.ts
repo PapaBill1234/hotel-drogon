@@ -181,10 +181,19 @@ const AUDIT_SIGNED_IN: AuditPage[] = [
       'there is no legacy client page to compare',
   },
   {
+    // A mid-session step-up screen. Legacy renders it only for a session carrying
+    // the reauthenticate flag (`reauthenticate.php` requires `session.php` and a
+    // live user), and an anonymous visitor is bounced to the landing page — so
+    // there is no state the audit can set up on both stacks at once. Recorded,
+    // not scored; the flow itself is covered by `password-reset.spec.ts` and
+    // `remember-me.spec.ts`.
     name: 'reauthenticate',
     newPath: '/account/reauthenticate',
     legacyPath: '/reauthenticate',
     auth: 'user',
+    note:
+      'mid-session step-up screen; neither stack renders it for the audit session ' +
+      'state, so the pair is recorded rather than scored',
   },
 ];
 
@@ -195,7 +204,15 @@ const AUDIT_STAFF: AuditPage[] = [
   // the gated layout against legacy's login screen measured 99.4% and said
   // nothing about styling.
   { name: 'hk-login', newPath: '/housekeeping/login', legacyPath: '/housekeeping/' },
-  { name: 'hk-dashboard', newPath: '/housekeeping/dashboard', legacyPath: '/housekeeping/dashboard', auth: 'staff' },
+  {
+    // The React panel's index route is `/housekeeping`; there is no
+    // `/housekeeping/dashboard` route, so that path fell through to the catch-all
+    // and the pair reported UNAUTH instead of being measured.
+    name: 'hk-dashboard',
+    newPath: '/housekeeping',
+    legacyPath: '/housekeeping/dashboard',
+    auth: 'staff',
+  },
   { name: 'hk-news', newPath: '/housekeeping/news', legacyPath: '/housekeeping/news', auth: 'staff' },
   { name: 'hk-faq', newPath: '/housekeeping/faq', legacyPath: '/housekeeping/faq', auth: 'staff' },
   { name: 'hk-banners', newPath: '/housekeeping/banners', legacyPath: '/housekeeping/banners', auth: 'staff' },
