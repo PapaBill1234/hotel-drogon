@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import { useAdminSession, useMe } from '../../hooks/useAdminContent';
 import { adminLogout, HIGH_TRUST_MIN_RANK, STAFF_MIN_RANK } from '../../services/apiAdmin';
+import HousekeepingShell from '../../components/HousekeepingShell';
 import '../../styles/admin.css';
 
 /**
@@ -74,20 +75,13 @@ export default function AdminLayout() {
 
   if (me.isLoading || (isStaffByRank && staff.isLoading)) {
     return (
-      <div className="hk-admin">
-        <div className="hk-panel">
-          <div className="hk-header">
-            <span className="hk-header-title">PHPRetro Housekeeping</span>
-          </div>
-          <div className="hk-body">
-            <div className="hk-main">
-              <div className="hk-content" data-testid="admin-loading">
-                Checking your staff session…
-              </div>
-            </div>
+      <HousekeepingShell pageName="Dashboard">
+        <div className="page_main hk-admin">
+          <div className="hk-content" data-testid="admin-loading">
+            Checking your staff session…
           </div>
         </div>
-      </div>
+      </HousekeepingShell>
     );
   }
 
@@ -115,28 +109,33 @@ export default function AdminLayout() {
   const session = staff.data;
 
   return (
-    <div className="hk-admin">
-      <div className="hk-panel">
-        <div className="hk-header">
-          <span className="hk-header-title">PHPRetro Housekeeping</span>
-          <span className="hk-header-session" data-testid="admin-session">
-            {session.username} (rank {session.rank}) ·{' '}
-            {session.high_trust
-              ? 'high-trust content enabled'
-              : `raw HTML needs rank ${HIGH_TRUST_MIN_RANK}+`}{' '}
-            ·{' '}
-            <button
-              type="button"
-              className="hk-secondary"
-              onClick={() => void signOut()}
-              data-testid="admin-logout"
-            >
-              Log out
-            </button>
-          </span>
+    <HousekeepingShell pageName="Dashboard">
+      {/*
+        The window chrome now comes from HousekeepingShell, which ports
+        `templates/housekeeping_header.php`; the panel had hand-rolled its own
+        `hk-panel`/`hk-header` look, so a signed-in admin page and the login
+        screen were two different designs. The session strip stays here because
+        it is new (the legacy panel had no equivalent) and the `hk-*` classes
+        inside `page_main` are this panel's own content styling.
+      */}
+      <div className="page_main">
+        <div className="hk-session-bar hk-admin" data-testid="admin-session">
+          {session.username} (rank {session.rank}) ·{' '}
+          {session.high_trust
+            ? 'high-trust content enabled'
+            : `raw HTML needs rank ${HIGH_TRUST_MIN_RANK}+`}{' '}
+          ·{' '}
+          <button
+            type="button"
+            className="hk-secondary"
+            onClick={() => void signOut()}
+            data-testid="admin-logout"
+          >
+            Log out
+          </button>
         </div>
 
-        <div className="hk-body">
+        <div className="hk-body hk-admin">
           <nav className="hk-nav" aria-label="Housekeeping sections">
             {NAV_GROUPS.map((group) => (
               <div className="hk-nav-group" key={group.title}>
@@ -159,15 +158,7 @@ export default function AdminLayout() {
           </div>
         </div>
       </div>
-
-      <div className="hk-footer">
-        Powered by <a href="http://www.phpretro.com/">PHPRetro</a> · Housekeeping design
-        based on the 2009 panel by xsixteen and Tsuka
-        <br />
-        HABBO is a registered trademark of Sulake Corporation. All rights reserved to
-        their respective owner(s).
-      </div>
-    </div>
+    </HousekeepingShell>
   );
 }
 
@@ -206,23 +197,16 @@ function AccessBlocked({
   const { title, body, cta } = copy[reason];
 
   return (
-    <div className="hk-admin">
-      <div className="hk-panel">
-        <div className="hk-header">
-          <span className="hk-header-title">PHPRetro Housekeeping</span>
-        </div>
-        <div className="hk-body">
-          <div className="hk-main">
-            <div className="hk-page-title">{title}</div>
-            <div className="hk-content" data-testid="admin-blocked" data-reason={reason}>
-              <div className="hk-notice hk-notice-error">{body}</div>
-              <Link className="hk-button" to="/housekeeping/login">
-                {cta}
-              </Link>
-            </div>
-          </div>
+    <HousekeepingShell pageName="Access Denied">
+      <div className="page_main hk-admin">
+        <div className="hk-page-title">{title}</div>
+        <div className="hk-content" data-testid="admin-blocked" data-reason={reason}>
+          <div className="hk-notice hk-notice-error">{body}</div>
+          <Link className="hk-button" to="/housekeeping/login">
+            {cta}
+          </Link>
         </div>
       </div>
-    </div>
+    </HousekeepingShell>
   );
 }
