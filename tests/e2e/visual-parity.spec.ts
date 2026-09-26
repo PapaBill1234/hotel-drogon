@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { PAGES, envOr } from './pages';
@@ -11,9 +12,63 @@ import { BASELINE_DIR, MAX_DIFF_PIXEL_RATIO, VIEWPORT } from './playwright.confi
 // A page passes when the pixel diff stays within MAX_DIFF_PIXEL_RATIO. Dynamic
 // regions are masked on both sides (see pages.ts) so live counters and
 // timestamps cannot dominate the diff.
+//
+// A pixel ratio alone is NOT sufficient evidence, and pages.ts can require an
+// extra check for exactly that reason: a single missing paragraph is a few
+// thousand pixels, well inside a 2% budget, so a page can lose real content and
+// still "pass". See the `assertRendered` hook below.
 
 const BASE_NEW = envOr('BASE_NEW', 'http://localhost:3000');
 const baselineDir = path.resolve(__dirname, BASELINE_DIR);
+
+/**
+ * `/community` had no `hotelview_news` endpoint, so the "Latest news" promo
+ * rendered the wrong table and then blank filler — and the page still passed at
+ * a 2% tolerance, because the missing paragraph is smaller than the budget.
+ *
+ * This asserts the widget is really wired up by crossing the DOM against the
+ * API payload: every promo slot the API returns must appear as rendered text in
+ * `#topstories`, with a visible summary and the row's background sprite. It
+ * fails loudly if the promo silently empties again.
+ */
+async function assertCommunityPromoRendered(p: Page): Promise<void> {
+  const res = await p.request.get(`${BASE_NEW}/api/public/community-news`);
+  expect(res.status(), 'GET /api/public/community-news').toBe(200);
+  const payload = (await res.json()) as {
+    items?: { id: number; title: string; image: string }[];
+  };
+  const items = payload.items ?? [];
+  expect(
+    items.length,
+    'the parity fixtures must publish at least one hotelview_news row, ' +
+      'otherwise this check cannot distinguish "empty promo" from "no data"',
+  ).toBeGreaterThan(0);
+
+  const promo = p.locator('#topstories');
+  await expect(promo, '#topstories promo widget missing').toHaveCount(1);
+
+  for (const item of items) {
+    await expect(
+      p.locator('#topstories .topstory h3 a', { hasText: item.title }).first(),
+      `promo slot for "${item.title}" did not render its title`,
+    ).toHaveCount(1);
+  }
+
+  const firstSummary = p.locator('#topstories .topstory').first().locator('p.summary');
+  await expect(firstSummary, 'promo summary rendered empty').not.toBeEmpty();
+  await expect(firstSummary, 'promo summary is not visible').toBeVisible();
+
+  if (items[0].image) {
+    const backgroundImage = await p
+      .locator('#topstories .topstory')
+      .first()
+      .evaluate((el) => getComputedStyle(el).backgroundImage);
+    expect(
+      backgroundImage,
+      `promo sprite for "${items[0].title}" is not applied to .topstory`,
+    ).toContain(items[0].image);
+  }
+}
 
 // NOT serial: a failure on one page must not skip the remaining pages, or a
 // single bad page hides the parity status of every other one.
@@ -73,6 +128,12 @@ for (const page of PAGES) {
       );
     }
     await p.waitForTimeout(300);
+
+    // Content-level guard, run BEFORE the screenshot so a page that lost real
+    // content fails with a specific message instead of a pixel ratio.
+    if (page.name === 'community') {
+      await assertCommunityPromoRendered(p);
+    }
 
     await expect(p).toHaveScreenshot(path.basename(baseline), {
       // From MAX_DIFF_PIXEL_RATIO, which carries the platform measurement behind

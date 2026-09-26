@@ -1,21 +1,19 @@
-import { useMemo } from 'react';
-
 import CommunityShell from '../components/CommunityShell';
-import { useNews } from '../hooks/usePublicContent';
+import { useCommunityNews } from '../hooks/usePublicContent';
+import { buildPromoNews } from '../services/communityNews';
 import { articleHref, roomOccupancy } from '../services/legacy';
 import { legacyRoomId } from '../services/jsxLegacy';
-import type { NewsListItem, PromoNewsItem } from '../types/api';
 
 /**
  * `community.php`.
  *
  * The page mixes four habblets: a recommended-rooms tab, a recent-discussions
- * tab, the "random Habbos" imagemap, and the news promo in `#column2`. Only the
- * news promo is backed by a public endpoint (`/api/public/news`); there is no
- * anonymous route for rooms, forum threads, hotel-view news or the online
- * count, so those habblets keep their complete legacy markup skeleton and
- * render the empty data sets the legacy page produced when its queries
- * returned nothing.
+ * tab, the "random Habbos" imagemap, and the news promo in `#column2`. The news
+ * promo is backed by `/api/public/community-news`, which serves the
+ * **`hotelview_news`** table — the one `community.php` actually reads. There is
+ * no anonymous route for rooms, forum threads or the online count, so those
+ * habblets keep their complete legacy markup skeleton and render the empty data
+ * sets the legacy page produced when its queries returned nothing.
  *
  * The imagemap coordinates and placeholder ids are copied verbatim from the
  * PHP because `activehomes.js` and the imagemap's `usemap="#habbomap"`
@@ -31,27 +29,6 @@ const NEWS_MORE = 'More news';
 /** Legacy `$lang->loc['news.previous']` / `$lang->loc['news.next']`. */
 const NEWS_PREVIOUS = 'Previous';
 const NEWS_NEXT = 'Next';
-
-/**
- * `community.php` padded the five `hotelview_news` rows it read to exactly five
- * entries before rendering, so the widget always emits five slots. There is no
- * public endpoint for `hotelview_news`, so every slot is the empty filler the
- * PHP pushed, which is what produced the five blank permalinks.
- */
-function buildPromoNews(items: NewsListItem[]): PromoNewsItem[] {
-  const news: PromoNewsItem[] = items.slice(0, 5).map((item) => ({
-    id: item.id,
-    title: item.title,
-    title_safe: item.title_safe,
-    summary: item.summary,
-    header_image: '',
-    date: '',
-  }));
-  while (news.length < 5) {
-    news.push({ id: 0, title: '', title_safe: '', summary: '', header_image: '', date: '' });
-  }
-  return news;
-}
 
 interface RoomRow {
   id: number;
@@ -141,8 +118,8 @@ function TopicList({ topics }: { topics: TopicRow[] }) {
 }
 
 export default function CommunityPage() {
-  const { data: newsData } = useNews(5);
-  const news = useMemo(() => buildPromoNews(newsData?.items ?? []), [newsData]);
+  const { data: newsData } = useCommunityNews(5);
+  const news = buildPromoNews(newsData?.items ?? []);
 
   return (
     <>

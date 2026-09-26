@@ -1,0 +1,45 @@
+// Diagnostic: capture the current /community page at the exact parity viewport,
+// using the same pinned Chromium and font set as the visual baselines:
+//
+//   docker run --rm -i --network host \
+//     -v "$PWD:/repo:ro" -v "$PWD/tests/e2e/.out:/out" \
+//     -e BASE_NEW=http://localhost:3000 \
+//     -e PLAYWRIGHT_ARGS=parity-shot.spec.ts \
+//     -e SHOT_NAME=community-after.png \
+//     mcr.microsoft.com/playwright:v1.63.0-noble bash /repo/tests/e2e/run-in-container.sh
+//
+// NOT a parity test: it asserts nothing. It exists so a change can be eyeballed
+// against the committed baseline under identical rendering conditions, instead
+// of by taking a browser screenshot on the host (different engine, different
+// fonts, window chrome, unknown zoom).
+
+import { test } from '@playwright/test';
+import { envOr } from './pages';
+import { VIEWPORT } from './playwright.config';
+
+const BASE_NEW = envOr('BASE_NEW', 'http://localhost:3000');
+const SHOT_NAME = envOr('SHOT_NAME', 'community-after.png');
+const SHOT_PATH = envOr('SHOT_PATH', '/community');
+
+test('parity shot', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: VIEWPORT });
+  const p = await context.newPage();
+  await p.goto(BASE_NEW + SHOT_PATH, { waitUntil: 'networkidle' });
+
+  await p.waitForFunction(
+    () =>
+      Array.from(document.querySelectorAll('link[rel="stylesheet"]')).every(
+        (l) => (l as HTMLLinkElement).sheet !== null,
+      ),
+    undefined,
+    { timeout: 10_000 },
+  );
+  await p.evaluate(() => document.fonts.ready);
+  await p.waitForTimeout(400);
+
+  await p.screenshot({ path: `/out/${SHOT_NAME}`, fullPage: false });
+  // eslint-disable-next-line no-console
+  console.log(`wrote /out/${SHOT_NAME}`);
+
+  await context.close();
+});

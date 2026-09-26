@@ -19,6 +19,8 @@ public:
     ADD_METHOD_TO(PublicContentController::landing,      "/api/public/landing",      drogon::Get);
     ADD_METHOD_TO(PublicContentController::news,         "/api/public/news",         drogon::Get);
     ADD_METHOD_TO(PublicContentController::newsItem,     "/api/public/news/{id}",    drogon::Get);
+    // The /community promo: a DIFFERENT table from /api/public/news.
+    ADD_METHOD_TO(PublicContentController::communityNews, "/api/public/community-news", drogon::Get);
     ADD_METHOD_TO(PublicContentController::faq,          "/api/public/faq",          drogon::Get);
     ADD_METHOD_TO(PublicContentController::collectibles, "/api/public/collectibles", drogon::Get);
     ADD_METHOD_TO(PublicContentController::banners,      "/api/public/banners",      drogon::Get);
@@ -34,6 +36,7 @@ public:
     void landing(const drogon::HttpRequestPtr& req, std::function<void(const drogon::HttpResponsePtr&)>&& cb);
     void news(const drogon::HttpRequestPtr& req, std::function<void(const drogon::HttpResponsePtr&)>&& cb);
     void newsItem(const drogon::HttpRequestPtr& req, std::function<void(const drogon::HttpResponsePtr&)>&& cb, const std::string& id);
+    void communityNews(const drogon::HttpRequestPtr& req, std::function<void(const drogon::HttpResponsePtr&)>&& cb);
     void faq(const drogon::HttpRequestPtr& req, std::function<void(const drogon::HttpResponsePtr&)>&& cb);
     void collectibles(const drogon::HttpRequestPtr& req, std::function<void(const drogon::HttpResponsePtr&)>&& cb);
     void banners(const drogon::HttpRequestPtr& req, std::function<void(const drogon::HttpResponsePtr&)>&& cb);

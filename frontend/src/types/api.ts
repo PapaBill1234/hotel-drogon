@@ -45,6 +45,27 @@ export interface NewsListResponse extends ApiEnvelope {
   count: number;
 }
 
+/**
+ * One row of `hotelview_news` — the `/community` "Latest news" promo.
+ *
+ * A DIFFERENT table from `NewsListItem`/`phpretro_news`. `community.php` read
+ * this one, `articles.php` read the other, and both shipped that way.
+ */
+export interface CommunityNewsItem {
+  id: number;
+  title: string;
+  /** RAW text. Legacy ran it through HoloText() + nl2br() at render time. */
+  text: string;
+  /** Site-relative sprite path, e.g. `web_promo_small/spromo_h20_calrew.png`. */
+  image: string;
+}
+
+/** `GET /api/public/community-news` */
+export interface CommunityNewsResponse extends ApiEnvelope {
+  items: CommunityNewsItem[];
+  count: number;
+}
+
 /** `GET /api/public/news/{id}` */
 export interface NewsArticle extends ApiEnvelope {
   id: number;

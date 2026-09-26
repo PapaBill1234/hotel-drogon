@@ -101,6 +101,7 @@ anon = make_opener()
 for path, label in [
     ("/api/public/landing", "landing"),
     ("/api/public/news", "news list"),
+    ("/api/public/community-news", "community promo (hotelview_news)"),
     ("/api/public/faq", "faq"),
     ("/api/public/collectibles", "collectibles"),
     ("/api/public/banners", "banners"),
@@ -115,6 +116,31 @@ print("\n[2] Raw markup is never published")
 status, raw, _ = request_raw(anon, "/api/public/banners")
 check("banner listing omits the raw html field", b'"html"' not in raw,
       f"body={raw[:200]}")
+
+print("\n[2b] The community promo reads hotelview_news, not phpretro_news")
+# /community and the frontpage use two DIFFERENT legacy news tables. The promo
+# widget rendered the wrong one, so assert the shape only hotelview_news has:
+# a `text` body field. `phpretro_news` rows carry `summary` instead, so a
+# regression that re-points the widget at the wrong table fails here even
+# though both endpoints return 200.
+status, raw, _ = request_raw(anon, "/api/public/community-news")
+check("GET /api/public/community-news", status == 200, f"status={status}")
+try:
+    promo = json.loads(raw)
+except ValueError as e:
+    promo = {}
+    check("community-news returns JSON", False, str(e))
+items = promo.get("items", [])
+if items:
+    first = items[0]
+    check("promo rows expose a hotelview_news `text` field", "text" in first,
+          f"keys={sorted(first)}")
+    check("promo rows do NOT expose the phpretro_news `summary` field",
+          "summary" not in first, f"keys={sorted(first)}")
+else:
+    # Not a failure on its own -- an operator may legitimately have no promo --
+    # but it must be visible, since an empty widget is the bug this guards.
+    print("  NOTE: hotelview_news is empty, so the promo renders blank slots")
 
 print("\n[3] RSS feed")
 status, raw, headers = request_raw(anon, "/articles/rss.xml")

@@ -1,6 +1,10 @@
 # Build artifacts
 build/
 out/
+# The pinned-container runner mounts its artefacts here (`tests/e2e/.out`).
+# Dot-prefixed, so the `out/` rule above does NOT match it -- it showed up as
+# untracked after every local parity run until it was listed explicitly.
+tests/e2e/.out/
 cmake-build-*/
 CMakeCache.txt
 CMakeFiles/

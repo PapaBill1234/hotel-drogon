@@ -87,6 +87,25 @@ struct PublicNewsItem {
     uint64_t time = 0;
 };
 
+// One `hotelview_news` row: the "Latest news" promo widget on /community.
+//
+// NOT the same content as NewsArticle/phpretro_news. The legacy app kept two
+// independent news tables, and `community.php` reads THIS one:
+//
+//   community.php:372  SELECT ... FROM hotelview_news ORDER BY id DESC LIMIT 5
+//   articles.php:17    SELECT ... FROM phpretro_news  WHERE id = ?
+//
+// The new /community read `phpretro_news` instead, so the promo widget rendered
+// the wrong articles (and, once the published list ran short, blank filler).
+// `text` is raw; the page escapes it and applies nl2br, exactly as
+// `$input->HoloText()` + `nl2br()` did.
+struct HotelviewNews {
+    uint32_t id = 0;
+    std::string title;
+    std::string text;
+    std::string image;  // site-relative path, e.g. web_promo_small/x.png
+};
+
 // ------------------------------------------------------------ validation
 
 // Result of a write attempt. `error` is a developer-facing message; `field`
@@ -135,6 +154,14 @@ public:
     static void deleteNews(
         uint32_t actorId, uint32_t id, const std::string& ip,
         std::function<void(ContentResult)> callback);
+
+    // --- hotelview_news (the /community "Latest news" promo) -----------
+    // Read-only on the public surface. `community.php` only ever SELECTed this
+    // table; its rows ship with the legacy schema dump (CleanDB.sql) and no
+    // legacy admin page wrote them, so there is no admin CRUD to port yet.
+    static void listHotelviewNews(
+        uint32_t limit,
+        std::function<void(std::vector<HotelviewNews>)> callback);
 
     // --- FAQ ----------------------------------------------------------
     static void listFaq(

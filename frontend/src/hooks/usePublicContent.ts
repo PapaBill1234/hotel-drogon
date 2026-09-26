@@ -11,6 +11,7 @@ import {
   fetchBanners,
   fetchCampaigns,
   fetchCollectibles,
+  fetchCommunityNews,
   fetchFaq,
   fetchLanding,
   fetchMaintenance,
@@ -23,6 +24,7 @@ export const queryKeys = {
   landing: ['public', 'landing'] as const,
   news: (limit?: number) => ['public', 'news', limit ?? 'default'] as const,
   newsItem: (id: number) => ['public', 'news', 'item', id] as const,
+  communityNews: ['public', 'community-news'] as const,
   faq: ['public', 'faq'] as const,
   collectibles: ['public', 'collectibles'] as const,
   banners: ['public', 'banners'] as const,
@@ -53,6 +55,19 @@ export function useNewsItem(id: number | null) {
     queryKey: queryKeys.newsItem(id ?? 0),
     queryFn: ({ signal }) => fetchNewsItem(id as number, signal),
     enabled: id !== null,
+  });
+}
+
+/**
+ * `/api/public/community-news` — the `hotelview_news` promo on `/community`.
+ *
+ * Separate from `useNews`: the legacy app read two different news tables, and
+ * this widget was always fed by `hotelview_news`.
+ */
+export function useCommunityNews(limit?: number) {
+  return useQuery({
+    queryKey: queryKeys.communityNews,
+    queryFn: ({ signal }) => fetchCommunityNews(limit, signal),
   });
 }
 
