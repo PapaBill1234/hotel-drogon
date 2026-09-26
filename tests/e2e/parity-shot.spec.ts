@@ -19,7 +19,11 @@ import { VIEWPORT } from './playwright.config';
 
 const BASE_NEW = envOr('BASE_NEW', 'http://localhost:3000');
 const SHOT_NAME = envOr('SHOT_NAME', 'community-after.png');
-const SHOT_PATH = envOr('SHOT_PATH', '/community');
+// `TARGET_PATH` is the name every other diagnostic in this directory uses;
+// `SHOT_PATH` is accepted as an alias because this spec shipped with it. Passing
+// neither silently captures the default below, which is how an audit shot of
+// /forgot once came back as /community without anything failing.
+const SHOT_PATH = process.env.TARGET_PATH ?? envOr('SHOT_PATH', '/community');
 // Optional: sign in first, so an authenticated page can be captured too. A
 // signed-out context reaches /me only as the sign-in form, which is not what
 // most of these shots are for.
