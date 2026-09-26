@@ -6,6 +6,7 @@
 #include "utils/Config.h"
 #include "utils/Readiness.h"
 #include "services/ContentService.h"
+#include "services/TransactionService.h"
 #include <functional>
 #include <memory>
 #include <string>
@@ -197,22 +198,35 @@ int main(int argc, char* argv[]) {
                         // username-dependent: sha1(password . strtolower(username)).
                         //   admin    -> sha1('password123admin')    = 688a8dacaad619c69b4091eb624dae82004c3afd
                         //   testuser -> sha1('password123testuser') = 023f158f3fa0cfe32dfdd8a9884b8e1b1f07a1bd
-                        *db << "INSERT IGNORE INTO users (id, username, real_name, password, mail, rank, motto) VALUES "
-                               "(1, 'admin', 'Hotel Administrator', '688a8dacaad619c69b4091eb624dae82004c3afd', 'admin@hotel.local', 7, 'Hotel Administrator'), "
-                               "(2, 'testuser', 'Test User', '023f158f3fa0cfe32dfdd8a9884b8e1b1f07a1bd', 'test@hotel.local', 1, 'Exploring the hotel!')"
-                            >> [](const drogon::orm::Result&) {
-                                   HOTEL_LOG_INFO("Default test user and admin seeded successfully.");
-                                   // Schema and seed are both done: now, and only
-                                   // now, does /health report ready.
-                                   hotel::utils::Readiness::markReady();
-                               }
-                            >> [](const drogon::orm::DrogonDbException& e) {
-                                   HOTEL_LOG_WARN("Seeding default users: {}", e.base().what());
-                                   // Deliberately NOT marking ready: a failed seed
-                                   // must surface as unhealthy rather than as a
-                                   // stack that claims to be up but cannot log
-                                   // anyone in.
-                               };
+                        //
+                        // The ledger table is created first, through its own
+                        // sequencer, and the seed runs only from its completion
+                        // callback. Same rule as everywhere else in this block: a
+                        // `<<` is asynchronous, so without the chain the ledger
+                        // CREATE could still be in flight when readiness is
+                        // signalled.
+                        auto seedUsers = [db]() {
+                            *db << "INSERT IGNORE INTO users (id, username, real_name, password, mail, rank, motto) VALUES "
+                                   "(1, 'admin', 'Hotel Administrator', '688a8dacaad619c69b4091eb624dae82004c3afd', 'admin@hotel.local', 7, 'Hotel Administrator'), "
+                                   "(2, 'testuser', 'Test User', '023f158f3fa0cfe32dfdd8a9884b8e1b1f07a1bd', 'test@hotel.local', 1, 'Exploring the hotel!')"
+                                >> [](const drogon::orm::Result&) {
+                                       HOTEL_LOG_INFO("Default test user and admin seeded successfully.");
+                                       // Schema and seed are both done: now, and only
+                                       // now, does /health report ready.
+                                       hotel::utils::Readiness::markReady();
+                                   }
+                                >> [](const drogon::orm::DrogonDbException& e) {
+                                       HOTEL_LOG_WARN("Seeding default users: {}", e.base().what());
+                                       // Deliberately NOT marking ready: a failed seed
+                                       // must surface as unhealthy rather than as a
+                                       // stack that claims to be up but cannot log
+                                       // anyone in.
+                                   };
+                        };
+
+                        // Website-owned ledger: `phpretro_transactions`, shape
+                        // taken from legacy migrations/001_custom_tables.sql.
+                        hotel::services::TransactionService::ensureSchema(db, seedUsers);
                     };
                     (*step)(0);
                 });

@@ -35,7 +35,8 @@ interface CommunityShellProps {
     | 'pixels'
     | 'help'
     | 'me'
-    | 'profile';
+    | 'profile'
+    | 'history';
   /** Legacy `$page['cat']`, which chooses the secondary navigation strip. */
   cat: PageCat;
   /** Legacy `<title>` content: `SHORTNAME . ": " . $page['name']`. */

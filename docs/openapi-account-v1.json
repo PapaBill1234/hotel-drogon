@@ -8,7 +8,8 @@
   "servers": [{ "url": "/", "description": "Same origin as the React application" }],
   "tags": [
     { "name": "Auth" },
-    { "name": "Account" }
+    { "name": "Account" },
+    { "name": "Credits" }
   ],
   "paths": {
     "/api/auth/login": {
@@ -147,6 +148,34 @@
           "403": { "$ref": "#/components/responses/CsrfForbidden" }
         }
       }
+    },
+    "/api/account/purse": {
+      "get": {
+        "tags": ["Credits"],
+        "operationId": "getPurse",
+        "summary": "Read the signed-in user's Coin, Pixel and Point balances",
+        "description": "The converted `credits.php` purse block. Reads the live PolarIS `users` row rather than summing the ledger: the row is the balance of record, and the ledger only records what the website itself changed, so a balance derived from it would disagree with the emulator. Takes no user id — the subject is always the session's own user. 401 without a usable public session; 404 when the session is valid but the row is gone.",
+        "security": [{ "userSession": [] }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/PurseSuccess" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/UserNotFound" }
+        }
+      }
+    },
+    "/api/account/transactions": {
+      "get": {
+        "tags": ["Credits"],
+        "operationId": "listTransactions",
+        "summary": "Read the signed-in user's own transaction ledger",
+        "description": "The converted `history.php`: the caller's rows from `phpretro_transactions`, newest first with `id` as the tiebreak, capped at 100. The query is scoped by the session's user id and the route accepts no user parameter, so another account's ledger is not reachable through it. An empty `items` array is the normal answer on a stack whose ledger was never written: only the housekeeping credit adjustment and the MyHabbo Homes store write rows, and neither is ported yet.",
+        "security": [{ "userSession": [] }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/TransactionsSuccess" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/UserNotFound" }
+        }
+      }
     }
   },
   "components": {
@@ -192,7 +221,31 @@
       "MottoResponse": { "type": "object", "required": ["status", "motto"], "properties": { "status": { "const": "ok" }, "motto": { "type": "string" } } },
       "LookResponse": { "type": "object", "required": ["status", "look", "gender"], "properties": { "status": { "const": "ok" }, "look": { "type": "string" }, "gender": { "type": "string" } } },
       "EmailResponse": { "type": "object", "required": ["status", "email", "mail_verified"], "properties": { "status": { "const": "ok" }, "email": { "type": "string" }, "mail_verified": { "const": false } } },
-      "PasswordResponse": { "type": "object", "required": ["status", "message"], "properties": { "status": { "const": "ok" }, "message": { "const": "Password successfully changed." } } }
+      "PasswordResponse": { "type": "object", "required": ["status", "message"], "properties": { "status": { "const": "ok" }, "message": { "const": "Password successfully changed." } } },
+      "PurseResponse": { "type": "object", "required": ["status", "credits", "pixels", "points"], "properties": { "status": { "const": "ok" }, "credits": { "type": "integer" }, "pixels": { "type": "integer" }, "points": { "type": "integer" } } },
+      "Transaction": {
+        "type": "object",
+        "required": ["id", "type", "amount", "balance_after", "description", "reference_id", "created_at"],
+        "properties": {
+          "id": { "type": "integer" },
+          "type": { "type": "string", "description": "Ledger row kind. The two the legacy writers produce are admin_grant (housekeeping credit adjustment) and homes_store (MyHabbo store purchase)." },
+          "amount": { "type": "integer", "description": "Signed: negative is a debit." },
+          "balance_after": { "type": "integer" },
+          "description": { "type": "string" },
+          "reference_id": { "type": "string", "description": "Empty when the column is NULL; the schema allows NULL." },
+          "created_at": { "type": "integer", "description": "Unix epoch seconds." }
+        }
+      },
+      "TransactionsResponse": {
+        "type": "object",
+        "required": ["status", "items", "count", "limit"],
+        "properties": {
+          "status": { "const": "ok" },
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/Transaction" } },
+          "count": { "type": "integer" },
+          "limit": { "type": "integer", "description": "The server's page cap (100, as history.php used)." }
+        }
+      }
     },
     "responses": {
       "LoginSuccess": {
@@ -215,6 +268,8 @@
       "LookSuccess": { "description": "Stored look and effective gender.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LookResponse" } } } },
       "EmailSuccess": { "description": "Stored email with mail_verified reset to false.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EmailResponse" } } } },
       "PasswordSuccess": { "description": "Password changed.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PasswordResponse" } } } },
+      "PurseSuccess": { "description": "Balances read from the live PolarIS users row.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PurseResponse" } } } },
+      "TransactionsSuccess": { "description": "The caller's own ledger page, newest first. items may be empty.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TransactionsResponse" } } } },
       "InvalidJson": { "description": "JSON body could not be read.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "Unauthorized": { "description": "Invalid credentials or missing/expired public session, depending on route.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "Forbidden": { "description": "Insufficient staff rank.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },

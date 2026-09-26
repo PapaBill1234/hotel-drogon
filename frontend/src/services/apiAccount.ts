@@ -38,6 +38,8 @@ import type {
   ProfileLookResponse,
   ProfileMottoRequest,
   ProfileMottoResponse,
+  PurseResponse,
+  TransactionsResponse,
   User,
 } from '../types/account';
 
@@ -168,6 +170,37 @@ export function changePassword(
     path: `${ACCOUNT_API_BASE}/account/password`,
     body,
     csrf: true,
+    signal,
+  });
+}
+
+/**
+ * `GET /api/account/purse` — the signed-in user's Coin, Pixel and Point balances.
+ *
+ * The legacy `/credits` page read these from the user row (`credits.php`'s
+ * `#purse-habblet`); this is the same read over JSON. There is no user id
+ * parameter: the balance served is always the caller's own.
+ */
+export function fetchPurse(signal?: AbortSignal): Promise<PurseResponse> {
+  return requestJson<PurseResponse>({
+    method: 'GET',
+    path: `${ACCOUNT_API_BASE}/account/purse`,
+    csrf: false,
+    signal,
+  });
+}
+
+/**
+ * `GET /api/account/transactions` — the caller's own ledger, newest first.
+ *
+ * Same ownership property as `fetchPurse`: the server takes the user from the
+ * session, so there is no id to tamper with.
+ */
+export function fetchTransactions(signal?: AbortSignal): Promise<TransactionsResponse> {
+  return requestJson<TransactionsResponse>({
+    method: 'GET',
+    path: `${ACCOUNT_API_BASE}/account/transactions`,
+    csrf: false,
     signal,
   });
 }

@@ -11,7 +11,7 @@ legacy PHPRetro PHP application and the abandoned Laravel/Inertia attempt.
   https://github.com/PapaBill1234/PHPRetro-PDO
 
 Status: **Phases 1, 2b, 3 and 4 narrow exits verified; Phase 5's existing-user
-account journey now works through React.** See [current
+journey — profile and credits — now works through React.** See [current
 state](docs/ai-run-state.md) and [feature
 inventory](docs/phase1-parity-inventory.md) for the release gaps.
 
@@ -74,6 +74,7 @@ ACCOUNT_CONTRACT_DISPOSABLE=1 python3 scripts/check_account_contract.py http://l
 # Browser suites (each gated so a bare `npx playwright test` keeps its
 # visual-parity meaning). From tests/e2e:
 #   PLAYWRIGHT_ACCOUNT=1 npx playwright test account.spec.ts
+#   PLAYWRIGHT_CREDITS=1 npx playwright test credits.spec.ts
 #   PLAYWRIGHT_ADMIN=1   npx playwright test admin.spec.ts
 ```
 
@@ -101,11 +102,22 @@ double-submit CSRF.
 
 **Account routes keep the legacy URL shape.** `/account` is the sign-in screen
 (`account.php`), `/me` is `me.php`, `/account/profile` is `profile.php`, and
-`/logout` ends the public session. The signed-in branch of the page header is
-rendered by `CommunityShell` from the same `community_header.php` markup, so
-`v2/styles/personal.css` styles `/me` with the classes it was written for. A
-guarded page renders the sign-in form **in place** rather than redirecting, which
-is what `includes/session.php` achieved by carrying the original destination.
+`/logout` ends the public session. `/credits` is `credits.php` (the purse) and
+`/credits/history` is `history.php` (the ledger), which is the path the legacy
+purse itself linked to. The signed-in branch of the page header is rendered by
+`CommunityShell` from the same `community_header.php` markup, so the legacy
+stylesheets style these pages with the classes they were written for. A guarded
+page renders the sign-in form **in place** rather than redirecting, which is what
+`includes/session.php` achieved by carrying the original destination.
+
+**The Coin balance comes from the user row; the ledger only records changes.**
+`/api/account/purse` reads PolarIS `users.credits`, as `credits.php` did.
+`/api/account/transactions` serves the caller's own `phpretro_transactions` rows
+through `TransactionService`. Neither route takes a user id — the subject is
+always the session's user — so another account's balance or ledger is not
+reachable through them. The ledger's only writers are the housekeeping credit
+adjustment (Phase 9) and the MyHabbo Homes store (Phase 8), so an empty history
+on a fresh stack is expected, not broken.
 
 **Two modules may open a request, one per surface.** `services/api.ts` (public,
 including the account routes) and `services/apiAdmin.ts` (staff).

@@ -37,15 +37,31 @@ import type { User } from '../types/account';
 interface AccountPageProps {
   /** Legacy `$page['name']`, used for `<title>`. */
   pageName: string;
+  /**
+   * Legacy `$page['id']` / `$page['cat']`, passed through to `CommunityShell`.
+   *
+   * The account pages do not all share one: `me.php` and `profile.php` are
+   * `cat = 'home'` with no secondary navigation strip, while `credits.php` is
+   * `cat = 'credits'` and renders the Coins/Habbo Club/Collectables/Pixels strip
+   * with Coins selected. Defaulting to the profile pair keeps the common case
+   * terse without forcing the credits pages to accept the wrong strip.
+   */
+  pageId?: 'me' | 'credits' | 'history';
+  cat?: 'home' | 'credits';
   children: (user: User) => ReactNode;
 }
 
-export default function AccountPage({ pageName, children }: AccountPageProps) {
+export default function AccountPage({
+  pageName,
+  pageId = 'me',
+  cat = 'home',
+  children,
+}: AccountPageProps) {
   const { data, error, isPending, isError } = useMe();
 
   if (isPending) {
     return (
-      <AccountFrame pageName={pageName}>
+      <AccountFrame pageName={pageName} pageId={pageId} cat={cat}>
         <p data-testid="account-loading">Loading your account…</p>
       </AccountFrame>
     );
@@ -58,7 +74,7 @@ export default function AccountPage({ pageName, children }: AccountPageProps) {
       return <LoginPage />;
     }
     return (
-      <AccountFrame pageName={pageName}>
+      <AccountFrame pageName={pageName} pageId={pageId} cat={cat}>
         <p data-testid="account-error">
           Your account could not be loaded
           {status !== undefined ? ` (HTTP ${status})` : ''}. Please try again.
@@ -72,16 +88,26 @@ export default function AccountPage({ pageName, children }: AccountPageProps) {
   }
 
   return (
-    <CommunityShell pageId="me" cat="home" pageName={pageName} signedInAs={data.user.username}>
+    <CommunityShell pageId={pageId} cat={cat} pageName={pageName} signedInAs={data.user.username}>
       {children(data.user)}
     </CommunityShell>
   );
 }
 
 /** The plain `#column1` box these pages share, for the non-content states. */
-function AccountFrame({ pageName, children }: { pageName: string; children: ReactNode }) {
+function AccountFrame({
+  pageName,
+  pageId,
+  cat,
+  children,
+}: {
+  pageName: string;
+  pageId: 'me' | 'credits' | 'history';
+  cat: 'home' | 'credits';
+  children: ReactNode;
+}) {
   return (
-    <CommunityShell pageId="me" cat="home" pageName={pageName}>
+    <CommunityShell pageId={pageId} cat={cat} pageName={pageName}>
       <div id="container">
         <div id="content" className="clearfix">
           <div id="column1" className="column">

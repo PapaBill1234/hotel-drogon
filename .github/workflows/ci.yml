@@ -324,6 +324,20 @@ jobs:
           BASE_NEW: http://localhost:3000
         run: npx playwright test account.spec.ts
 
+      # The Phase 5 credits surface: the converted credits.php purse and the
+      # converted history.php ledger. This suite seeds and removes its own two
+      # ledger rows through `docker exec` — the ledger deliberately has no write
+      # route, so there is no API to seed through — which is why it needs the
+      # stack's container name and therefore runs here rather than in the parity
+      # container. It cleans up after itself, so the parity comparison below sees
+      # the same empty ledger it saw before this step existed.
+      - name: Credits and ledger browser flow (Phase 5 credits slice)
+        working-directory: tests/e2e
+        env:
+          PLAYWRIGHT_CREDITS: '1'
+          BASE_NEW: http://localhost:3000
+        run: npx playwright test credits.spec.ts
+
       # The comparison runs in the PINNED Playwright container, not on the
       # runner's own Chromium. The image pins the Chromium build *and* the font
       # set, which is what makes the comparison environment genuinely the same as

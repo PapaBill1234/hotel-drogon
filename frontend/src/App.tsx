@@ -20,6 +20,8 @@ import LoginPage from './pages/account/LoginPage';
 import LogoutPage from './pages/account/LogoutPage';
 import MePage from './pages/account/MePage';
 import ProfilePage from './pages/account/ProfilePage';
+import WalletPage from './pages/account/WalletPage';
+import TransactionHistoryPage from './pages/account/TransactionHistoryPage';
 
 /**
  * The legacy stylesheets target body-level selectors (`body#news #column1`,
@@ -47,6 +49,11 @@ const BODY_BY_PATH: Record<string, { id: string; className: string }> = {
   '/help': { id: 'home', className: 'anonymous' }, // help.php
   '/credits/collectables': { id: 'home', className: 'anonymous' }, // collectables.php
   '/maintenance': { id: '', className: '' }, // maintenance_header.php: plain <body>
+  // credits.php and history.php both set $page['bodyid'] = 'home' and require
+  // community_header.php. credits.php allows guests; history.php does not, and
+  // the class is empty either way once a user is signed in.
+  '/credits': { id: 'home', className: '' },
+  '/credits/history': { id: 'home', className: '' },
   // me.php and profile.php both set $page['bodyid'] = 'home' and require
   // community_header.php, which adds class="anonymous" only for a guest — these
   // two routes are guest-refused, so the class is empty.
@@ -141,6 +148,10 @@ export default function App() {
         <Route path="/logout" element={<LogoutPage />} />
         <Route path="/me" element={<MePage />} />
         <Route path="/account/profile" element={<ProfilePage />} />
+        {/* credits.php and history.php. The legacy transactions link was
+            `/credits/history`, so that path is kept verbatim. */}
+        <Route path="/credits" element={<WalletPage />} />
+        <Route path="/credits/history" element={<TransactionHistoryPage />} />
 
         <Route path="/housekeeping" element={<AdminLayout />}>
           <Route index element={<AdminHomePage />} />

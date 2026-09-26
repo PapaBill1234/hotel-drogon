@@ -166,6 +166,8 @@ function MeContent({ user }: { user: User }) {
                   <li className="small" id="feed-account-actions">
                     <a href="/account/profile">Edit your profile</a>
                     {' | '}
+                    <a href="/credits/history">Transaction history</a>
+                    {' | '}
                     <button
                       type="button"
                       onClick={onLogout}

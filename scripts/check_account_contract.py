@@ -117,12 +117,14 @@ def main():
         ("/api/auth/login", "options"), ("/api/auth/staff-login", "options"),
         ("/api/auth/logout", "post"), ("/api/me", "get"),
         *((f"/api/account/{name}", "post") for name in ("motto", "look", "email", "password")),
+        # Phase 5 credits surface, served by CreditsController.
+        ("/api/account/purse", "get"), ("/api/account/transactions", "get"),
     }
     actual = {(path, method) for path, methods in SPEC["paths"].items()
               for method in methods if method in ("get", "post", "put", "delete", "patch", "options")}
-    check(actual == expected, "first slice has eight paths and ten explicit operations")
+    check(actual == expected, "documented first slice matches the expected path and method set")
     headers = "\n".join((ROOT / "include/controllers" / name).read_text(encoding="utf-8")
-                        for name in ("AuthController.h", "AccountController.h"))
+                        for name in ("AuthController.h", "AccountController.h", "CreditsController.h"))
     routes = {(path, method.lower()) for path, method in
               re.findall(r'ADD_METHOD_TO\([^,]+,\s*"([^"]+)",\s*drogon::(Get|Post)', headers)}
     options = set(re.findall(r'ADD_METHOD_TO\([^,]+,\s*"([^"]+)",\s*drogon::Post,\s*drogon::Options', headers))
@@ -157,6 +159,22 @@ def main():
     check(me["user"]["username"] == "testuser" and me["csrf_token"] == token,
           "authenticated profile and CSRF token")
     old = {key: me["user"][key] for key in ("motto", "look", "gender", "mail")}
+
+    # --- Phase 5 credits surface -------------------------------------------
+    # Both routes are reads, so neither is CSRF-filtered; the property to assert
+    # is that they refuse an anonymous caller rather than serving anything.
+    request("GET", "/api/account/purse", 401)
+    request("GET", "/api/account/transactions", 401)
+    purse, _ = request("GET", "/api/account/purse", 200, cookies=cookies)
+    check(purse["credits"] == me["user"]["credits"]
+          and purse["pixels"] == me["user"]["pixels"]
+          and purse["points"] == me["user"]["points"],
+          "purse balances agree with /api/me")
+    ledger, _ = request("GET", "/api/account/transactions", 200, cookies=cookies)
+    check(ledger["limit"] == 100, "ledger page cap matches history.php")
+    check(isinstance(ledger["items"], list) and ledger["count"] == len(ledger["items"]),
+          "ledger count matches the items it returned")
+    check(ledger["count"] == 0, "a disposable stack starts with an empty ledger")
 
     request("POST", "/api/account/motto", 403, {"motto": "test"}, cookies=cookies)
     request("POST", "/api/account/motto", 403, {"motto": "test"}, cookies=cookies, csrf="wrong")
