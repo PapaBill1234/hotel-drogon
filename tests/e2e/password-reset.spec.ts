@@ -36,7 +36,6 @@ import { envOr } from './pages';
 const BASE_NEW = envOr('BASE_NEW', 'http://localhost:3000');
 const PLAIN_USER = envOr('PLAIN_USER', 'testuser');
 const PLAIN_PASS = envOr('PLAIN_PASS', 'password123');
-const USER_MAIL = envOr('PLAIN_MAIL', 'testuser@hotel.local');
 const TESTUSER_ID = 2;
 
 /** A token this suite chooses, so it can seed the Redis key the server would. */
@@ -52,11 +51,38 @@ async function sql(statement: string): Promise<void> {
   );
 }
 
+/** Read one scalar from the stack's database, trimming the mysql table chrome. */
+async function sqlScalar(statement: string): Promise<string> {
+  const out = execFileSync(
+    'docker',
+    [
+      'exec', 'hotel_mariadb',
+      'mysql', '-N', '-B', '-uhotel', '-photel_secret', 'polaris',
+      '-e', statement,
+    ],
+    { stdio: 'pipe' },
+  ).toString();
+  return out.split('\n')[0]?.trim() ?? '';
+}
+
 async function redis(...args: string[]): Promise<string> {
   return execFileSync('docker', ['exec', 'hotel_redis', 'redis-cli', ...args], {
     stdio: 'pipe',
   }).toString();
 }
+
+/**
+ * The address the suite works against, read from the database rather than assumed.
+ *
+ * `main.cpp` seeds `test@hotel.local`, but another suite moves the address and
+ * puts it back, so the value differs between a developer's database and a fresh
+ * CI one. Hard-coding it made this suite pass locally and fail in CI, where the
+ * seeded value is `main.cpp`'s. Reading it also lets the suite restore exactly
+ * what it found.
+ */
+let userMail = '';
+/** The verification state this suite found, restored on the way out. */
+let mailWasVerified = false;
 
 /** Mark the seeded address verified, as legacy's flow requires. */
 async function verifyFixtureMail(): Promise<void> {
@@ -64,8 +90,12 @@ async function verifyFixtureMail(): Promise<void> {
 }
 
 async function restoreFixture(): Promise<void> {
+  // Restore the verification state that was found, not a hard-coded one: a fresh
+  // CI database has `mail_verified = 0`, but a developer's may not, and the
+  // difference is exactly what made this suite environment-dependent.
   await sql(
-    `UPDATE users SET mail_verified = 0, password = '023f158f3fa0cfe32dfdd8a9884b8e1b1f07a1bd' ` +
+    `UPDATE users SET mail_verified = ${mailWasVerified ? 1 : 0}, ` +
+      `password = '023f158f3fa0cfe32dfdd8a9884b8e1b1f07a1bd' ` +
       `WHERE id = ${TESTUSER_ID};`,
   );
   await redis('DEL', REDIS_KEY);
@@ -85,6 +115,9 @@ async function signIn(page: Page, username: string, password: string) {
 test.describe.configure({ mode: 'serial' });
 
 test.beforeAll(async () => {
+  userMail = await sqlScalar(`SELECT mail FROM users WHERE id = ${TESTUSER_ID};`);
+  mailWasVerified = (await sqlScalar(`SELECT mail_verified FROM users WHERE id = ${TESTUSER_ID};`)) === '1';
+  expect(userMail, 'the seeded account must have an email address to recover to').toContain('@');
   await verifyFixtureMail();
 });
 
@@ -128,7 +161,7 @@ if (process.env.PLAYWRIGHT_RESET !== '1') {
     const unmatched = await page.getByTestId('forgot-notice').textContent();
 
     await page.getByLabel('Account name').fill(PLAIN_USER);
-    await page.locator('#forgottenpw-email').fill(USER_MAIL);
+    await page.locator('#forgottenpw-email').fill(userMail);
     await page.getByTestId('forgot-submit').click();
     await expect(page.getByTestId('forgot-notice')).toHaveText(unmatched ?? '');
 
@@ -146,7 +179,7 @@ if (process.env.PLAYWRIGHT_RESET !== '1') {
   }) => {
     await page.goto(`${BASE_NEW}/account/password/forgot`);
 
-    await page.locator('#accountlist-owner-email').fill(USER_MAIL);
+    await page.locator('#accountlist-owner-email').fill(userMail);
     await page.getByTestId('username-submit').click();
 
     await expect(page.getByTestId('username-results')).toContainText(PLAIN_USER);
