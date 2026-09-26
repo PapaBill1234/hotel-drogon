@@ -46,6 +46,20 @@ public:
     static constexpr const char* USER_COOKIE_NAME = "hotel_session";
     static constexpr const char* STAFF_COOKIE_NAME = "hotel_staff_session";
     static constexpr const char* CSRF_COOKIE_NAME = "XSRF-TOKEN";
+
+    /**
+     * The remember-me pair, named exactly as the legacy site named them.
+     *
+     * `classes.php` set both: `rememberme` = "true" as a flag the front controller
+     * tested before redirecting to the token check, and `rememberme_token` as the
+     * credential itself. Keeping the same names means a browser carrying cookies
+     * from the legacy site is understood rather than silently ignored, and the
+     * legacy front-controller condition has a direct equivalent.
+     */
+    static constexpr const char* REMEMBER_FLAG_COOKIE_NAME = "rememberme";
+    static constexpr const char* REMEMBER_TOKEN_COOKIE_NAME = "rememberme_token";
+
+    /** The header required by `CsrfPublicFilter` on the pre-session routes. */
     static constexpr const char* CSRF_HEADER_NAME = "X-XSRF-TOKEN";
 
     static constexpr uint64_t USER_SESSION_TTL_SEC = 7 * 86400; // 7 days

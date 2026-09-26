@@ -88,6 +88,21 @@ export function csrfToken(): string {
   return readCookie(CSRF_COOKIE_NAME);
 }
 
+/**
+ * The readable remember-me flag cookie, named as the legacy site named it.
+ *
+ * Readable on purpose: the client tests it to decide whether attempting a
+ * remember-me restore is worth a request at all, which is the role the legacy
+ * front controller played when it read `$_COOKIE['rememberme']`. The credential
+ * itself is a separate, HttpOnly cookie that this code never sees.
+ */
+export const REMEMBER_FLAG_COOKIE_NAME = 'rememberme';
+
+/** Whether the browser holds the remember-me flag cookie. */
+export function hasRememberMeFlag(): boolean {
+  return readCookie(REMEMBER_FLAG_COOKIE_NAME) === 'true';
+}
+
 interface RequestJsonInit {
   method: 'GET' | 'POST';
   /** Absolute API path beginning with `/`. */

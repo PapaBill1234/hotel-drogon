@@ -37,6 +37,24 @@ public:
      */
     static std::string generateSsoTicket();
 
+    /**
+     * A remember-me token in the format the legacy website wrote.
+     *
+     * `includes/functions.php`'s `GenerateTicket("remember")`:
+     *
+     *   random(6) . "-" . bin2hex(random_bytes(10)) . "-" . bin2hex(random_bytes(10))
+     *
+     * Note what differs from the SSO ticket: the first segment is **six hex
+     * characters**, and the other two are ten *bytes* rendered as twenty hex
+     * characters each. The whole value is 6 + 1 + 20 + 1 + 20 = 48 characters.
+     *
+     * It is stored only as its SHA-256 hex digest in `users.remember_token_hash`
+     * (`varchar(64)` in PolarIS, which is exactly one SHA-256 digest in hex), and
+     * the raw value goes to the browser in the `rememberme_token` cookie. That
+     * asymmetry is the point: a database disclosure yields digests, not tokens.
+     */
+    static std::string generateRememberToken();
+
     // Password hashing & verification with legacy PHPRetro/PolarIS migration support
     static PasswordVerifyResult verifyPassword(
         std::string_view password,

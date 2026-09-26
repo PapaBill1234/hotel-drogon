@@ -1,8 +1,10 @@
 #include "services/UserAccountService.h"
 #include "services/BanService.h"
 #include "services/AuditService.h"
+#include "services/ContentService.h"
 #include "utils/Crypto.h"
 #include "utils/Logger.h"
+#include <algorithm>
 #include <chrono>
 
 // The password-reset methods use Drogon's Redis client and `drogon::app()`,
@@ -321,13 +323,130 @@ void UserAccountService::setRememberToken(
         return;
     }
 
+    // `users.remember_token_hash` and `users.remember_token_expires_at` are
+    // PolarIS columns; the digest is 64 hex characters and the column is
+    // varchar(64). A digest that does not fit would be silently truncated by
+    // MySQL and the token would never match again, so it is refused instead.
+    if (tokenHash.size() != 64) {
+        HOTEL_LOG_ERROR(
+            "UserAccountService::setRememberToken: digest is {} characters, expected 64",
+            tokenHash.size());
+        if (callback) callback(false);
+        return;
+    }
+
     *db << "UPDATE users SET remember_token_hash = ?, remember_token_expires_at = ? WHERE id = ?"
         << tokenHash << expiresAt << userId
-        >> [callback](const drogon::orm::Result& /*r*/) {
+        >> [userId, callback](const drogon::orm::Result& /*r*/) {
+            // Audited like the other credential-issuing paths: a new
+            // long-lived credential now exists for this account.
+            AuditService::logAction(userId, "issue_remember_token", "user", userId,
+                                    "Remember-me token issued", "");
             if (callback) callback(true);
         }
         >> [callback](const drogon::orm::DrogonDbException& e) {
             HOTEL_LOG_ERROR("UserAccountService::setRememberToken error: {}", e.base().what());
+            if (callback) callback(false);
+        };
+}
+
+uint32_t UserAccountService::rememberMeDays(const std::string& siteCookieTime) {
+    // Legacy read `site_cookie_time` and multiplied it into the expiry:
+    //   time() + (60 * 60 * 24 * (int) $settings->find("site_cookie_time"))
+    // The installer seeded it to 14 with the label "Rememberme Expire In /
+    // Number of days", so that is the fallback for a missing, non-numeric or
+    // non-positive value — the legacy default, not a number invented here.
+    //
+    // Pure on purpose: the caller reads the setting (an async query) and passes
+    // the raw string in, so the parsing and defaulting are unit-testable without
+    // a database. The earlier version did the read itself and could not compile,
+    // because Drogon 1.8.7's synchronous `<<` yields a binder rather than a
+    // result outside a coroutine.
+    constexpr uint32_t kDefaultDays = 14;
+    constexpr long kMaxDays = 3650; // ten years, a sane ceiling
+
+    if (siteCookieTime.empty()) {
+        return kDefaultDays;
+    }
+
+    try {
+        const long days = std::stol(siteCookieTime);
+        if (days <= 0) {
+            return kDefaultDays;
+        }
+        return static_cast<uint32_t>(std::min<long>(days, kMaxDays));
+    } catch (const std::exception&) {
+        HOTEL_LOG_WARN(
+            "UserAccountService::rememberMeDays: site_cookie_time is not a number ('{}'); "
+            "using {}",
+            siteCookieTime,
+            kDefaultDays);
+        return kDefaultDays;
+    }
+}
+
+void UserAccountService::findByRememberToken(
+    const std::string& tokenHash,
+    std::function<void(std::optional<UserRecord>)> callback
+) {
+    if (tokenHash.empty()) {
+        callback(std::nullopt);
+        return;
+    }
+
+    auto db = drogon::app().getDbClient("default");
+    if (!db) {
+        callback(std::nullopt);
+        return;
+    }
+
+    const auto now = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count());
+
+    // `security_check.php`'s predicate, reproduced: the digest must match AND the
+    // expiry must be strictly in the future. `LIMIT 1` because a digest collision
+    // is not contemplated; the column is not unique, so the limit keeps the
+    // result deterministic rather than leaving it to row order.
+    *db << "SELECT id, username, real_name, mail, mail_verified, rank, credits, pixels, points, "
+           "look, gender, motto, online, account_created, last_login, ip_current, auth_ticket "
+           "FROM users WHERE remember_token_hash = ? AND remember_token_expires_at > ? LIMIT 1"
+        << tokenHash << now
+        >> [callback](const drogon::orm::Result& r) {
+            if (r.empty()) {
+                callback(std::nullopt);
+            } else {
+                callback(mapUserRow(r[0]));
+            }
+        }
+        >> [callback](const drogon::orm::DrogonDbException& e) {
+            HOTEL_LOG_ERROR("UserAccountService::findByRememberToken error: {}", e.base().what());
+            callback(std::nullopt);
+        };
+}
+
+void UserAccountService::clearRememberToken(
+    uint32_t userId,
+    std::function<void(bool success)> callback
+) {
+    auto db = drogon::app().getDbClient("default");
+    if (!db) {
+        if (callback) callback(false);
+        return;
+    }
+
+    // Both columns to their PolarIS defaults, so the row is indistinguishable
+    // from one that never had a token.
+    *db << "UPDATE users SET remember_token_hash = '', remember_token_expires_at = 0 WHERE id = ?"
+        << userId
+        >> [userId, callback](const drogon::orm::Result& /*r*/) {
+            AuditService::logAction(userId, "clear_remember_token", "user", userId,
+                                    "Remember-me token cleared", "");
+            if (callback) callback(true);
+        }
+        >> [callback](const drogon::orm::DrogonDbException& e) {
+            HOTEL_LOG_ERROR("UserAccountService::clearRememberToken error: {}", e.base().what());
             if (callback) callback(false);
         };
 }

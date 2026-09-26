@@ -19,6 +19,7 @@ import {
   login,
   logout,
   reauthenticate,
+  rememberLogin,
   requestPasswordReset,
   requestUsernameReminder,
   resetPassword,
@@ -82,10 +83,38 @@ export function isUnauthenticated(error: unknown): boolean {
 export function useLogin() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ username, password }: { username: string; password: string }) =>
-      login(username, password),
+    mutationFn: ({
+      username,
+      password,
+      rememberMe = false,
+    }: {
+      username: string;
+      password: string;
+      rememberMe?: boolean;
+    }) => login(username, password, rememberMe),
     onSuccess: (user: User) => {
       queryClient.setQueryData(accountKeys.me, { status: 'ok', user, csrf_token: '' });
+    },
+  });
+}
+
+/**
+ * Restore a session from the remember-me cookie.
+ *
+ * The server spends the token and answers `reauth_required: true`, so the caller
+ * must send the visitor to the step-up screen rather than to a working page —
+ * that is the legacy contract, not a detail.
+ *
+ * Also resets the query cache on success for the same reason `HousekeepingLoginPage`
+ * does: answers cached while signed out (a 403, an empty purse) must not survive
+ * into the restored session.
+ */
+export function useRememberLogin() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => rememberLogin(),
+    onSuccess: async () => {
+      await queryClient.resetQueries();
     },
   });
 }

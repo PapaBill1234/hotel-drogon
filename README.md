@@ -77,6 +77,7 @@ ACCOUNT_CONTRACT_DISPOSABLE=1 python3 scripts/check_account_contract.py http://l
 #   PLAYWRIGHT_CREDITS=1 npx playwright test credits.spec.ts
 #   PLAYWRIGHT_CLIENT=1  npx playwright test client.spec.ts
 #   PLAYWRIGHT_RESET=1   npx playwright test password-reset.spec.ts
+#   PLAYWRIGHT_REMEMBER=1 npx playwright test remember-me.spec.ts
 #   PLAYWRIGHT_ADMIN=1   npx playwright test admin.spec.ts
 ```
 
@@ -147,6 +148,16 @@ session-bound token) cannot protect them. `CsrfPublicFilter` requires the
 without a preflight this application does not answer. It checks presence, not
 value, and says so; `scripts/check_csrf_rules.py` keeps an explicit list of those
 routes and still fails if one loses the filter.
+
+**Remember-me issues a credential, then demands the password anyway.** Ticking the
+header's "Remember me" box sets the legacy cookie pair (`rememberme` +
+`rememberme_token`, names from `classes.php`) and stores only the token's SHA-256
+digest in `users.remember_token_hash`; the lifetime is `site_cookie_time`, whose
+installer default is 14 days. When an anonymous request carries both cookies, a
+guarded page restores the session — which **always** carries `reauth_required`, so
+the step-up screen appears instead of page content until the password is proved.
+That was the legacy design: a token restored a session but never granted entry to
+the hotel. Signing out clears the stored digest, so a copied token stops working.
 
 **Two modules may open a request, one per surface.** `services/api.ts` (public,
 including the account routes) and `services/apiAdmin.ts` (staff).

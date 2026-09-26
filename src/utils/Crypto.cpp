@@ -79,6 +79,16 @@ std::string Crypto::generateSsoTicket() {
            segment(12);
 }
 
+std::string Crypto::generateRememberToken() {
+    // Legacy `GenerateTicket("remember")`:
+    //   substr(bin2hex(random_bytes(3)), 0, 6)   -> 6 hex chars
+    //   bin2hex(random_bytes(10))                -> 20 hex chars
+    //   bin2hex(random_bytes(10))                -> 20 hex chars
+    // joined by '-', 48 characters total. Written out rather than looped because
+    // the segments are deliberately not the same shape as the SSO ticket's.
+    return randomHex(3) + "-" + randomHex(10) + "-" + randomHex(10);
+}
+
 std::string Crypto::randomAlphanumeric(size_t length) {    static constexpr char charset[] =
         "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     std::vector<unsigned char> randBytes(length);

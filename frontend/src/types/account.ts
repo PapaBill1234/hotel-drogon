@@ -47,12 +47,41 @@ export interface AccountErrorBody extends ApiEnvelope {
 export interface LoginRequest {
   username: string;
   password: string;
+  /**
+   * The legacy remember-me flag, under the legacy field name.
+   *
+   * `classes.php` issued a token only when `$rememberme == "true"`, and the
+   * anonymous header's checkbox is `_login_remember_me` with that value, so the
+   * JSON field keeps the name rather than inventing a tidier one.
+   */
+  _login_remember_me?: string;
 }
 
-/** `POST /api/auth/login` and `GET /api/me` share this shape. */
+/**
+ * `POST /api/auth/remember-login`
+ *
+ * Establishes a session from the `rememberme_token` cookie. The session it
+ * creates always requires step-up: `reauth_required` is true by construction,
+ * which is the legacy design — a token restores a session but never grants entry
+ * to the hotel on its own.
+ */
+export interface RememberLoginResponse extends MeResponse {
+  reauth_required: boolean;
+}
+
+/**
+ * `POST /api/auth/login` and `GET /api/me` share this shape.
+ *
+ * `reauth_required` is returned by both, and by `remember-login` where it is
+ * always true. It is optional here because a client that has only seen a login
+ * response may be reading an older payload; treat a missing value as false, which
+ * is what the server's own reader does for a session document written before the
+ * field existed.
+ */
 export interface MeResponse extends ApiEnvelope {
   user: User;
   csrf_token: string;
+  reauth_required?: boolean;
 }
 
 export interface ProfileMottoRequest {

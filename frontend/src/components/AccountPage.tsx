@@ -1,8 +1,12 @@
+import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import CommunityShell from './CommunityShell';
 import LoginPage from '../pages/account/LoginPage';
-import { useMe } from '../hooks/useAccount';
+import { ReauthenticateScreen } from '../pages/account/ReauthenticatePage';
+import { useMe, useRememberLogin } from '../hooks/useAccount';
+import { hasRememberMeFlag } from '../services/apiAccount';
 import type { User } from '../types/account';
 
 /**
@@ -70,7 +74,14 @@ export default function AccountPage({
   if (isError && error !== null) {
     const status = (error as { status?: number }).status;
     if (status === 401) {
-      // No usable session: the sign-in form, in place, at this URL.
+      // No usable session. Before offering the sign-in form, try the remember-me
+      // token if the browser holds one — which is exactly when the legacy front
+      // controller consulted it (`$user->error == 1 && $_COOKIE['rememberme'] ==
+      // "true"`). The save/restore decision is the user's; this only honours a
+      // token they already asked for.
+      if (hasRememberMeFlag()) {
+        return <RememberMeRestore />;
+      }
       return <LoginPage />;
     }
     return (
@@ -87,10 +98,59 @@ export default function AccountPage({
     return <LoginPage />;
   }
 
+  // A session restored from a remember-me token is real but not yet privileged:
+  // it must prove the password before it can show anything. The screen is
+  // rendered here rather than reached by redirect, so the visitor stays on the
+  // page they asked for and gets it as soon as the step-up succeeds — the same
+  // destination `reauthenticate.php` restored from `$_SESSION['page']`.
+  if (data.reauth_required === true) {
+    return <ReauthenticateScreen username={data.user.username} />;
+  }
+
   return (
     <CommunityShell pageId={pageId} cat={cat} pageName={pageName} signedInAs={data.user.username}>
       {children(data.user)}
     </CommunityShell>
+  );
+}
+
+/**
+ * Spend the remember-me token and send the visitor to the step-up screen.
+ *
+ * The server answers `reauth_required: true` for a token-established session, so
+ * the destination is `/account/reauthenticate` and never the page they asked
+ * for: a restored session must prove the password before it can do anything.
+ *
+ * Runs once per mount (the ref guard). React 18's StrictMode mounts effects twice
+ * in development, and the token is single-use server-side — a second attempt
+ * would fail against a token the first attempt already spent, turning a working
+ * restore into an error.
+ */
+function RememberMeRestore() {
+  const { mutate } = useRememberLogin();
+  const navigate = useNavigate();
+  const started = useRef(false);
+
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    mutate(undefined, {
+      onSuccess: () => {
+        navigate('/account/reauthenticate', { replace: true });
+      },
+      onError: () => {
+        // The server clears the cookies when it refuses, so the next render sees
+        // no flag and falls through to the sign-in form. Reloading the query is
+        // what re-runs that decision.
+        navigate('/account', { replace: true });
+      },
+    });
+  }, [mutate, navigate]);
+
+  return (
+    <AccountFrame pageName="Restoring your session" pageId="me" cat="home">
+      <p data-testid="remember-restore">Restoring your session…</p>
+    </AccountFrame>
   );
 }
 

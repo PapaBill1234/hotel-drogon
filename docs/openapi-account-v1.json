@@ -177,6 +177,20 @@
         }
       }
     },
+    "/api/auth/remember-login": {
+      "post": {
+        "tags": ["Auth"],
+        "operationId": "rememberLogin",
+        "summary": "Restore a session from the remember-me cookie",
+        "description": "The consume side of remember-me. Legacy had no route for this: `core.php` redirected a request that was anonymous but carried the cookies to `/security_check_token`, a rewrite of `security_check.php?type=token`. A decoupled SPA has no server-side redirect to hook, so the client calls this when it finds itself signed out while holding a token. It requires BOTH cookies — `rememberme` must be the string \"true\" and `rememberme_token` must be present — which is the legacy front-controller condition; a stray token without its flag does nothing. Only the SHA-256 digest of the token is compared, because `users.remember_token_hash` stores the digest and never the token. The lookup requires `remember_token_expires_at` to be strictly in the future, and a banned account is refused, as `HoloUser::loginFromToken` did. **The session it creates always carries `reauth_required: true`** and the token is cleared, so a token restores a session but never grants entry to the hotel on its own — the holder must still prove the password at `/api/account/reauthenticate`. No CSRF token is required: this creates a session rather than acting inside one, exactly like login.",
+        "responses": {
+          "200": { "$ref": "#/components/responses/RememberLoginSuccess" },
+          "401": { "$ref": "#/components/responses/RememberTokenInvalid" },
+          "403": { "$ref": "#/components/responses/Banned" },
+          "500": { "$ref": "#/components/responses/StepUpFailure" }
+        }
+      }
+    },
     "/api/auth/password/forgot": {
       "post": {
         "tags": ["Auth"],
@@ -351,6 +365,16 @@
       "SessionStateResponse": { "type": "object", "required": ["status", "user_id", "username", "reauth_required"], "properties": { "status": { "const": "ok" }, "user_id": { "type": "integer" }, "username": { "type": "string" }, "reauth_required": { "type": "boolean", "description": "The legacy $_SESSION['reauthenticate'] flag: this session must prove the password before entering the hotel." } } },
       "ReauthenticateRequest": { "type": "object", "required": ["password"], "properties": { "password": { "type": "string" } } },
       "ReauthenticateResponse": { "type": "object", "required": ["status", "reauth_required", "message"], "properties": { "status": { "const": "ok" }, "reauth_required": { "const": false }, "message": { "type": "string" } } },
+      "RememberLoginResponse": {
+        "type": "object",
+        "required": ["status", "user", "csrf_token", "reauth_required"],
+        "properties": {
+          "status": { "const": "ok" },
+          "user": { "$ref": "#/components/schemas/User" },
+          "csrf_token": { "type": "string" },
+          "reauth_required": { "const": true, "description": "Always true for a token-established session. This is the legacy design: the token restores the session and the password is still required before entering the hotel." }
+        }
+      },
       "ClientEntryResponse": {        "type": "object",
         "required": ["status", "handoff_ready", "handoff_available", "sso_ticket", "missing_settings", "connection", "notes"],
         "properties": {
@@ -402,6 +426,13 @@
       "InvalidResetToken": { "description": "The token is unknown, expired or already spent — one answer for all three.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "PublicCsrfForbidden": { "description": "The X-XSRF-TOKEN header was absent. The value is not checked; see the CsrfPublicHeader parameter.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "ReauthFlagFailure": { "description": "The password was correct but the session flag could not be cleared, so the step-up did not take effect.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "RememberLoginSuccess": {
+        "description": "Session restored from the remember-me token; step-up is now required. Clears the rememberme and rememberme_token cookies because the token has been spent, and sets hotel_session and XSRF-TOKEN.",
+        "headers": { "Set-Cookie": { "description": "hotel_session and XSRF-TOKEN issued; rememberme and rememberme_token cleared.", "schema": { "type": "string" } } },
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RememberLoginResponse" } } }
+      },
+      "RememberTokenInvalid": { "description": "No usable token: absent, unknown, expired, already spent, or sent without the rememberme flag cookie. Both cookies are cleared.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "StepUpFailure": { "description": "The token was valid but the session could not be marked as requiring step-up, so it was destroyed rather than issued unprivileged-by-accident.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "InvalidJson": { "description": "JSON body could not be read.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "Unauthorized": { "description": "Invalid credentials or missing/expired public session, depending on route.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "Forbidden": { "description": "Insufficient staff rank.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },

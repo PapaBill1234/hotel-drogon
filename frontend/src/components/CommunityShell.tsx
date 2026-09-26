@@ -1,6 +1,8 @@
-import { Link } from 'react-router-dom';
+import { FormEvent, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 
 import { CommunityStyles } from './LegacyStyles';
+import { useLogin } from '../hooks/useAccount';
 import { useBanners, useFaq, useSettings } from '../hooks/usePublicContent';
 import { holoUrl } from '../services/legacy';
 
@@ -118,6 +120,33 @@ function SignedInSubnav({ username }: { username: string }) {
 
 /** The anonymous `#subnavi` branch: "enter hotel" plus the sign-in form. */
 function AnonymousSubnav() {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const mutation = useLogin();
+  const navigate = useNavigate();
+
+  // The header's form is the site's primary sign-in, so it submits through the
+  // API rather than posting to a page. The legacy markup had
+  // `action="/account/submit" method="post"`; the `action` here is the fallback
+  // for a browser with no JavaScript, where a GET to the sign-in screen is the
+  // only thing that can work (a POST to a client-side route cannot be served).
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    if (username.trim() === '' || password === '') {
+      setError('Username and password are required.');
+      return;
+    }
+    try {
+      await mutation.mutateAsync({ username: username.trim(), password, rememberMe });
+      navigate('/me', { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Sign-in failed.');
+    }
+  }
+
   return (
     <div id="subnavi">
       <div id="subnavi-user">
@@ -129,11 +158,7 @@ function AnonymousSubnav() {
         </p>
       </div>
       <div id="subnavi-login">
-        {/* Destination, not transport: the legacy action was `/account/submit`,
-            a PHP endpoint this stack does not have. `/account` is the converted
-            sign-in screen, and GET is what makes the no-JavaScript path work at
-            all — a POST to a client-side route cannot be served by a static SPA. */}
-        <form action="/account" method="get" id="login-form">
+        <form action="/account" method="get" id="login-form" onSubmit={(e) => void onSubmit(e)}>
           <input type="hidden" name="page" value="" />
           <ul>
             <li>
@@ -146,6 +171,8 @@ function AnonymousSubnav() {
                 className="login-field"
                 name="username"
                 id="login-username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
               />
               <a
                 href="#"
@@ -168,6 +195,8 @@ function AnonymousSubnav() {
                 className="login-field"
                 name="password"
                 id="login-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
               />
               <input
                 tabIndex={3}
@@ -175,12 +204,19 @@ function AnonymousSubnav() {
                 name="_login_remember_me"
                 value="true"
                 id="login-remember-me"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
               />
               <label htmlFor="login-remember-me" className="left">
                 Remember me
               </label>
             </li>
           </ul>
+          {error !== null && (
+            <p className="error" data-testid="header-login-error">
+              {error}
+            </p>
+          )}
         </form>
         <div id="subnavi-login-help" className="clearfix">
           <ul>

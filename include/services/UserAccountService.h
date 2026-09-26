@@ -194,6 +194,70 @@ public:
         std::function<void(bool success, bool invalidToken, const std::string& error)>
             callback
     );
+
+    // --- remember-me ---------------------------------------------------
+
+    /**
+     * The lifetime of a remember-me token, in days, from the raw setting value.
+     *
+     * Legacy took `site_cookie_time` from `phpretro_site_settings`:
+     *
+     *   $expiresAt = time() + (60 * 60 * 24 * (int) $settings->find("site_cookie_time"));
+     *
+     * and the installer seeded that setting to **14** with the label "Rememberme
+     * Expire In / Number of days". A missing, non-numeric or non-positive value
+     * therefore means 14 — the legacy default, not a number invented here.
+     *
+     * Pure: the caller reads the setting and passes the string in, so the
+     * defaulting is testable without a database.
+     */
+    static uint32_t rememberMeDays(const std::string& siteCookieTime);
+
+    /**
+     * Store a remember-me token hash and its expiry on the user's row.
+     *
+     * Writes `users.remember_token_hash` (the SHA-256 hex digest, 64 characters —
+     * the column is `varchar(64)`) and `users.remember_token_expires_at`. Both
+     * columns are PolarIS's own; nothing is added or widened.
+     *
+     * The caller hashes; this method takes the digest, so a raw token is never
+     * passed to a data-layer function that might log it.
+     *
+     * Declared once, above, next to the other credential methods; the remember-me
+     * section documents the surrounding behaviour rather than repeating it.
+     */
+
+    /**
+     * Resolve a remember-me token to its account, if it is still valid.
+     *
+     * Legacy `security_check.php` looked the token up by its digest and required
+     * `remember_token_expires_at > time()`:
+     *
+     *   SELECT id FROM users WHERE remember_token_hash = ? AND remember_token_expires_at > ? LIMIT 1
+     *
+     * That predicate is reproduced exactly, including the strict `>`, so a token
+     * expiring at this instant is already dead. A banned user is refused here
+     * too, because `HoloUser::loginFromToken` checked `IsUserBanned` before
+     * accepting a token — a ban that landed after the token was issued must not
+     * be bypassable by the token.
+     */
+    static void findByRememberToken(
+        const std::string& tokenHash,
+        std::function<void(std::optional<UserRecord>)> callback
+    );
+
+    /**
+     * Clear a user's remember-me token.
+     *
+     * Used by logout and whenever a token is spent, so a token is single-use for
+     * the session it creates. Legacy cleared the cookies on logout; this also
+     * clears the stored digest, because a token that keeps working after a
+     * deliberate sign-out is a session the user cannot end.
+     */
+    static void clearRememberToken(
+        uint32_t userId,
+        std::function<void(bool success)> callback
+    );
 };
 
 } // namespace hotel::services

@@ -26,7 +26,13 @@
  * sufficient and is not touched here.
  */
 
-import { ACCOUNT_API_BASE, ApiRequestError, PUBLIC_CSRF_MARKER, requestJson } from './api';
+import {
+  ACCOUNT_API_BASE,
+  ApiRequestError,
+  PUBLIC_CSRF_MARKER,
+  hasRememberMeFlag,
+  requestJson,
+} from './api';
 import type {
   ClientEntryResponse,
   ForgotPasswordResponse,
@@ -43,6 +49,7 @@ import type {
   ProfileMottoResponse,
   PurseResponse,
   ReauthenticateResponse,
+  RememberLoginResponse,
   ResetPasswordRequest,
   ResetPasswordResponse,
   SessionStateResponse,
@@ -85,8 +92,18 @@ export const PASSWORD_MIN_CHARS = 6;
  * records that authentication system errors are currently collapsed into 401;
  * this client does not pretend otherwise.
  */
-export function login(username: string, password: string, signal?: AbortSignal): Promise<User> {
+export function login(
+  username: string,
+  password: string,
+  rememberMe = false,
+  signal?: AbortSignal,
+): Promise<User> {
   const body: LoginRequest = { username, password };
+  if (rememberMe) {
+    // Only sent when true: the server looks for the exact string "true", and
+    // sending `"false"` would be a value it never had to handle.
+    body._login_remember_me = 'true';
+  }
   return requestJson<MeResponse>({
     method: 'POST',
     path: `${ACCOUNT_API_BASE}/auth/login`,
@@ -96,6 +113,30 @@ export function login(username: string, password: string, signal?: AbortSignal):
   }).then((res) => res.user);
 }
 
+/**
+ * `POST /api/auth/remember-login` — restore a session from the remember-me cookie.
+ *
+ * The cookie is HttpOnly, so it travels automatically and is never read by this
+ * code. Which is also why the request carries no CSRF token: it creates a
+ * session rather than acting inside one, exactly like `login`.
+ */
+export function rememberLogin(signal?: AbortSignal): Promise<RememberLoginResponse> {
+  return requestJson<RememberLoginResponse>({
+    method: 'POST',
+    path: `${ACCOUNT_API_BASE}/auth/remember-login`,
+    body: {},
+    csrf: false,
+    signal,
+  });
+}
+
+/**
+ * Whether the browser holds the readable remember-me flag cookie.
+ *
+ * Re-exported from `api.ts`, which owns all cookie reading for this surface, so
+ * callers of the account client do not have to reach into two modules.
+ */
+export { hasRememberMeFlag };
 /**
  * `GET /api/me` — the signed-in user's current profile.
  *

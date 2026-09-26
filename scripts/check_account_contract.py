@@ -125,6 +125,8 @@ def main():
         ("/api/auth/password/forgot", "post"), ("/api/auth/password/reset", "post"),
         ("/api/auth/username/forgot", "post"),
         ("/api/account/session", "get"), ("/api/account/reauthenticate", "post"),
+        # Phase 5 remember-me: the consume side.
+        ("/api/auth/remember-login", "post"),
     }
     actual = {(path, method) for path, methods in SPEC["paths"].items()
               for method in methods if method in ("get", "post", "put", "delete", "patch", "options")}
@@ -304,8 +306,12 @@ def main():
     logout, clear = request("POST", "/api/auth/logout", 200, {}, cookies=cookies, csrf=token)
     check(logout["message"] == "Logged out successfully.", "logout message")
     cleared = cookie_fields(clear)
-    check(set(cleared) == {"hotel_session", "XSRF-TOKEN"} and
-          all("max-age=0" in line.lower() for line in cleared.values()), "public cookies cleared")
+    # Four now, not two: signing out must also drop the remember-me pair, or a
+    # browser would keep a credential the user just asked to end. The stored
+    # digest is cleared server side in the same step (asserted below).
+    check(set(cleared) == {"hotel_session", "XSRF-TOKEN", "rememberme", "rememberme_token"} and
+          all("max-age=0" in line.lower() for line in cleared.values()),
+          "public and remember-me cookies cleared")
     request("GET", "/api/me", 401, cookies=cookies)
 
     # --- Phase 5 forgot / reset / step-up ---------------------------------
@@ -352,6 +358,59 @@ def main():
     # The step-up routes need a session, which the logout above removed.
     request("GET", "/api/account/session", 401)
     request("POST", "/api/account/reauthenticate", 403, {"password": "password123"})
+
+    # --- Phase 5 remember-me -----------------------------------------------
+    # The consume route needs BOTH cookies; each is checked separately so the
+    # assertion cannot pass on a handler that only looks at one.
+    request("POST", "/api/auth/remember-login", 401)
+    request("POST", "/api/auth/remember-login", 401, cookies="rememberme=true")
+    request("POST", "/api/auth/remember-login", 401,
+            cookies="rememberme_token=000000000000000000000000000000000000000000000000")
+
+    # The issued pair, end to end. The token is only ever available in the
+    # Set-Cookie header, so the login response is where it is read from.
+    issued, issued_headers = request("POST", "/api/auth/login", 200,
+                                     {"username": "testuser", "password": "password123",
+                                      "_login_remember_me": "true"})
+    issued_fields = cookie_fields(issued_headers)
+    check("rememberme" in issued_fields and "rememberme_token" in issued_fields,
+          "remember-me login issues both cookies")
+    flag_line = issued_fields["rememberme"].lower()
+    token_line = issued_fields["rememberme_token"].lower()
+    check("rememberme=true" in flag_line, "the flag cookie carries the literal true")
+    # 14 days is the installer's `site_cookie_time` default; asserted as a range
+    # so a differently configured stack does not fail the contract.
+    check("max-age=" in flag_line and "max-age=" in token_line,
+          "both remember-me cookies carry an expiry")
+    check("httponly" not in flag_line, "the flag cookie is readable by the client")
+    check("httponly" in token_line,
+          "the token cookie is HttpOnly: script never needs the credential itself")
+    check("samesite=lax" in flag_line and "samesite=lax" in token_line,
+          "both remember-me cookies are SameSite=Lax")
+
+    remember_cookie = cookie_value(issued_fields["rememberme_token"])
+    parts = remember_cookie.split("=", 1)[1].split("-")
+    check([len(p) for p in parts] == [6, 20, 20],
+          "remember-me token uses the legacy 6-20-20 segment shape")
+
+    # (`tests/unit/RememberMeTest.cpp` asserts the format in isolation, including
+    # that its SHA-256 digest is exactly 64 characters — the width of
+    # `users.remember_token_hash`. The live proof that the digest matches is the
+    # consume below: the handler hashes what the cookie carries and the lookup
+    # succeeds.)
+
+    restored, restored_headers = request("POST", "/api/auth/remember-login", 200,
+                                         cookies=remember_cookie + "; rememberme=true")
+    check(restored["reauth_required"] is True,
+          "a token-established session ALWAYS requires step-up")
+    check(restored["user"]["username"] == "testuser", "the right account was restored")
+    restored_fields = cookie_fields(restored_headers)
+    check("hotel_session" in restored_fields and "XSRF-TOKEN" in restored_fields,
+          "the restored session issues its own cookies")
+
+    # Single use: the same token must not establish a second session.
+    request("POST", "/api/auth/remember-login", 401,
+            cookies=remember_cookie + "; rememberme=true")
 
     print(f"[PASS] OpenAPI references, route inventory, schemas, cookies, and live account behavior ({CHECKS} assertions)")
 

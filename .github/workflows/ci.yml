@@ -363,6 +363,17 @@ jobs:
           BASE_NEW: http://localhost:3000
         run: npx playwright test password-reset.spec.ts
 
+      # The Phase 5 remember-me flow: the token issued from the header's checkbox,
+      # the session it restores, and the step-up that a restored session always
+      # requires. It runs before parity like the others; it leaves no token behind
+      # (the last case signs out, which clears the stored digest).
+      - name: Remember-me browser flow (Phase 5 session slice)
+        working-directory: tests/e2e
+        env:
+          PLAYWRIGHT_REMEMBER: '1'
+          BASE_NEW: http://localhost:3000
+        run: npx playwright test remember-me.spec.ts
+
       # The comparison runs in the PINNED Playwright container, not on the
       # runner's own Chromium. The image pins the Chromium build *and* the font
       # set, which is what makes the comparison environment genuinely the same as

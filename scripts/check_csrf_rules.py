@@ -12,6 +12,14 @@ ALLOWED_EXEMPTIONS = {
     "/api/auth/login",
     "/api/auth/register",
     "/api/auth/staff-login",
+    # Creates a session rather than acting inside one, exactly like `/api/auth/login`:
+    # there is no session-bound token for `CsrfFilter` to validate against. The
+    # credential it consumes is an HttpOnly cookie sent `SameSite=Lax`, so a
+    # cross-site POST cannot carry it, and a successful cross-site call could only
+    # establish a session the server marks `reauth_required` — never a usable one.
+    # Legacy's equivalent was reached by GET from the front controller, which was
+    # strictly worse; this is POST-only.
+    "/api/auth/remember-login",
 }
 
 # Routes that carry `CsrfPublicFilter` instead of `CsrfFilter`, with the reason.

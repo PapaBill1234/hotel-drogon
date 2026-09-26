@@ -33,7 +33,18 @@ import { useReauthenticate, useSessionState } from '../../hooks/useAccount';
  */
 export default function ReauthenticatePage() {
   const { data } = useSessionState();
+  return <ReauthenticateScreen username={data?.username} />;
+}
 
+/**
+ * The step-up screen itself, without the session query.
+ *
+ * Split out because `AccountPage` already knows the username — it fetched
+ * `/api/me` to decide whether to render this at all — and rendering the screen
+ * through this entry point avoids a second request for a value that is already in
+ * hand.
+ */
+export function ReauthenticateScreen({ username }: { username?: string }) {
   return (
     <CommunityShell pageId="me" cat="home" pageName="Confirm your password">
       <div id="container">
@@ -41,12 +52,12 @@ export default function ReauthenticatePage() {
           <div id="column1" className="column">
             <div className="cbb clearfix green">
               <h2 className="title">Confirm your password</h2>
-              <div className="box-content">
+              <div className="box-content" data-testid="reauth-screen">
                 <p>
                   For your security, please confirm your password before continuing.
                 </p>
                 <p data-testid="reauth-current-user">
-                  Signed in as <strong>{data?.username ?? '…'}</strong>.
+                  Signed in as <strong>{username ?? '…'}</strong>.
                 </p>
                 <ReauthenticateForm />
                 <p>
