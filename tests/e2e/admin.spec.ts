@@ -33,8 +33,12 @@ const STAMP = `E2E ${Date.now()}`;
 /** Fill and submit the sign-in form. Resolves once the click is dispatched. */
 async function submitSignIn(page: Page, username: string, password: string) {
   await page.goto(`${BASE_NEW}/housekeeping/login`);
-  await page.getByLabel('Username').fill(username);
-  await page.getByLabel('Password', { exact: true }).fill(password);
+  // Located by the legacy input names, not by label text. The panel now
+  // reproduces `housekeeping/index.php:99-104`, whose "labels" are bare
+  // `<strong>` elements with no `for`, so `getByLabel` cannot resolve them —
+  // and this also asserts the legacy field names the form actually posts.
+  await page.locator('input[name="username"]').fill(username);
+  await page.locator('input[name="password"]').fill(password);
   await page.getByTestId('login-submit').click();
 }
 

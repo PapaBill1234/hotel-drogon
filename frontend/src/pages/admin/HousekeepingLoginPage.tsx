@@ -2,6 +2,9 @@ import { FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
+import HousekeepingShell, {
+  useHousekeepingDate,
+} from '../../components/HousekeepingShell';
 import {
   adminLogin,
   adminStaffLogin,
@@ -48,6 +51,7 @@ export default function HousekeepingLoginPage() {
   const [step, setStep] = useState<Step>('idle');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const today = useHousekeepingDate();
 
   const busy = step !== 'idle';
 
@@ -104,77 +108,105 @@ export default function HousekeepingLoginPage() {
   }
 
   return (
-    <div className="hk-admin">
-      <div className="hk-panel">
-        <div className="hk-header">
-          <span className="hk-header-title">PHPRetro Housekeeping</span>
-        </div>
+    <HousekeepingShell pageName="Login" showChrome={false}>
+      {/*
+        `housekeeping/index.php:88-133` — a two-cell table: the form on the left,
+        the Habbo illustration and version on the right. Reproduced with the
+        legacy class names so `housekeeping/images/styles/style.css` (already
+        served at these URLs) does the work; a div-based rewrite would have
+        needed new CSS that this repository does not own.
+      */}
+      <div className="page_main">
+        <table cellPadding={0} cellSpacing={0} style={{ height: '100%', border: 0 }}>
+          <tbody>
+            <tr style={{ height: '100%' }}>
+              <td className="page_main_left">
+                <div className="left_date">{today}</div>
+                <div className="hr"></div>
+                <div className="loginuser">Please log in</div>
+                <div className="text">
+                  <form
+                    id="loginform"
+                    onSubmit={(e) => void onSubmit(e)}
+                  >
+                    <strong>Username:</strong>
+                    <br />
+                    <input
+                      type="text"
+                      size={20}
+                      name="username"
+                      id="namefield"
+                      autoComplete="username"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                    />
+                    <br />
+                    <strong>Password:</strong>
+                    <br />
+                    <input
+                      type="password"
+                      size={20}
+                      name="password"
+                      autoComplete="current-password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                    />
+                    <br />
+                    {/* `housekeeping/index.php:103` — legacy labels this
+                        "Authenticator code (staff)". */}
+                    <strong>Authenticator code (staff):</strong>
+                    <br />
+                    <input
+                      type="text"
+                      size={20}
+                      name="totp_code"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={totpCode}
+                      onChange={(e) => setTotpCode(e.target.value)}
+                    />
+                    <div className="button left">
+                      <input
+                        type="submit"
+                        value={busy ? 'Signing in…' : 'Submit'}
+                        disabled={busy}
+                        data-testid="login-submit"
+                      />
+                    </div>
+                  </form>
+                </div>
+                <div className="hr"></div>
+                <div className="text">
+                  If you have forgot your password, please use the{' '}
+                  <Link to="/account/password/forgot">recovery tool</Link> or contact
+                  your system administrator.
+                </div>
+              </td>
+              <td className="page_main_right">
+                {/* `housekeeping/index.php:119-127`. */}
+                {error !== null && (
+                  <div className="center">
+                    <div className="clean-error" data-testid="login-error">
+                      {error}
+                    </div>
+                  </div>
+                )}
+                {notice !== null && (
+                  <div className="center">
+                    <div data-testid="login-notice">{notice}</div>
+                  </div>
+                )}
+                <div className="login_top">
+                  {/* eslint-disable-next-line jsx-a11y/alt-text */}
+                  <img src="/housekeeping/images/workman_habbo_down.gif" />
+                  <br />
+                  PHPRetro Version 4.0.10 BETA
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-
-      <div className="hk-login">
-        <div className="hk-login-head">Staff sign-in</div>
-        <div className="hk-login-body">
-          {error !== null && (
-            <div className="hk-notice hk-notice-error" data-testid="login-error">
-              {error}
-            </div>
-          )}
-          {notice !== null && <div className="hk-notice">{notice}</div>}
-
-          <form onSubmit={(e) => void onSubmit(e)} className="hk-form">
-            <div className="hk-field">
-              <label htmlFor="hk-username">Username</label>
-              <input
-                id="hk-username"
-                name="username"
-                type="text"
-                autoComplete="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-              />
-            </div>
-
-            <div className="hk-field">
-              <label htmlFor="hk-password">Password</label>
-              <input
-                id="hk-password"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-
-            <div className="hk-field">
-              <label htmlFor="hk-totp">Two-factor code (optional)</label>
-              <input
-                id="hk-totp"
-                name="totp"
-                type="text"
-                inputMode="numeric"
-                maxLength={6}
-                value={totpCode}
-                onChange={(e) => setTotpCode(e.target.value)}
-              />
-              <div className="hk-field-error">
-                Leave blank to create a staff session without a 2FA step-up.
-              </div>
-            </div>
-
-            <div className="hk-actions">
-              <button type="submit" disabled={busy} data-testid="login-submit">
-                {step === 'user-session'
-                  ? 'Signing in…'
-                  : step === 'staff-session'
-                    ? 'Starting staff session…'
-                    : 'Sign in'}
-              </button>
-              <Link to="/">Back to the site</Link>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
+    </HousekeepingShell>
   );
 }
