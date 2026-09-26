@@ -29,41 +29,46 @@ AUDIT_OUT=... npx playwright test audit-diff.spec.ts
 
 ## Ranked differences
 
+Two passes are needed, so the saved inventory and ranking are merged from
+`.out/audit-open/` (site open — public and signed-in pages) and
+`.out/audit-closed/` (site closed — `maintenance` only).
+
 | page | differing | was | cause |
 | --- | --- | --- | --- |
-| **me** | **43.3%** | 48.8% | Missing MyHabbo widgets — see below |
+| **me** | **43.5%** | 48.8% | Missing MyHabbo widgets — see below |
 | **profile** | **17.5%** | 18.5% | Same family as `me` |
 | **credits** | **13.5%** | 29.7% | Left column and Coins promo were not ported — now ported |
 | hk-login | 10.6% | **93.5%** | Panel window chrome was not ported — now ported |
 | collectables | 5.8% | — | fixture month vs `mktime(...)`, tab labels |
-| community | 5.1% | — | recorded divergences (occupancy ordering, random habbos, live counts) |
+| community | 5.0% | — | recorded divergences (occupancy ordering, random habbos, live counts) |
 | credits-history | 4.8% | — | |
 | forgot | 2.4% | **86.0%** | wrong page shell + wrong element ids/copy — now ported |
+| help | 2.3% | — | |
 | articles | 2.0% | — | |
-| help | 1.9% | — | |
 | maintenance | **0.54%** | 82.6% | stale legacy settings cache, not a styling defect |
 | landing | 0.01% | — | correct |
 
 Fixed this session: **forgot 86.0 → 2.4**, **hk-login 93.5 → 10.6**,
-**credits 29.7 → 13.5**, **me 48.8 → 43.3**, **profile 18.5 → 17.5**.
+**credits 29.7 → 13.5**, **me 48.8 → 43.5**, **profile 18.5 → 17.5**.
 
 ## What is left on `me` (43.3%), and it is NOT styling
 
-Legacy `/me` is a dashboard. The port renders the personal-info box and the nav
-strip; the rest of the page is not built:
+Legacy `/me` is a dashboard. The port renders the personal-info box, the nav
+strip and the Hot Campaigns box; the rest of the page is not built:
 
-- **Habbo Club upsell** ("Your Retro Club is expired. Do you want to extend…")
-- **Hot Campaigns**
+- **Habbo Club upsell** ("Your Retro Club is expired. Do you want to extend…") —
+  Club is a Phase 5 handoff
 - **My Messages** (minimail — Phase 6)
-- **Tags**
-- **Groups**
-- **Invite Friends / Enjoy Retro** block
+- **Tags** and **Groups** (Phase 7)
+- **Invite Friends / Enjoy Retro** block (needs friendships and mail)
 - the avatar plate: legacy draws it via `www.habbo.com/habbo-imaging`, which is
   unreachable, so BOTH sides render a grey placeholder
 
 The page's own comments already attribute minimail, guilds and homes to Phases
 6–9. These are unbuilt features, not a rendering error, and inventing them would
-be a simulated success.
+be a simulated success. Hot Campaigns was the one widget on this page backed by
+data the stack already publishes (`phpretro_campaigns` via
+`/api/public/campaigns`), so it has been ported.
 
 ## Pages with no new counterpart (28)
 
