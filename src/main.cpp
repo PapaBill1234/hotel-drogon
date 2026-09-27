@@ -65,6 +65,27 @@ int main(int argc, char* argv[]) {
                 "utf8mb4"
             );
 
+            // Bound every statement, and with it every transaction.
+            //
+            // Drogon's default is NO timeout (`-1.0`), which is fine until a
+            // statement blocks on a row lock: the request hangs, the transaction
+            // keeps its pooled connection, and the pool runs out. Measured on
+            // this stack after a browser run that timed out mid-save — the pool
+            // sat at its full ten connections and every database-backed route,
+            // `/api/auth/login` included, hung until nginx answered 504, while
+            // `/health` still reported 200 because it does not need a
+            // connection. A SQL timeout turns that into an error the caller can
+            // see, a transaction that rolls back, and a connection that returns
+            // to the pool.
+            //
+            // Ten seconds is far longer than any statement this application
+            // issues — the whole integration suite runs in seconds — and far
+            // shorter than a user's patience.
+            if (auto defaultDb = drogon::app().getDbClient("default")) {
+                defaultDb->setTimeout(10.0);
+                HOTEL_LOG_INFO("Database statement timeout set to 10s (Drogon's default is none)");
+            }
+
             // Execute schema migrations / setup.
             //
             // Everything below runs STRICTLY IN ORDER and readiness is signalled

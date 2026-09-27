@@ -31,6 +31,13 @@ Answered from evidence while capturing: the reference bundles are an **AngularJS
 * **Not run: the browser suite** (`tests/e2e/homes.spec.ts`). It drives the same save path, so it cannot be green while section 7 is not.
 * The disposable `ci-homes-20260928` project was torn down with its own volumes; the primary and legacy stacks were never touched.
 
+**The verification then found the pool-exhaustion defect behind all of it, and it was fixed (same session).** With the crash fixed, the smoke suite went **83/83 green** including section 7 (`A=200 B=409`), and the edit-lock check **14/14**. But the browser suite stayed flaky (5/5, then 3/5, then 4/5, 5/5, 4/5) and then the primary stack stopped answering entirely: `POST /api/auth/login` returned **504 after 60 s**, every database-backed route hung, and `/health` still reported 200 because it does not need a connection. The measurement that named it: **the pool sat at its full 10 connections** (`information_schema.processlist`, `user='hotel'`), while Drogon's statement timeout is **none by default** (`DbClient::setTimeout`, default `-1.0`).
+
+So a statement that blocks on a row lock hangs forever, its transaction keeps its pooled connection, and once ten of those accumulate **every** route that needs a connection waits — the login route included, which is why the failure looked like a flaky sign-in rather than a connection leak. `src/main.cpp` now sets a **10 s statement timeout** on the default client: a blocked statement errors to the caller, the transaction rolls back, and the connection returns. Verified after the change: the hung routes answer again in milliseconds, and after three more browser runs the routes still answer — the pool is no longer the failure mode.
+
+**The browser suite is still not green, and this is the honest state of it.** Three runs after the timeout fix: **4/5, 5/5, 4/5**. The failure is in the editor cases, which share one home with the conflict case that advances `phpretro_myhabbo_homes.version` directly through `docker exec`; a slow drag can therefore race the version bump that the test itself installed a moment earlier. That reads as a test-isolation defect rather than a product one — the endpoint suite exercises the same paths deterministically and is 83/83 — but it is not proven, so it is recorded as the next thing to fix rather than explained away. The fix to try first is per-test home state (reset the layout rows in `beforeEach`) instead of one shared fixture across five serial tests.
+
+
 
 **Plan v3 unit 1, evidence half (2026-09-27).** v3 puts a contracts-and-evidence gate ahead of more page work, and this is the part of it that needs no running stack — which mattered, because the Docker VM was down for the whole of it.
 
