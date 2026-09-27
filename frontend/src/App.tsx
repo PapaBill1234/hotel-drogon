@@ -95,6 +95,9 @@ const BODY_BY_PATH: Record<string, { id: string; className: string }> = {
   // way the legacy sign-in form does on `/`.
   '/account': { id: 'landing', className: 'process-template' },
   '/logout': { id: 'home', className: '' },
+  // `account/logout.php` — the signed-in header's Sign Out target. It renders
+  // through the community shell like `/logout`.
+  '/account/logout': { id: 'home', className: '' },
   // tag.php: `$page['bodyid'] = 'tags'`, `$page['cat'] = 'community'`, guests
   // allowed. The id matters beyond styling: the navi2 strip keys its selected
   // "Tags" tab on it.
@@ -210,6 +213,13 @@ export default function App() {
             `/me` and `/account/profile` are `me.php` and `profile.php`. */}
         <Route path="/account" element={<LoginPage />} />
         <Route path="/logout" element={<LogoutPage />} />
+        {/*
+          `community_header.php:250` links the signed-in header's "Sign Out" at
+          `/account/logout`, not `/logout`. Both are routed so the legacy URL the
+          header itself writes is not a dead link, the same way `/forgot` and
+          `/account/password/forgot` both are.
+        */}
+        <Route path="/account/logout" element={<LogoutPage />} />
         <Route path="/me" element={<MePage />} />
         <Route path="/account/profile" element={<ProfilePage />} />
         {/* credits.php and history.php. The legacy transactions link was

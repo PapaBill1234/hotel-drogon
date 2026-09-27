@@ -34,12 +34,21 @@ test('signed-in marker probe', async ({ browser }) => {
 
     const info = await p.evaluate(() => {
       const bodyText = document.body.innerText;
+      // The signed-in ids are the ones `community_header.php:237-259` actually
+      // emits. `myhabbo` and `subnavi-logout` used to be listed here: they were
+      // ids the port invented, and `myhabbo` was even used as the audit's
+      // signed-in marker until the real markup replaced it.
       const ids = [
         'subnavi-user',
         'subnavi-login',
-        'subnavi-logout',
+        'subnavi-search',
+        'subnavi-search-links',
+        'to-hotel',
         'subnavi',
-        'myhabbo',
+        'myfriends',
+        'mygroups',
+        'myrooms',
+        'signout',
         'tab-register-now',
         'login-form',
         'login-username',

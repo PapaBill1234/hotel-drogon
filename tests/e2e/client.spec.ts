@@ -149,8 +149,11 @@ if (process.env.PLAYWRIGHT_CLIENT !== '1') {
 
     await expect(page.locator('#tab-register-now')).toHaveCount(0);
     // The username tab is the one legacy renders *instead* of the register tab:
-    // `<li id="myhabbo" class="selected"><strong>name</strong>` in #subnavi-user.
-    await expect(page.locator('#myhabbo')).toContainText(PLAIN_USER);
+    // `community_header.php:328-331` puts a bare `<strong>name </strong>` in the
+    // first `li` of `ul#navi` on a `cat = "home"` page. The port used to render
+    // an invented `<li id="myhabbo">` inside `#subnavi-user` for this; that id is
+    // gone now that the signed-in header is the template's markup.
+    await expect(page.locator('ul#navi > li strong').first()).toContainText(PLAIN_USER);
   });
 
   test('the anonymous front page still offers the register tab', async ({ page }) => {

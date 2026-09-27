@@ -60,64 +60,112 @@ interface CommunityShellProps {
    * and must stay that way.
    */
   signedInAs?: string;
+  /**
+   * The signed-in user's `users.rank`, used for the staff tab
+   * (`community_header.php:343`: rendered when `rank > 4`). `/api/me` already
+   * returns it, so pages that have the row pass it through rather than making
+   * the shell issue a second request.
+   */
+  signedInRank?: number;
   children: React.ReactNode;
 }
 
 const SHORTNAME = 'PHPRetro';
 
 /**
- * The signed-in `#subnavi` branch of `templates/community_header.php`.
+ * The signed-in `#subnavi` branch of `templates/community_header.php:237-259`.
  *
- * No "remember me" bubble and no registration prompt: those belong to the
- * anonymous branch, and leaving them visible to a signed-in user would be the
- * visible tell of a half-converted header.
+ * ## Why this is not free-form
  *
- * "Enter PHPRetro" keeps the legacy `/client` target and `openOrFocusHabbo`
- * click behaviour. `me.php` rendered the client link the same way, and the
- * client-entry *handoff* is a separately tracked Phase 5 unit — this button
- * links to the same URL legacy linked to and claims nothing more.
+ * `#subnavi-user`, `#subnavi-search` and `#to-hotel` are all positioned by
+ * `style.css` (`#subnavi-user` at :460, `#subnavi-search` at :539-546,
+ * `#to-hotel` at :599). The port used to render its own `#subnavi-logout` and
+ * `#subnavi-hotel` blocks instead, which have **no CSS at all**, so the region
+ * fell back to normal flow and stacked vertically over the logo. Measured on
+ * `/account/profile`: legacy puts the Enter button at `801,33 136x25`; the port
+ * put it at `365,13 115x28`, under the site logo. That was the visible defect on
+ * every signed-in page.
+ *
+ * ## The three blocks, as legacy writes them
+ *
+ *   #subnavi-user   -> ul > li#myfriends / #mygroups / #myrooms
+ *   #subnavi-search -> #subnavi-search-upper > ul#subnavi-search-links (Help, Sign Out)
+ *   #to-hotel       -> the green "Enter <site>" button, or #hotel-closed-medium
+ *
+ * ## Deliberate divergences, all small
+ *
+ * - `My Friends` / `My Groups` / `My Rooms` are `href="#"` in legacy with no
+ *   handler at all. They are reproduced with a `title` and a `preventDefault`,
+ *   because the features do not exist in this stack yet (Phases 6-7) and a bare
+ *   `#` would scroll the page to the top — a control that appears to work but
+ *   does nothing is exactly what the plan forbids. The markup, and therefore the
+ *   layout, is legacy's.
+ * - Legacy's `#signout` handler only calls `HabboClient.close()`; the link's own
+ *   `href="/account/logout"` does the sign-out. The same URL is kept and routed.
+ * - Legacy picks the button or `#hotel-closed-medium` from `HotelStatus()`, the
+ *   *emulator's* status. This stack publishes no equivalent source, so the
+ *   online branch is rendered — which is what the fixture is in.
+ * - The button keeps legacy's `target="client"`: that is a named link target,
+ *   not a `window.open`, so it is not popup-blocked. The one-press entry itself
+ *   lives on `/client` and `/me`.
  */
-function SignedInSubnav({ username }: { username: string }) {
+function SignedInSubnav() {
+  // Legacy's three links point at `#` with no handler. Neutralised rather than
+  // dropped: dropping them changes the header geometry, which is the whole
+  // point of this component.
+  const notBuiltYet = (e: React.MouseEvent<HTMLAnchorElement>) => e.preventDefault();
+
   return (
     <div id="subnavi">
       <div id="subnavi-user">
         <ul>
-          <li id="myhabbo" className="selected">
-            <strong>{username}</strong>
-            <span></span>
+          <li id="myfriends">
+            <a href="#" title="Not available yet" onClick={notBuiltYet}>
+              <span>My Friends</span>
+            </a>
+            <span className="r"></span>
           </li>
-          <li>
-            <Link to="/account/profile">Edit profile</Link>
-            <span></span>
+          <li id="mygroups">
+            <a href="#" title="Not available yet" onClick={notBuiltYet}>
+              <span>My Groups</span>
+            </a>
+            <span className="r"></span>
           </li>
-          <li className="last">
-            <Link to="/me">My page</Link>
-            <span></span>
+          <li id="myrooms">
+            <a href="#" title="Not available yet" onClick={notBuiltYet}>
+              <span>My Rooms</span>
+            </a>
+            <span className="r"></span>
           </li>
         </ul>
       </div>
-      <div id="subnavi-logout">
-        <Link to="/logout">Log out</Link>
+      <div id="subnavi-search">
+        <div id="subnavi-search-upper">
+          <ul id="subnavi-search-links">
+            <li>
+              {/* `en.php:649` — `$loc['help']` is "Help". Legacy opened a named
+                  window from `openOrFocusHelp`; a named link target does the
+                  same thing without a popup blocker getting in the way. */}
+              <a href="/help" target="habbohelp">
+                Help
+              </a>
+            </li>
+            <li>
+              {/* `en.php:650` — `$loc['sign.out']` is "Sign Out" (the older key
+                  at :374 is lowercase; this is the one `community_header` uses). */}
+              <Link to="/account/logout" className="userlink" id="signout">
+                Sign Out
+              </Link>
+            </li>
+          </ul>
+        </div>
       </div>
-      <div id="subnavi-hotel" className="clearfix">
-        <p>
-          <a
-            href="/client"
-            id="enter-hotel-open-medium-link"
-            target="client"
-            onClick={(e) => {
-              const w = window as unknown as {
-                openOrFocusHabbo?: (el: HTMLAnchorElement) => void;
-              };
-              if (typeof w.openOrFocusHabbo === 'function') {
-                e.preventDefault();
-                w.openOrFocusHabbo(e.currentTarget);
-              }
-            }}
-          >
-            Enter PHPRetro
-          </a>
-        </p>
+      <div id="to-hotel">
+        {/* `en.php:651` — `$loc['enter']` is `"Enter ".FULLNAME`. */}
+        <a href="/client" className="new-button green-button" target="client">
+          <b>Enter PHPRetro</b>
+          <i></i>
+        </a>
       </div>
     </div>
   );
@@ -265,6 +313,7 @@ export default function CommunityShell({
   cat,
   pageName,
   signedInAs,
+  signedInRank,
   children,
 }: CommunityShellProps) {
   const { data: settingsData } = useSettings();
@@ -293,7 +342,7 @@ export default function CommunityShell({
             <a href="/"></a>
           </h1>
           {signedInAs !== undefined ? (
-            <SignedInSubnav username={signedInAs} />
+            <SignedInSubnav />
           ) : (
             <AnonymousSubnav />
           )}
@@ -306,14 +355,24 @@ export default function CommunityShell({
               The port rendered the register tab unconditionally, so a signed-in
               user was still shown "Register now!". The whole <li> is omitted
               rather than styled away, so the DOM matches legacy too.
-
-              (Legacy also reuses `id="tab-register-now"` for the staff
-              Housekeeping tab at line 344 when rank > 4. That duplicate id is
-              not reproduced; the staff tab is not ported yet.)
             */}
-            {signedInAs === undefined && (
+            {signedInAs === undefined ? (
               <li id="tab-register-now">
                 <Link to="/register">Register now!</Link>
+                <span></span>
+              </li>
+            ) : (
+              <li className={cat === 'home' ? 'selected' : undefined}>
+                {/*
+                  `community_header.php:328-331`: on a `cat = "home"` page the tab
+                  is the selected one and shows a bare `<strong>` with a trailing
+                  space and no link; elsewhere it links to `/me`.
+                */}
+                {cat === 'home' ? (
+                  <strong>{signedInAs} </strong>
+                ) : (
+                  <Link to="/me">{signedInAs}</Link>
+                )}
                 <span></span>
               </li>
             )}
@@ -329,6 +388,19 @@ export default function CommunityShell({
               {cat === 'credits' ? <strong>Coins </strong> : <Link to="/credits">Coins</Link>}
               <span></span>
             </li>
+            {/*
+              `community_header.php:343-345` — the staff tab, rendered for
+              `rank > 4`, and it reuses `id="tab-register-now"`, which is a
+              duplicate id in the template but never in the DOM: the guest
+              register tab and this one are mutually exclusive. `en.php:660` —
+              `$loc['housekeeping']` is "Housekeeping".
+            */}
+            {(signedInRank ?? 0) > 4 && (
+              <li id="tab-register-now">
+                <a href="/housekeeping/">Housekeeping</a>
+                <span></span>
+              </li>
+            )}
           </ul>
 
           <div id="habbos-online">
@@ -369,16 +441,16 @@ export default function CommunityShell({
                       home page, so the link points at the profile's own page
                       rather than inventing one. Recorded in the inventory. */}
                   {pageId === 'home' ? (
-                    'My page'
+                    'My Page'
                   ) : (
-                    <a href={`/home/${signedInAs}`}>My page</a>
+                    <a href={`/home/${signedInAs}`}>My Page</a>
                   )}
                 </li>
                 <li className={pageId === 'profile' ? 'selected' : undefined}>
                   {pageId === 'profile' ? (
-                    'Account settings'
+                    'Account Settings'
                   ) : (
-                    <Link to="/account/profile">Account settings</Link>
+                    <Link to="/account/profile">Account Settings</Link>
                   )}
                 </li>
                 <li className=" last">

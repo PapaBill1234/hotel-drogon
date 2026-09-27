@@ -114,7 +114,14 @@ export default function AccountPage({
   }
 
   return (
-    <CommunityShell pageId={pageId} cat={cat} pageName={pageName} signedInAs={data.user.username}>
+    <CommunityShell
+      pageId={pageId}
+      cat={cat}
+      pageName={pageName}
+      signedInAs={data.user.username}
+      // `community_header.php:343` renders the Housekeeping tab for rank > 4.
+      signedInRank={data.user.rank}
+    >
       {children(data.user)}
     </CommunityShell>
   );

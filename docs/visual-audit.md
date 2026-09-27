@@ -34,35 +34,37 @@ Two passes are needed, so the saved inventory and ranking are merged from
 `.out/audit-closed/` (site closed — `maintenance` only).
 
 **22 of the 24 comparable pairs are measured**, re-measured in the pinned image
-after the `Rounder` DOM-ownership fix (`/papers/disclaimer`, `/papers/privacy`
-and `/tag` were ported in that unit and are comparable now). The two that are
-not are stated under Limitations.
+after the `Rounder` DOM-ownership fix and the signed-in header port
+(`/papers/disclaimer`, `/papers/privacy` and `/tag` were ported in the first of
+those and are comparable now). The two that are not are stated under
+Limitations.
 
-The `hk-*` rows are byte-identical to the previous run — the control for that
-re-measurement, since the staff panel renders no `.cbb` boxes.
+The `hk-*` rows and the public rows are byte-identical across both
+re-measurements — the control, since the staff panel renders no `.cbb` boxes and
+the anonymous header was not touched. Only the four signed-in rows moved.
 
 | page | differing | was | cause |
 | --- | --- | --- | --- |
 | hk-settings | **48.9%** | 49.4% | staff panel: nav is a top bar of drop-downs in legacy, a sidebar here; forms are tables there, `hk-*` blocks here |
-| **me** | **43.1%** | 48.8% | Missing MyHabbo widgets — see below |
+| **me** | **41.6%** | 48.8% | Missing MyHabbo widgets — see below |
 | hk-banners | 30.7% | 49.4% | same as hk-settings |
 | hk-faq | 30.0% | 49.4% | same |
 | hk-news | 28.6% | 49.4% | same |
 | hk-dashboard | 28.5% | UNAUTH | same |
 | hk-campaigns | 27.5% | 49.4% | same |
 | hk-collectables | 27.1% | 49.4% | same |
-| **profile** | **18.5%** | 18.5% | Same family as `me`; moved 17.5 → 18.5 across the Rounder fix and not isolated — see `visual-audit-diff.md` |
-| **credits** | **7.1%** | 29.7% | Left column and Coins promo were not ported — now ported; the `site_shortname` heading the Rounder defect had frozen is fixed too |
+| **profile** | **17.1%** | 18.5% | Same family as `me`; also carried the broken signed-in header, now fixed |
+| **credits** | **5.7%** | 29.7% | Left column and Coins promo were not ported; the `site_shortname` heading the Rounder defect froze; then the signed-in header |
 | hk-login | 10.6% | **93.5%** | Panel window chrome was not ported — now ported |
 | collectables | 5.5% | — | fixture month vs `mktime(...)`, tab labels |
 | community | 5.1% | — | recorded divergences (occupancy ordering, random habbos, live counts) |
 | papers-privacy | 3.0% | — | newly comparable; residual is the "not published yet" sentence |
 | papers-disclaimer | 3.0% | — | same |
 | forgot | 2.3% | **86.0%** | wrong page shell + wrong element ids/copy — now ported, and the frozen `SHORTNAME` heading is fixed |
-| credits-history | 2.3% | — | heading interpolation the Rounder defect had frozen |
 | articles | 2.0% | — | |
 | tag | 1.9% | — | newly comparable; near-identical to legacy |
 | help | 1.9% | — | |
+| credits-history | **0.8%** | 4.8% | frozen heading, then the signed-in header |
 | maintenance | **0.54%** | 82.6% | stale legacy settings cache, not a styling defect |
 | landing | **0.01%** | — | correct — 92 pixels differ, which is the strongest evidence the ported box chrome is faithful |
 
@@ -71,9 +73,12 @@ Fixed earlier this session: **forgot 86.0 → 2.4**, **hk-login 93.5 → 10.6**,
 whole staff panel from **not measurable at all → ~27-31%** (its chrome was
 missing entirely; the rest is the nav/table layout difference below).
 
-Fixed in the `Rounder` unit: **credits 13.5 → 7.1**, **credits-history 4.8 → 2.3**,
-**landing 0.24 → 0.01**, **collectables 5.8 → 5.5**, and three pages became
-comparable at 1.9-3.0%.
+Fixed in the `Rounder` unit: **credits 13.5 → 7.1**, **credits-history 4.8 →
+2.3**, **landing 0.24 → 0.01**, **collectables 5.8 → 5.5**, and three pages
+became comparable at 1.9-3.0%.
+
+Fixed in the signed-in header unit: **credits 7.1 → 5.7**, **credits-history
+2.3 → 0.8**, **me 43.1 → 41.6**, **profile 18.5 → 17.1**.
 
 
 ## The staff panel: chrome fixed, content layout still differs

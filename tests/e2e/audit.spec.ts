@@ -64,12 +64,24 @@ async function isSignedIn(p: Page, base: string, kind: 'user' | 'staff' = 'user'
       // separate staff session exists.
       return p.evaluate(() => document.querySelector('.hk-nav') !== null);
     }
-    // `#myhabbo` is the new-stack marker that holds on EVERY signed-in page.
-    // `[data-testid="me-username"]` was the obvious choice and is wrong: it only
-    // exists on /me, so /credits and /account/profile were reported UNAUTH while
-    // signed in. Measured on /me, /credits, /credits/history and
-    // /account/profile with marker-matrix.spec.ts.
-    return p.evaluate(() => document.getElementById('myhabbo') !== null);
+    // The SAME check legacy uses, now that the ported markup is the template's.
+    //
+    // This used to look for `#myhabbo`, an id the port had invented inside
+    // `#subnavi-user`. Porting the real signed-in header
+    // (`community_header.php:237-259`, which renders `li#myfriends`/`#mygroups`/
+    // `#myrooms` and no `#myhabbo` at all) removed it — and this guard then
+    // reported EVERY signed-in page UNAUTH and `continue`d past the screenshot,
+    // leaving the previous PNGs in place. The re-measurement therefore looked
+    // like "the header fix changed nothing", because it was diffing stale files.
+    //
+    // Lesson worth keeping: a marker that the port invents is a liability the
+    // moment the markup is corrected. Prefer a marker the legacy template itself
+    // guarantees.
+    return p.evaluate(() => {
+      const user = document.getElementById('subnavi-user') !== null;
+      const guest = document.getElementById('subnavi-login') !== null;
+      return user && !guest;
+    });
   }
 
   if (kind === 'staff') {
