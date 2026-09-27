@@ -173,8 +173,50 @@ def candidate_versions(names: list[str]) -> dict[str, str]:
     return found
 
 
+def archive_is_the_pinned_one() -> "tuple[bool, str]":
+    """Is the apt archive this environment sees the one the pins were read from?
+
+    The pins name exact Ubuntu 24.04 (noble) versions, and `apt-cache policy`
+    answers from whatever archive the *current* environment has. Run this inside
+    a Debian image and every pin looks stale — measured: `python:3.12-slim`
+    reported `catch2 is pinned to 3.4.0-1build1 but the archive now offers
+    3.7.1-0.5`, which is Debian 13's catch2, not a moved Ubuntu package. The same
+    script in the pinned `ubuntu:24.04` image answers "Dependency pins are
+    consistent and still installable."
+
+    A page of false drift reads exactly like real drift and cost a round of
+    diagnosis once, so the environment is reported as itself first. The check
+    stays strict: this changes *why* it fails, never whether.
+    """
+    if not os.path.exists("/etc/os-release"):
+        return True, ""
+    fields: dict[str, str] = {}
+    with open("/etc/os-release", encoding="utf-8") as handle:
+        for line in handle:
+            if "=" in line:
+                key, _, value = line.strip().partition("=")
+                fields[key] = value.strip().strip('"')
+    distro = fields.get("ID", "unknown")
+    version = fields.get("VERSION_ID", "unknown")
+    if distro != "ubuntu":
+        return False, f"{distro} {version}"
+    if version != "24.04":
+        return False, f"ubuntu {version}"
+    return True, ""
+
+
 def main() -> int:
     errors: list[str] = []
+    ok, found = archive_is_the_pinned_one()
+    if not ok:
+        print(
+            f"[FAIL] wrong environment: this is {found}, but the pins are Ubuntu 24.04 "
+            f"archive versions and apt answers from the archive of whatever distribution "
+            f"it runs in, so every pin would read as moved. Run it where CI does — "
+            f"`sh scripts/run_pin_check.sh` invokes the pinned ubuntu:24.04 image.",
+            file=sys.stderr,
+        )
+        return 1
     stages = dockerfile_stages()
     if not stages:
         print("[FAIL] no `pkg=version` pins found in the Dockerfile.", file=sys.stderr)
