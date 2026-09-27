@@ -104,6 +104,14 @@ jobs:
           python3 scripts/check_admin_ui_coverage.py
           python3 scripts/check_dependency_pins.py
 
+      # The deployment ordering a SPA needs from its volume: new bundles first,
+      # the entry point last and by rename, replaced hashes retained for a grace
+      # period. Runs the real publisher against a real directory tree and samples
+      # it from another process, so it needs no Docker; its two controls fail the
+      # step if the sampler cannot detect the orderings being replaced.
+      - name: Frontend publish ordering (offline contract check)
+        run: sh scripts/check_frontend_publish_order.sh
+
       - name: Configure CMake with Sanitizers
         run: |
           cmake -B build -G Ninja \
@@ -470,6 +478,13 @@ jobs:
             tests/e2e/.out/playwright-report
           if-no-files-found: ignore
           retention-days: 14
+
+      # Deliberately last: it republishes the served bundle into this stack's
+      # frontend_dist volume to rehearse a deployment, so nothing after it may
+      # depend on the bundle staying byte-identical. It restores the served build
+      # and prunes its own files, and asserts both.
+      - name: Deployment ordering through the live volume and proxy
+        run: sh tools/ci-repro/check-publish-during-deploy.sh http://localhost:3000 hotel-drogon
 
       - name: Dump service logs on failure
         if: failure()

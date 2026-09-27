@@ -8,20 +8,23 @@ COPY . .
 RUN npm run build
 
 # This one-shot service publishes the built files to nginx's generated-assets
-# volume. nginx starts only after the copy succeeds.
+# volume. nginx starts only after it exits 0, so the volume is never read while
+# a deployment is half-applied.
 #
-# ORDER MATTERS, which is why this is a script and not a bare `cp`:
-#
-#   1. copy the new build in — index.html is replaced and the new hashed bundles
-#      appear;
-#   2. only then delete the hashed files the new build does not contain.
-#
-# Pruning first would leave the volume holding an index.html that names files it
-# no longer has: a window in which every visitor gets a 404 for the bundle.
-# Pruning second means the worst case is a client on an *old* shell asking for a
-# hash this deployment just removed — which is exactly what the entry point's
-# `no-cache` revalidation in proxy/nginx.conf answers.
-#
-# Before this, nothing was ever pruned: every distinct build left its hash in the
-# volume for good (recorded as a gap in docs/ai-run-state.md).
-CMD ["sh", "-c", "cp -a /app/dist/. /out/ && find /out/assets -maxdepth 1 -type f ! -exec sh -c 'test -e \"/app/dist/assets/$(basename \"$1\")\"' _ {} \\; -delete && echo \"published $(ls /app/dist/assets | wc -l) assets; volume holds $(ls /out/assets | wc -l)\""]
+# The publisher is a checked-in script, not an inline `sh -c`, for two reasons:
+# the three ordering properties it guarantees (new bundles first, entry point
+# last and by rename, old hashes retained for a grace period) are spelled out
+# where they can be tested — scripts/check_frontend_publish_order.sh runs the
+# real script against a real directory tree and needs no Docker — and the grace
+# period becomes a documented knob instead of a magic number in a CMD.
+COPY publish-dist.sh /usr/local/bin/publish-dist.sh
+
+# How long a replaced build's hashed files stay in the volume. A visitor who
+# loaded index.html seconds before a deploy must still be able to fetch the
+# chunks that shell names; 15 minutes covers a page left open across a deploy
+# without letting dead hashes accumulate. Expiry is per asset and is measured
+# from the last deployment that shipped it, so a long-quiet volume converges to
+# exactly one build's files.
+ENV PUBLISH_GRACE_SECONDS=900
+
+CMD ["sh", "/usr/local/bin/publish-dist.sh"]
