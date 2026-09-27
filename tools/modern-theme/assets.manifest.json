@@ -1,0 +1,29 @@
+{
+  "note": "Seed list for tools/modern-theme/fetch-assets.mjs. Add a page here (name + url + the hashed bundles its HTML references) and re-run the script; it follows every asset those files reference. The mirror itself is never committed — see docs/modern-theme-assets.md.",
+  "allowedHosts": [
+    "www.habbo.com",
+    "images.habbo.com",
+    "habbo.com"
+  ],
+  "pages": [
+    {
+      "name": "home",
+      "url": "https://www.habbo.com/",
+      "assets": [
+        "https://images.habbo.com/habbo-web/america/en/app.d6ee7c02.css",
+        "https://images.habbo.com/habbo-web/america/en/vendor.2760a1d4.js",
+        "https://images.habbo.com/habbo-web/america/en/scripts.f34a8c32.js"
+      ]
+    },
+    {
+      "name": "community",
+      "url": "https://www.habbo.com/community",
+      "assets": []
+    },
+    {
+      "name": "shop",
+      "url": "https://www.habbo.com/shop",
+      "assets": []
+    }
+  ]
+}
