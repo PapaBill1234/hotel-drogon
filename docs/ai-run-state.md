@@ -1,10 +1,12 @@
 # Current AI run state
 
-This mutable state follows [plan v3](cpp-drogon-conversion-plan.md) (`AI_CONTEXT_ID: hotel-drogon-plan-v3`). Read the plan and [current inventory](phase1-parity-inventory.md) first. The pre-v2 investigation diary and safety-policy wording remain in [the state archive](archive/ai-run-state-v1.md); the standing failure-escalation and data-safety rules now live in the stable plan.
+This mutable state follows [plan v4](cpp-drogon-conversion-plan.md) (`AI_CONTEXT_ID: hotel-drogon-plan-v4`). Read the plan and [current inventory](phase1-parity-inventory.md) first. The pre-v2 investigation diary and safety-policy wording remain in [the state archive](archive/ai-run-state-v1.md); the standing failure-escalation and data-safety rules now live in the stable plan.
 
 - **active_phase:** 8
-- **selected_next_work_unit:** **plan v3 unit 1, remainder** — get the typed contracts reviewed, then establish Pixel63's write semantics (the permission behind its shop editor, whether any of it is reachable off-client, reload behaviour, asset pipeline) or record them as unavailable. Phase 8's remaining widget bodies (guestbook, rating, store, group homes) resume after the gate.
-- **last completed work unit:** plan v3 unit 1, evidence half — the route/action map, the ownership map, the per-profile capability matrix and the typed contracts are written down and committed; the contracts are **not yet reviewed**, so unit 1 is not claimed complete. Before that: the MyHabbo widget bodies, with two backend defects found and fixed.
+- **selected_next_work_unit:** **plan v4 unit 1, remainder** — review the typed contracts and route/action/capability evidence, join route port status to the inventory, and establish or explicitly mark unsupported Pixel63's website-to-client handoff, website-safe account operations and asset acquisition. Phase 8's remaining widget bodies (guestbook, rating, store, group homes) resume after the gate.
+- **last completed work unit:** plan v4 scope and backend-language assessment — the user removed the proposed in-game furniture catalog editor; the PHPRetro MyHabbo Homes store remains in parity scope. Go/Rust are assessed in `docs/backend-language-assessment.md`; no language switch was authorized or implemented. Before that: plan v3 unit 1's evidence half was committed, but the contracts are **not yet reviewed** and the gate is not complete.
+
+**Current scope decision (2026-09-27).** The user withdrew the proposed in-game furniture catalog editor. Plan v4 removes that new capability and its profile-specific publish gate while retaining the legacy website-owned `housekeeping/catalogue.php`/MyHabbo Homes store parity requirement. The user asked whether Go or Rust would accelerate completion; that is an assessment, not approval to rewrite the running Drogon backend. Current architecture, completed work and security/data-safety rules remain in force. The measured build loop and estimate are in `docs/backend-language-assessment.md`.
 
 **Plan v3 unit 1, evidence half (2026-09-27).** v3 puts a contracts-and-evidence gate ahead of more page work, and this is the part of it that needs no running stack — which mattered, because the Docker VM was down for the whole of it.
 
@@ -332,7 +334,7 @@ Also rebuilt the local stack onto the fast-forwarded tree (it had been serving t
 
 ## Exact next work unit
 
-**Exact next work unit:** plan v3 modular-CMS unit 1, a read-only contract/evidence slice. Produce the remaining PHPRetro route and housekeeping action matrix from the verified sibling checkout, a per-profile ownership/capability matrix for pinned PolarIS and Pixel63, and typed website presentation/navigation/translation/theme contracts. Validate source paths, security gates and unsupported operations before any implementation. Preserve the completed Phase 8 page/editor and its existing tests.
+**Exact next work unit:** plan v4 modular-CMS unit 1, the remaining read-only contract/evidence gate. Review the existing PHPRetro route/action map, ownership/capability matrix and typed website presentation/navigation/translation/theme contracts; join route port status to the parity inventory; verify Pixel63 website-to-client authentication, website-safe account operations and asset acquisition or mark unsupported capabilities explicitly. Preserve the completed Phase 8 page/editor and its existing tests. No profile writes or asset imports.
 
 **Then resume Phase 8:** widget content rendering (the converted `home-widget.php` / `home-guestbook-entry.php` templates), ratings, the guestbook, notes/stickers and the store — the store being the first caller `TransactionService::record` will ever have (`homes_store`, amount `-price`, description `MyHabbo store: <item>`). Group homes come after user homes pass their interaction tests, and the guestbook's `private` rule and `canEditGroup` are already read and recorded in `docs/homes-layout-api.md`.
 

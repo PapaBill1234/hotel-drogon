@@ -1,6 +1,6 @@
 # C++ (Drogon) + React conversion plan
 
-<!-- AI_CONTEXT_ID: hotel-drogon-plan-v3 -->
+<!-- AI_CONTEXT_ID: hotel-drogon-plan-v4 -->
 
 ## AI context and prompt-cache contract
 
@@ -203,16 +203,16 @@ passing a narrower phase check never proves a broader milestone.
    capability. This milestone is tracked separately from the first CMS
    release and never silently counted as complete.
 
-## Modular CMS expansion — deliberate v3 architecture
+## Modular CMS expansion — deliberate v4 scope
 
 The complete supported PHPRetro behavior remains the parity target through
 Phases 5–10. Preserve its current legacy theme and measured pages while adding
 a second public theme, operator-owned presentation controls, English/Dutch
-localization, a visual **in-game furniture catalog** editor, and an optional
-Pixel63 game profile from `muff1n-pixel/Hotel`. These are new product
-capabilities, not claims that PHPRetro or the present React app already has
-them. The existing Drogon/React stack, security gates, and completed work stay
-in place.
+localization, and an optional Pixel63 game profile from `muff1n-pixel/Hotel`.
+The proposed in-game furniture catalog editor is out of scope. These are new
+product capabilities, not claims that PHPRetro or the present React app already
+has them. The existing Drogon/React stack, security gates, and completed work
+stay in place.
 
 Two axes must stay separate:
 
@@ -233,12 +233,11 @@ run state rather than pretending this track completes it:
 
 1. **Contracts and evidence first.** Inventory every remaining PHPRetro route
    and housekeeping action against the read-only checkout, including
-   permissions and table effects. Compare the pinned PolarIS catalog schema,
-   reload behavior and client assets with Pixel63's own shop schema, event
-   permissions, authentication and asset pipeline in isolated, read-only
-   checkouts. Record a per-profile capability matrix and explicit unsupported
-   actions. Define typed website presentation, navigation, translation and
-   theme contracts before changing routes. Exit: a reviewed route/action map,
+   permissions and table effects. Compare PolarIS/Octane and Pixel63 identity,
+   authentication, client handoff, data ownership and asset requirements in
+   isolated, read-only checkouts. Record a per-profile capability matrix and
+   explicit unsupported actions. Define typed website presentation,
+   navigation, translation and theme contracts before changing routes. Exit: a reviewed route/action map,
    ownership map, capability matrix and API contracts; no inferred emulator
    write or client handoff.
 2. **Website-owned presentation.** Add versioned `phpretro_*` site config for
@@ -269,28 +268,12 @@ run state rather than pretending this track completes it:
    and what content is translatable versus an operator-authored article.
    Exit: account, navigation, public content and housekeeping journeys pass
    browser checks in both languages, with missing-key and unsafe-markup tests.
-5. **In-game furniture catalog.** Do not confuse legacy
-   `housekeeping/catalogue.php` (the website-owned MyHabbo Homes store) or
-   `/credits/collectables` with an emulator's furniture catalog. First deliver
-   a read-only page tree and item/price/asset preview against the selected
-   profile. A draft must render with the target client's actual assets and
-   layout, or be labelled a structural preview if that is impossible. Only
-   after proving the profile's schema/API, privilege rules, reload semantics
-   and rollback path may named, authorized, audited service methods publish
-   pages/items. Validate parent cycles, ordering, item references, assets,
-   currencies, prices, rank/visibility and partial failures; require a
-   reviewed diff and explicit publish confirmation. No generic table editor.
-   Exit: create/edit/reorder/disable and rollback work in an isolated hotel,
-   a real client displays the published result, and ownership, CSRF,
-   authorization, audit, concurrency and failure tests pass.
-6. **Optional Pixel63 profile.** Use a profile-specific adapter with named
+5. **Optional Pixel63 profile.** Use a profile-specific adapter with named
    operations and declared capabilities; keep CMS-owned content independent
-   of game tables. Pixel63's own shop-page editor and `shop:edit` protocol
-   are evidence to assess, not permission for Drogon to impersonate a game
-   client or write its tables. Verify its MySQL schema, UUID identities,
+   of game tables. Verify its MySQL schema, UUID identities,
    password/SSO contract, Protobuf/WebSocket protocol and separate SWF asset
-   acquisition in an isolated Compose project before enabling login, client
-   launch or catalog mutation. An unsupported capability remains hidden with
+   acquisition in an isolated Compose project before enabling login or client
+   launch. An unsupported capability remains hidden with
    an inventory gap. Exit: one existing-user CMS-to-client journey and each
    enabled operation pass profile-specific integration and browser tests;
    PolarIS/Octane regression and data isolation checks remain green.
@@ -623,10 +606,9 @@ React admin UI — no PHP anywhere.
   owning table family, with confirmation flows for destructive actions.
   Bans and credit changes require a second explicit server-side confirmation,
   not only a UI dialog.
-- Here legacy `housekeeping/catalogue.php` means the website-owned MyHabbo
-  Homes store. The new in-game furniture catalog editor has the separate
-  profile-specific evidence, publish and rollback gate above; passing one
-  does not complete the other.
+- Legacy `housekeeping/catalogue.php` means the website-owned MyHabbo Homes
+  store and remains in PHPRetro parity scope. It does not authorize writes
+  to either emulator's furniture catalog.
 - RCON/API integration for alerts and any live-emulator commands, implemented
   against a verified PolarIS/Nitro interface — do not ship a control that
   silently no-ops.

@@ -1,13 +1,13 @@
-# Modular CMS contracts and evidence (plan v3, unit 1)
+# Modular CMS contracts and evidence (plan v4, unit 1)
 
-Status: **in progress.** This file is the artifact plan v3's unit 1 asks for —
+Status: **in progress.** This file is the artifact plan v4's unit 1 asks for —
 "a reviewed route/action map, ownership map, capability matrix and API contracts".
 Two of the four are complete and evidence-backed (the route/action map and the
 ownership/capability matrix); the typed contracts are written down but **not yet
 reviewed, and nothing here changes a route or a table**. The unit is not claimed
 complete; what remains is listed at the end.
 
-Plan v3 keeps the parity phases as the target and adds this track at a verified
+Plan v4 keeps the parity phases as the target and adds this track at a verified
 work-unit boundary. Nothing in this document alters an existing route, writes to
 an emulator database, or infers a capability from a name.
 
@@ -58,7 +58,7 @@ prose:
 The Pixel63 schemas are named `hotel_<table>.sql` but the dumps declare the
 tables **unqualified** — `CREATE TABLE \`users\``, `\`user_tokens\``,
 `\`shop_pages\``. Two profiles in one database would therefore collide on
-`users`, which is the concrete reason plan v3 says a profile is chosen per
+`users`, which is the concrete reason plan v4 says a profile is chosen per
 installation and a migration between profiles is a separate project.
 
 ## 3. Capability matrix (one profile per installation)
@@ -75,7 +75,7 @@ verified here* is exactly that: this document does not infer a write path.
 | Currencies | `credits`, `pixels`, `points` on `users` | `credits`, `diamonds`, `duckets` on `users` |
 | Figure | `look varchar(256)` | `figureConfiguration text` |
 | Catalog model | `catalog_pages` / `catalog_items` (emulator-owned) | `shop_pages` (UUID, `parentId` tree) + `shop_page_furnitures`, `shop_page_bots`, `shop_page_pets`, `shop_page_bundles`, `shop_page_features` |
-| Catalog editor capability | none recorded in the pinned server | an in-client editor exists (`Shop/Development/UpdateShopPageEvent`, guarded by a permission); **the permission string and the write semantics are not verified here** |
+| Furniture catalog capability (outside CMS scope) | none recorded in the pinned server | an in-client editor exists (`Shop/Development/UpdateShopPageEvent`, guarded by a permission); **the permission string and the write semantics are not verified here** |
 | Permissions | `users.rank` integer, plus the website's own staff session | `permissions`, `permission_roles`, `role_permissions`, `user_roles` — a role/permission model |
 | Friends / furniture / badges | `messenger_friendships`, `items`, `users_badges` | `user_friends`, `user_furnitures`, `user_badges` (different names *and* shapes) |
 | Website content it ships | none (PHPRetro owns the website) | `web_articles`, `web_article_comments`, `web_article_likes` — its own web schema |
@@ -112,11 +112,11 @@ become a generic table write.
 * **The typed contracts have not been reviewed**, which the exit condition asks
   for explicitly. They are written down and typechecked; that is not the same as
   agreed.
-* **Pixel63's write semantics are not established**: the permission string behind
-  its shop editor, whether any of it is reachable off-client, reload behaviour
-  after a catalog change, and its asset pipeline. The matrix marks these cells *not
-  verified here* rather than filling them from the repository's README.
+* **Pixel63's website-to-client contract is not established**: the supported
+  authentication handoff, website-safe account operations and asset acquisition
+  remain unverified. Its in-client shop editor is capability evidence only;
+  the proposed CMS furniture catalog editor has been removed from scope.
 * **The route map's port status is not joined in.** The generated map says what
   legacy has; which of those are ported is tracked in
-  `docs/phase1-parity-inventory.md`. Unit 2's first step should join the two into
+  `docs/phase1-parity-inventory.md`. Unit 1 still needs to join the two into
   one reviewed table rather than duplicating status in two files.
