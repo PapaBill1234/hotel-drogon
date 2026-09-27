@@ -1,11 +1,12 @@
 # Modular CMS contracts and evidence (plan v4, unit 1)
 
-Status: **in progress.** This file is the artifact plan v4's unit 1 asks for —
-"a reviewed route/action map, ownership map, capability matrix and API contracts".
-The typed draft was reviewed against the plan and current services, and the
-capability matrix was checked against upstream source. **The route/action map
-still lacks a per-entry port-status join**, so the unit is not complete. No
-route or table changes in this review.
+Status: **reviewed and complete for unit 1's evidence gate.** This file is the
+artifact plan v4's unit 1 asks for — "a reviewed route/action map, ownership map,
+capability matrix and API contracts". The typed draft was reviewed against the
+plan and current services, the capability matrix was checked against upstream
+source, and the generated legacy map is joined to conservative per-entry current
+status in [`modular-cms-route-status.md`](modular-cms-route-status.md). No route
+or table changes are implied by this evidence work.
 
 Plan v4 keeps the parity phases as the target and adds this track at a verified
 work-unit boundary. Nothing in this document alters an existing route, writes to
@@ -24,7 +25,7 @@ source writes.
 | `habblet/` | 136 | 6 | AJAX actions behind `.htaccess` rewrites |
 | `housekeeping/` | 28 | 17 | staff pages, each declaring `$page['rank']` and requiring `includes/hksession.php` |
 | `xml/` | 3 | 0 | feeds |
-| `.htaccess` | 27 rewrite rules | — | the URL shapes the legacy site actually served |
+| `.htaccess` | 64 rewrite rules | — | the URL shapes the legacy site actually served |
 
 Three things the map makes explicit that the parity inventory states only in
 prose:
@@ -129,13 +130,21 @@ Map to no emulator state), and **no contract carries a table name** — a block
 references content by id through a service method, so a block type can never
 become a generic table write.
 
-## 5. What unit 1 still owes
+## 5. Unit 1 gate result and retained boundaries
 
 * **Pixel63 integration remains unsupported.** Its own JWT, web account
-  endpoints and client token transport are now source-verified, but no
+  endpoints and client token transport are source-verified, but no
   Drogon-issued handoff, shared-session design or permitted SWF asset source
-  is established. Its in-client shop editor is outside CMS scope.
-* **The route map's port status is not joined in.** The generated map says what
-  legacy has; which of those are ported is tracked in
-  `docs/phase1-parity-inventory.md`. Unit 1 still needs to join the two into
-  one reviewed table rather than duplicating status in two files.
+  is established. Its in-client shop editor is outside CMS scope. No Pixel63
+  login, account mutation, client launch, catalog write or asset import is
+  enabled by this unit.
+* **Per-entry status is joined.** The generated map's 201 entries are joined in
+  [`docs/modular-cms-route-status.md`](modular-cms-route-status.md), with
+  conservative `verified`, `partial`, `unsupported`, `not-started` and `unknown`
+  states plus evidence and scope notes. The join is reproducible with
+  `node scripts/join_legacy_surface_status.mjs`; it does not rewrite the
+  generated source map or infer behavior from filenames.
+* **Unit 2 is now the next gate-controlled unit.** It may begin only as a
+  separate vertical slice implementing website-owned presentation config with
+  server-side route/block/media/role validation, CSRF, rank checks, audit,
+  optimistic conflict handling and preview/publish/rollback coverage.
