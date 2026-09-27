@@ -128,8 +128,20 @@ const AUDIT_PUBLIC: AuditPage[] = [
     legacyPath: '/credits/collectables',
   },
   { name: 'club', newPath: null, legacyPath: '/club' },
-  { name: 'papers-disclaimer', newPath: null, legacyPath: '/papers/disclaimer' },
-  { name: 'papers-privacy', newPath: null, legacyPath: '/papers/privacy' },
+  // `papers.php` and `tag.php` were ported, so these three are comparable now
+  // where they used to be legacy-only.
+  // NOTE: the audit spec's filter is a REGEX over file paths, so a name that is
+  // a substring of another spec's file name pulls that spec in too; use
+  // `AUDIT_ONLY` to re-capture a subset.
+  { name: 'papers-disclaimer', newPath: '/papers/disclaimer', legacyPath: '/papers/disclaimer' },
+  { name: 'papers-privacy', newPath: '/papers/privacy', legacyPath: '/papers/privacy' },
+  {
+    // `tag.php` renders the "Tag Search" page at BOTH `/tag` and `/tag/search`;
+    // the port keeps the `/tag` shape the community nav links to.
+    name: 'tag',
+    newPath: '/tag',
+    legacyPath: '/tag',
+  },
   {
     // NOT an oversight and not styling: registration writes a new account into
     // Polaris `users`, which the plan makes a Phase 5 DECISION GATE ("stop and
@@ -143,7 +155,15 @@ const AUDIT_PUBLIC: AuditPage[] = [
   },
   { name: 'forgot', newPath: '/forgot', legacyPath: '/forgot' },
   { name: 'maintenance', newPath: '/maintenance', legacyPath: '/maintenance' },
-  { name: 'tag-search', newPath: null, legacyPath: '/tag/search' },
+  {
+    // The same `tag.php` page under its other URL shape. Kept `newPath: null`
+    // because the port routes `/tag`, so this pair would compare one page
+    // against itself; the `tag` row above is the comparable one.
+    name: 'tag-search',
+    newPath: null,
+    legacyPath: '/tag/search',
+    note: 'duplicate URL shape of tag.php; compare via the `tag` row',
+  },
 ];
 
 /** Signed-in pages. */

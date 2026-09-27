@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { envOr } from './pages';
 
 // Regression guard: React must own every node it renders.
@@ -54,7 +55,7 @@ if (process.env.PLAYWRIGHT_ROUNDER !== '1') {
  * `/forgot` 3, `/tag` 2). `/papers/disclaimer` is 0 on purpose: `papers.php`
  * renders `#terms > .tos-header`, not a `.cbb` box with an `h2.title`.
  */
-const PAGES: { path: string; rounded: number }[] = [
+const PAGES: { path: string; rounded: number; auth?: 'user' }[] = [
   { path: '/', rounded: 1 },
   { path: '/community', rounded: 3 },
   { path: '/articles', rounded: 2 },
@@ -67,11 +68,37 @@ const PAGES: { path: string; rounded: number }[] = [
   { path: '/register', rounded: 1 },
   { path: '/credits/club', rounded: 1 },
   { path: '/credits/pixels', rounded: 1 },
+  // Signed-in pages, because that is where the OTHER legacy DOM scripts run:
+  // `common.js` builds the `#subnavi-user` QuickMenu and `fullcontent.js`
+  // installs tab-ajax handlers, both registered through `HabboView.run()`.
+  // The counts include the one `.rounded-container` `CommunityShell` renders
+  // for `#habbos-online .rounded`, which is why they are one higher than the
+  // page's own box-title count.
+  { path: '/me', rounded: 2, auth: 'user' },
+  { path: '/credits', rounded: 4, auth: 'user' },
+  { path: '/credits/history', rounded: 2, auth: 'user' },
+  { path: '/account/profile', rounded: 5, auth: 'user' },
 ];
 
+const USER = process.env.ROUNDER_USER ?? 'audituser';
+const PASS = process.env.ROUNDER_PASS ?? 'password123';
+
+/** Sign in through the real form, so the page has a genuine session cookie. */
+async function signIn(p: Page, base: string): Promise<void> {
+  await p.goto(`${base}/account`, { waitUntil: 'networkidle' });
+  const form = p.getByTestId('account-signin-form');
+  await form.getByLabel('Username').fill(USER);
+  await form.getByLabel('Password').fill(PASS);
+  await p.getByTestId('login-submit').click();
+  await p.waitForURL((url) => !url.pathname.startsWith('/account'), { timeout: 15_000 });
+}
+
 for (const page of PAGES) {
-  test(`react owns its DOM: ${page.path}`, async ({ browser }) => {    const context = await browser.newContext();
+  test(`react owns its DOM: ${page.path}`, async ({ browser }) => {
+    const context = await browser.newContext();
     const p = await context.newPage();
+
+    if (page.auth === 'user') await signIn(p, BASE);
 
     const response = await p.goto(BASE + page.path, { waitUntil: 'networkidle' });
     expect(response?.status(), `GET ${page.path}`).toBeLessThan(400);
