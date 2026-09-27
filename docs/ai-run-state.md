@@ -189,6 +189,14 @@ Two defects were found by the browser suite and fixed rather than worked around:
 
 ## Known gaps opened or confirmed by this unit
 
+- **OPEN, unexplained: one `site_shortname` interpolation renders empty on `/forgot`.** The recovery page's second heading renders **"Forgotten Your  Name?"** — a double space where SHORTNAME should be — and everything measurable around it says it should not:
+  - `/api/public/settings` returns `site_shortname: "Retro"` (13 keys, confirmed both by curl and by a `fetch` from inside the page);
+  - `usePageSettings()` reports `mergedShortname: "Retro"` **at runtime on that same page** (temporary probe, since removed);
+  - the shell's `<title>`, two nodes away, resolves the same key through the same hook to `"Retro: Forgotten password "`;
+  - the shipped bundle is correct: `function B0(){return H0().site_shortname??""}` and `const c=B0();` feeding `` `Forgotten Your ${c} Name?` ``;
+  - the served text is a genuine double space, verified at the code-point level (`20 20`), not a zero-width character.
+  A settings context (`SiteSettingsProvider` / `usePageSettings`) was added to remove the per-component duplicate reads — architecturally right, and worth keeping — but it did **not** change this heading. The cause is still unknown. **Do not hard-code "Retro" to make it go away**; that would hide the real fault. `tests/e2e/forgot-chars.spec.ts` reproduces it and dumps the code points.
+
 - **The staff panel's chrome matches; its content LAYOUT does not.** Every housekeeping page sits at 27-31% (settings 49%) after the chrome port. Legacy's nav is a horizontal two-row bar of drop-down groups across the page top and its admin content is tables; the React panel uses a vertical sidebar and `hk-*`-styled blocks. Closing that is a Phase 9 design decision, not a defect fix, so it is recorded rather than changed silently.
 - **Two comparable pairs cannot be scored, for stated reasons.** `client`: legacy 302s a signed-in visitor to `/client_popup/install_shockwave` because the hotel client was a Shockwave embed — there is no legacy client page to compare against the new ticket-and-launch page. `reauthenticate`: a mid-session step-up screen that legacy renders only for a session carrying the reauthenticate flag; an anonymous visitor is bounced to the landing page. The flows themselves are covered by `password-reset.spec.ts` and `remember-me.spec.ts`.
 - **`me` is 43.5% different and it is not styling.** Legacy `/me` is a dashboard whose lower half is not built here: the Habbo Club upsell, My Messages (minimail, Phase 6), Tags, Groups, and the Invite Friends block. The page's own comments already attribute those to Phases 6-9. The avatar plate renders as a grey placeholder on **both** sides because legacy drew it from `www.habbo.com/habbo-imaging`, which no longer resolves. Hot Campaigns was the one widget on that page backed by data the stack already publishes, and it is ported.

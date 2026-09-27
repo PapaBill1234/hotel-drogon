@@ -2,13 +2,13 @@ import { FormEvent, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
 import ProcessShell from '../../components/ProcessShell';
+import { SiteSettingsProvider, useSiteShortname } from '../../components/SiteSettings';
 import {
   useRequestPasswordReset,
   useRequestUsernameReminder,
   useResetPassword,
   isUnauthenticated,
 } from '../../hooks/useAccount';
-import { useSettings } from '../../hooks/usePublicContent';
 
 /**
  * `/account/password/forgot` — the converted `forgot.php`.
@@ -37,7 +37,15 @@ import { useSettings } from '../../hooks/usePublicContent';
  */
 export default function ForgotPasswordPage() {
   return (
-    <ProcessShell pageName="Forgotten password">
+    /*
+      One settings read for the whole page. The shell's `<title>` and the recovery
+      form's heading previously read the same key through separate hook
+      instances and disagreed — the heading rendered "Forgotten Your  Name?" with
+      the interpolation empty, measured at the code-point level. The legacy page
+      had a single `$settings` object; this restores that shape.
+    */
+    <SiteSettingsProvider>
+      <ProcessShell pageName="Forgotten password">
       {/*
         `forgot.php` does NOT use `#column1`/`#column2` here. It ships its own
         inline stylesheet and two floats:
@@ -76,7 +84,8 @@ export default function ForgotPasswordPage() {
         <UsernameReminderForm />
         <FalseAlarmBox />
       </div>
-    </ProcessShell>
+      </ProcessShell>
+    </SiteSettingsProvider>
   );
 }
 
@@ -186,9 +195,9 @@ function UsernameReminderForm() {
   const [transport, setTransport] = useState<'log-only' | 'smtp' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const mutation = useRequestUsernameReminder();
-  // `SHORTNAME` is the `site_shortname` setting, not a build constant.
-  const { data: settingsData } = useSettings();
-  const shortname = settingsData?.settings['site_shortname'] ?? '';
+  // `SHORTNAME` is the `site_shortname` setting, not a build constant. Read from
+  // the page's single settings boundary (see `SiteSettingsProvider`).
+  const shortname = useSiteShortname();
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -209,6 +218,20 @@ function UsernameReminderForm() {
           "Forgotten Your ".SHORTNAME." Name?", which renders as "Forgotten Your
           Retro Name?" on this site. SHORTNAME is the `site_shortname` setting,
           not a constant, so it is read at runtime rather than hard-coded. */}
+      {/*
+        `en.php:518` — `$loc['forgot.name']` is "Forgotten Your ".SHORTNAME."
+        Name?", i.e. "Forgotten Your Retro Name?" here. SHORTNAME is the
+        `site_shortname` setting, read at runtime from the page's single settings
+        boundary.
+
+        KNOWN OPEN DEFECT: this heading renders the interpolation EMPTY, as
+        "Forgotten Your  Name?" (verified at the code-point level). Everything
+        around it is measured and correct — /api/public/settings returns
+        `site_shortname: "Retro"`, `usePageSettings()` reports `Retro` at runtime,
+        and the shell's `<title>` two nodes away resolves it. The cause is not yet
+        found; see the run state. Do not "fix" it by hard-coding "Retro" — that
+        would hide whatever is actually wrong.
+      */}
       <h2 className="title">{`Forgotten Your ${shortname} Name?`}</h2>
       <div className="box-content">
         {error !== null && <p data-testid="username-error">{error}</p>}
