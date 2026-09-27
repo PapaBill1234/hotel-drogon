@@ -31,9 +31,11 @@ export interface HomeWidget {
   z_index: number;
   visible: boolean;
   privacy: HomePrivacy;
+  /** The box's contents. Absent only when the server could not read them. */
+  data?: HomeWidgetData;
 }
 
-/** A placed sticker or note, or the page background (`placedItems()`). */
+/** One placed sticker or note, or the page background (`placedItems()`). */
 export interface HomeItem {
   id: number;
   type: 'sticker' | 'stickie' | 'background';
@@ -43,6 +45,50 @@ export interface HomeItem {
   y: number;
   z: number;
   catalogue_data: string;
+}
+
+/**
+ * The owner block — `PhpretroHomes::profile()`'s row.
+ *
+ * `tags` arrives already split and filtered the way
+ * `array_values(array_filter(explode(';', $tags)))` did, so a trailing separator
+ * cannot be interpreted two different ways by two clients.
+ */
+export interface HomeOwner {
+  id: number;
+  username: string;
+  motto: string;
+  look: string;
+  account_created: number;
+  last_online: number;
+  /** PolarIS `enum('0','1','2')`, passed through as the string it is. */
+  online: string;
+  hide_online: string;
+  tags: string[];
+  /**
+   * False when the `users_settings` half of the join could not be read at all.
+   *
+   * The tags area then says so instead of rendering "No tags." — a missing table
+   * and a user with no tags look identical on screen, and only one is true.
+   */
+  settings_available: boolean;
+}
+
+/**
+ * What one widget box renders inside itself.
+ *
+ * `available: false` means the box's own data could not be read (most often a
+ * development stack without that PolarIS table). The box renders the reason
+ * rather than an empty list.
+ */
+export interface HomeWidgetData {
+  available: boolean;
+  unavailable_reason?: string;
+  badges: Array<{ badge_code: string }>;
+  groups: Array<{ id: number; name: string; badge: string; level_id: number }>;
+  rooms: Array<{ id: number; name: string; description: string }>;
+  friend_count: number;
+  friend_count_known: boolean;
 }
 
 /**
@@ -73,6 +119,8 @@ export interface HomeSummary {
   default_layout: boolean;
   editable: boolean;
   lock: HomeLock;
+  /** The owner block the profile box renders. */
+  owner: HomeOwner;
 }
 
 export interface HomeLayout {
@@ -152,20 +200,39 @@ export type UserWidgetKey = (typeof USER_WIDGET_KEYS)[number];
 /**
  * The heading each widget box carries.
  *
- * Taken from `home-widget.php`'s own `match ($key)` against the `en.php` keys it
- * loads — the fallbacks in that file are the strings the page rendered for this
- * locale, so these are the legacy titles and not invented ones.
+ * Taken from `home-widget.php`'s `match ($key)` against the keys it loads, and
+ * then read out of `includes/languages/en.php` — **not** from the `??` fallbacks
+ * in that template. The file assigns several of these keys more than once and
+ * the last assignment wins, which is why the effective strings are `MY PROFILE`,
+ * `MY ROOMS` and `HIGH SCORES` rather than the template's own "My Profile",
+ * "My Rooms" and "High Scores". A previous unit lost a round to exactly this
+ * mistake on the `navi2` labels, so they are quoted from the file here.
  */
 export const WIDGET_TITLES: Record<UserWidgetKey, string> = {
-  profilewidget: 'My Profile',
+  profilewidget: 'MY PROFILE',
   guestbookwidget: 'My Guestbook',
-  highscoreswidget: 'High Scores',
-  badgeswidget: 'Badges',
+  highscoreswidget: 'HIGH SCORES',
+  badgeswidget: 'Badges & Achievements',
   friendswidget: 'My Friends',
   groupswidget: 'My Groups',
-  roomswidget: 'My Rooms',
+  roomswidget: 'MY ROOMS',
   ratingwidget: 'My Rating',
 };
+
+/**
+ * The copy each box renders when it has nothing to show.
+ *
+ * `en.php` again: `no.badges`, `no.groups`, `no.rooms`, `no.high.scores`,
+ * `no.tags`. `no.groups` and `no.rooms` are sentences, not labels, and the
+ * template's fallbacks differ from all four.
+ */
+export const WIDGET_EMPTY_COPY = {
+  badges: "You don't have any badges.",
+  groups: 'You are not a member of any Groups',
+  rooms: 'You do not have any rooms',
+  highScores: 'You do not have any high scores.',
+  tags: 'No tags.',
+} as const;
 
 /**
  * The class each widget box carries — `home-widget.php`'s `$class` match.
@@ -188,7 +255,19 @@ export function isUserWidgetKey(key: string): key is UserWidgetKey {
   return (USER_WIDGET_KEYS as readonly string[]).includes(key);
 }
 
-export function widgetTitle(key: string): string {
+/**
+ * The heading for one box.
+ *
+ * `home-widget.php` built the friends heading as
+ * `($lang->loc['my.friends']).' ('.$homes->friendCount(...).')'`, so the count is
+ * part of the title and not of the body. `friendCount` is unknown when the count
+ * query could not run, and the title then carries no number rather than a zero
+ * that would be a claim about the user's friends.
+ */
+export function widgetTitle(key: string, friendCount?: number): string {
+  if (key === 'friendswidget' && typeof friendCount === 'number') {
+    return `${WIDGET_TITLES.friendswidget} (${friendCount})`;
+  }
   return isUserWidgetKey(key) ? WIDGET_TITLES[key] : key;
 }
 

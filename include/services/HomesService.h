@@ -77,6 +77,93 @@ struct HomeItemRecord {
     std::string catalogue_data;
 };
 
+/**
+ * The owner block `home-widget.php`'s profile box renders.
+ *
+ * Exactly the columns legacy's `PhpretroHomes::profile()` selected, so the page
+ * cannot show a field the legacy page did not:
+ *
+ *   SELECT u.id, u.username, u.motto, u.look, u.account_created, u.last_online,
+ *          u.online, COALESCE(s.hide_online,'0') AS hide_online,
+ *          COALESCE(s.tags,'') AS tags, COALESCE(s.guild_id,0) AS guild_id
+ *   FROM users u LEFT JOIN users_settings s ON s.user_id = u.id WHERE u.id = ?
+ *
+ * `online` is PolarIS's `enum('0','1','2')` and is passed through as the string
+ * it is: the legacy page tested `=== '1'` and so treats `'2'` as offline. That
+ * looks like a legacy quirk, but which value the emulator writes when is
+ * emulator behaviour this repository does not own, so the test is ported rather
+ * than "corrected" — see `onlineForDisplay`.
+ */
+struct HomeOwner {
+    uint32_t id = 0;
+    std::string username;
+    std::string motto;
+    std::string look;
+    uint64_t account_created = 0;
+    uint64_t last_online = 0;
+    std::string online = "0";
+    std::string hide_online = "0";
+    /** `users_settings.tags`, `;`-separated — legacy `explode(';', $tags)`. */
+    std::string tags;
+    uint32_t guild_id = 0;
+    /**
+     * False when the `users_settings` side of the join could not be read at all.
+     *
+     * The box then says so where it would otherwise render "No tags." — a
+     * missing table and a user with no tags look identical on screen, and only
+     * one of them is true.
+     */
+    bool settings_available = true;
+};
+
+/** One badge as the badges box renders it. */
+struct HomeBadgeRecord {
+    std::string badge_code;
+};
+
+/** One group as the groups box renders it — `groups()`'s own row shape. */
+struct HomeGroupRecord {
+    uint32_t id = 0;
+    std::string name;
+    std::string badge;
+    uint32_t level_id = 0;
+};
+
+/** One room as the rooms box renders it — `rooms()`'s own row shape. */
+struct HomeRoomRecord {
+    uint32_t id = 0;
+    std::string name;
+    std::string description;
+};
+
+/**
+ * What one widget box renders inside itself.
+ *
+ * `available` is false when the box's own data could not be read — most often
+ * because this development stack has no such PolarIS table. The box then renders
+ * `unavailable_reason` instead of an empty list, because an empty list and a
+ * failed read look identical on screen and only one of them is honest.
+ */
+struct HomeWidgetData {
+    bool available = true;
+    std::string unavailable_reason;
+    std::vector<HomeBadgeRecord> badges;
+    std::vector<HomeGroupRecord> groups;
+    std::vector<HomeRoomRecord> rooms;
+    /**
+     * `friendCount()` — the number in the friends box's heading. The list itself
+     * is Phase 6, so the box renders the count and says what is missing.
+     */
+    uint32_t friend_count = 0;
+    bool friend_count_known = false;
+};
+
+/** One placed widget together with the data its box renders. */
+struct HomeWidgetWithData {
+    HomeWidgetRecord widget;
+    HomeWidgetData data;
+};
+
 /** Everything one page load of a home needs, plus the concurrency token. */
 struct HomeLayout {
     uint32_t user_id = 0;
@@ -94,6 +181,10 @@ struct HomeLayout {
     std::string background_class;
     std::vector<HomeWidgetRecord> widgets;
     std::vector<HomeItemRecord> items;
+    /** The owner block, from legacy's `profile()`. Absent only on a failed read. */
+    HomeOwner owner;
+    /** Per-widget content, keyed by widget id (0 for the synthesised default). */
+    std::vector<HomeWidgetWithData> widget_data;
     /**
      * True when the widget list is legacy's synthesised default rather than
      * stored rows. `widgets` then holds exactly one entry with `id == 0`, which
@@ -217,6 +308,20 @@ public:
     static std::string defaultBackgroundClass();
 
     /**
+     * Whether the profile box renders the animated "online" sprite.
+     *
+     * `home-widget.php`: `$online = $owner['hide_online'] === '1' ? false :
+     * $owner['online'] === '1';` — note `=== '1'`, so a row holding `'2'` renders
+     * as offline. That is ported as written; what the emulator writes when is
+     * emulator behaviour and is not verified here, so "fixing" it would be
+     * guessing at a capability.
+     */
+    static bool onlineForDisplay(const std::string& online, const std::string& hide_online);
+
+    /** `array_values(array_filter(explode(';', $tags)))` — empty parts dropped. */
+    static std::vector<std::string> splitTags(const std::string& tags);
+
+    /**
      * Validate one requested placement list against the rows the home actually
      * has, and report the first problem.
      *
@@ -239,6 +344,37 @@ public:
     static void findUserIdByName(
         const std::string& username,
         std::function<void(std::optional<uint32_t>)> callback
+    );
+
+    /**
+     * The owner block — legacy `PhpretroHomes::profile()`'s own query.
+     *
+     * `found` is false when the user row is gone. A missing `users_settings` row
+     * is not a failure (`LEFT JOIN`, `COALESCE`), and neither is a missing
+     * `users_settings` *table*: on a stack with no PolarIS emulator behind it the
+     * join cannot run at all, so the read falls back to the `users` columns and
+     * reports the settings fields as their defaults. That is a recorded
+     * divergence, not a silent one — see the implementation.
+     */
+    static void loadOwnerProfile(
+        uint32_t userId,
+        std::function<void(bool found, const HomeOwner&)> callback
+    );
+
+    /**
+     * Load what each placed widget box renders, in the order the widgets were
+     * given.
+     *
+     * One query per box, and each box's failure is its own: a development stack
+     * without `users_badges` must not blank the whole page, but it must not
+     * pretend the box is empty either, so the box carries `available = false`
+     * and the reason. Widgets that render no data (profile, high scores) need no
+     * query at all.
+     */
+    static void loadWidgetData(
+        const HomeOwner& owner,
+        const std::vector<HomeWidgetRecord>& widgets,
+        std::function<void(std::vector<HomeWidgetWithData>)> callback
     );
 
     /**

@@ -85,7 +85,15 @@ public:
             ((binder << args), ...);
             binder >> onOk;
             binder >> [this, failWith](const drogon::orm::DrogonDbException& e) {
-                abort(failWith, e.base().what());
+                const std::string what = e.base().what();
+                if (conflictOnContention_ &&
+                    (what.find("Deadlock found") != std::string::npos ||
+                     what.find("Lock wait timeout") != std::string::npos)) {
+                    abort(HomeError::VersionConflict,
+                          "This page is being saved by somebody else right now.");
+                    return;
+                }
+                abort(failWith, what);
             };
         });
     }
@@ -111,20 +119,83 @@ public:
         step();
     }
 
+    /**
+     * End the transaction and report a refusal.
+     *
+     * ## Why this queues a ROLLBACK instead of calling `Transaction::rollback()`
+     *
+     * Drogon's `Transaction` commits when its last `shared_ptr` is destroyed
+     * unless its own `rollback()` has already COMPLETED, and `rollback()` only
+     * sets that guard from its completion callback
+     * (`TransactionImpl::execNewTask` → `isCommitedOrRolledback_ = true`). Calling
+     * `rollback()` and then dropping the reference therefore races the guard: the
+     * destructor sees it unset, queues a COMMIT, and — the part that actually
+     * bites — installs its own connection idle callback, replacing the one the
+     * transaction uses to drain its queue. The queued ROLLBACK is never
+     * dispatched, so the transaction stays open and its row locks are held.
+     *
+     * That is not theoretical. It is what made `smoke_phase8_homes.sh` hang: an
+     * aborted save (the `id: 0` placement in section 4) left the version row
+     * locked, every later save blocked on it, and the next run hung on its first
+     * save — with no request ever reaching the application again.
+     *
+     * Sending `ROLLBACK` as the next statement keeps the whole abort inside the
+     * chain the transaction is already driving: the queue drains in order, the
+     * connection goes idle normally, and the destructor's COMMIT lands after the
+     * database has already ended the transaction, where it is a no-op.
+     */
     void abort(HomeError error, const std::string& message) {
+        if (done_ || aborting_) return;
+        aborting_ = true;
+        pending_error_ = error;
+        pending_message_ = message;
+
+        // Everything queued after the statement that refused is dropped.
+        steps_.clear();
+        index_ = 0;
+        steps_.push_back([this]() {
+            auto binder = *trans_ << "ROLLBACK";
+            binder >> [this](const drogon::orm::Result&) { finishAbort(); };
+            binder >> [this](const drogon::orm::DrogonDbException& e) {
+                // The transaction is ending either way; the refusal the caller
+                // asked for is what is reported, and the driver's own message is
+                // logged so a real failure is not invisible.
+                HOTEL_LOG_WARN("HomesService: ROLLBACK after a refused save failed: {}",
+                               e.base().what());
+                finishAbort();
+            };
+        });
+        advance();
+    }
+
+    /**
+     * Treat a statement's deadlock or lock-wait timeout as a version conflict.
+     *
+     * The compare-and-swap is the one statement whose failure has a meaning
+     * beyond "the database broke": MariaDB 1213/1205 there says another writer
+     * holds this page's version row, which is the same event a stale version
+     * reports, only observed from the other side. The alternative — a 503 — tells
+     * somebody who is merely saving the same page as another user that the
+     * service is down.
+     *
+     * Matched on the message because Drogon's `DrogonDbException` hands back
+     * `what()` and not the driver's error number. The two strings are MariaDB's
+     * own text, and a change to either only costs the nicer status code: the
+     * transaction still rolls back.
+     */
+    void setConflictOnContention(bool enabled) { conflictOnContention_ = enabled; }
+
+private:
+    /** Release everything and report the refusal recorded by `abort`. */
+    void finishAbort() {
         if (done_) return;
         done_ = true;
-        // Roll back first, then report. `TransactionImpl::rollback` sets its
-        // guard asynchronously, so the caller's `settled` flag — not the commit
-        // callback — is what keeps a late commit from being read as success.
-        if (trans_) trans_->rollback();
         steps_.clear();
         trans_.reset();
         releaseSelf();
-        onFail_(error, message);
+        onFail_(pending_error_, pending_message_);
     }
 
-private:
     /**
      * Break the self-reference, holding one reference for the rest of this call
      * so `this` cannot be destroyed underneath the statement that is running.
@@ -140,6 +211,11 @@ private:
     std::vector<std::function<void()>> steps_;
     std::size_t index_ = 0;
     bool done_ = false;
+    bool conflictOnContention_ = false;
+    /** Set while the terminating ROLLBACK is in flight, so abort cannot re-enter. */
+    bool aborting_ = false;
+    HomeError pending_error_ = HomeError::None;
+    std::string pending_message_;
     /** Self-reference held only while the asynchronous chain is in flight. */
     std::shared_ptr<TxnSteps> self_;
 };
@@ -243,6 +319,30 @@ std::string HomesService::backgroundClass(const std::string& catalogue_data) {
 
 std::string HomesService::defaultBackgroundClass() {
     return kDefaultBackgroundClass;
+}
+
+bool HomesService::onlineForDisplay(const std::string& online, const std::string& hide_online) {
+    // `home-widget.php`: hide_online === '1' ? false : online === '1'.
+    if (hide_online == "1") return false;
+    return online == "1";
+}
+
+std::vector<std::string> HomesService::splitTags(const std::string& tags) {
+    // `array_values(array_filter(explode(';', (string) $owner['tags'])))` —
+    // explode on every ';', then drop the empty parts. A trailing ';' therefore
+    // contributes nothing, which is what legacy rendered.
+    std::vector<std::string> out;
+    std::string current;
+    for (char c : tags) {
+        if (c == ';') {
+            if (!current.empty()) out.push_back(current);
+            current.clear();
+            continue;
+        }
+        current.push_back(c);
+    }
+    if (!current.empty()) out.push_back(current);
+    return out;
 }
 
 HomeError HomesService::validatePlacements(
@@ -493,6 +593,219 @@ void HomesService::findUserIdByName(
            };
 }
 
+void HomesService::loadOwnerProfile(
+    uint32_t userId,
+    std::function<void(bool found, const HomeOwner&)> callback
+) {
+    auto db = drogon::app().getDbClient("default");
+    if (!db) {
+        callback(false, HomeOwner{});
+        return;
+    }
+    if (userId == 0) {
+        callback(false, HomeOwner{});
+        return;
+    }
+
+    auto owner = std::make_shared<HomeOwner>();
+
+    // `withSettings` is the legacy query, character for character. The fallback
+    // exists because `users_settings` is a PolarIS table and a development stack
+    // without an emulator behind it may not have it: the join then fails with
+    // "table doesn't exist" and, without the fallback, the whole home page would
+    // 503 for a reason that has nothing to do with the page.
+    //
+    // What the fallback must NOT do is pretend the settings were read: `tags`
+    // would render as "No tags." and `hide_online` as visible, both of which can
+    // be wrong. `settings_available = false` carries that to the box, which says
+    // so, and the reason is logged rather than swallowed.
+    auto withSettings = [db, userId, owner, callback]() {
+        *db << "SELECT u.id, u.username, u.motto, u.look, u.account_created, u.last_online, "
+               "u.online, COALESCE(s.hide_online, '0') AS hide_online, "
+               "COALESCE(s.tags, '') AS tags, COALESCE(s.guild_id, 0) AS guild_id "
+               "FROM users u LEFT JOIN users_settings s ON s.user_id = u.id "
+               "WHERE u.id = ? LIMIT 1"
+            << userId
+            >> [owner, callback](const drogon::orm::Result& r) {
+                   if (r.empty()) {
+                       callback(false, HomeOwner{});
+                       return;
+                   }
+                   owner->id = r[0]["id"].as<uint32_t>();
+                   owner->username = r[0]["username"].as<std::string>();
+                   owner->motto = r[0]["motto"].as<std::string>();
+                   owner->look = r[0]["look"].as<std::string>();
+                   owner->account_created = r[0]["account_created"].as<uint64_t>();
+                   owner->last_online = r[0]["last_online"].as<uint64_t>();
+                   owner->online = r[0]["online"].as<std::string>();
+                   owner->hide_online = r[0]["hide_online"].as<std::string>();
+                   owner->tags = r[0]["tags"].as<std::string>();
+                   owner->guild_id = r[0]["guild_id"].as<uint32_t>();
+                   owner->settings_available = true;
+                   callback(true, *owner);
+               }
+            >> [db, userId, owner, callback](const drogon::orm::DrogonDbException& e) {
+                   HOTEL_LOG_WARN(
+                       "HomesService::loadOwnerProfile: the users_settings join failed for "
+                       "user {} ({}); falling back to the users columns alone and reporting "
+                       "the settings fields as unavailable",
+                       userId, e.base().what());
+                   *db << "SELECT id, username, motto, look, account_created, last_online, online "
+                          "FROM users WHERE id = ? LIMIT 1"
+                       << userId
+                       >> [owner, callback](const drogon::orm::Result& r) {
+                              if (r.empty()) {
+                                  callback(false, HomeOwner{});
+                                  return;
+                              }
+                              owner->id = r[0]["id"].as<uint32_t>();
+                              owner->username = r[0]["username"].as<std::string>();
+                              owner->motto = r[0]["motto"].as<std::string>();
+                              owner->look = r[0]["look"].as<std::string>();
+                              owner->account_created = r[0]["account_created"].as<uint64_t>();
+                              owner->last_online = r[0]["last_online"].as<uint64_t>();
+                              owner->online = r[0]["online"].as<std::string>();
+                              owner->settings_available = false;
+                              callback(true, *owner);
+                          }
+                       >> [callback](const drogon::orm::DrogonDbException& e2) {
+                              HOTEL_LOG_ERROR("HomesService::loadOwnerProfile fallback: {}",
+                                              e2.base().what());
+                              callback(false, HomeOwner{});
+                          };
+               };
+    };
+    withSettings();
+}
+
+void HomesService::loadWidgetData(
+    const HomeOwner& owner,
+    const std::vector<HomeWidgetRecord>& widgets,
+    std::function<void(std::vector<HomeWidgetWithData>)> callback
+) {
+    auto db = drogon::app().getDbClient("default");
+    auto out = std::make_shared<std::vector<HomeWidgetWithData>>();
+    out->reserve(widgets.size());
+    for (const auto& widget : widgets) {
+        HomeWidgetWithData entry;
+        entry.widget = widget;
+        out->push_back(std::move(entry));
+    }
+
+    if (!db) {
+        for (auto& entry : *out) {
+            entry.data.available = false;
+            entry.data.unavailable_reason = "The data service is unavailable.";
+        }
+        callback(std::move(*out));
+        return;
+    }
+
+    // Sequential over the boxes that need a query, so one slow read cannot
+    // reorder the response and each box's outcome is recorded where it belongs.
+    auto index = std::make_shared<std::size_t>(0);
+    auto step = std::make_shared<std::function<void()>>();
+    *step = [db, owner, out, index, step, callback]() {
+        while (*index < out->size() &&
+               !((*out)[*index].widget.widget_key == "badgeswidget" ||
+                 (*out)[*index].widget.widget_key == "groupswidget" ||
+                 (*out)[*index].widget.widget_key == "roomswidget" ||
+                 (*out)[*index].widget.widget_key == "friendswidget")) {
+            ++(*index);
+        }
+        if (*index >= out->size()) {
+            callback(std::move(*out));
+            return;
+        }
+
+        const std::size_t at = (*index)++;
+        const std::string key = (*out)[at].widget.widget_key;
+        // Every failure below is reported the same way: the box says its data
+        // could not be read. On a stack with the real PolarIS tables this never
+        // fires; on a development stack without them it fires for that box only.
+        auto failed = [out, at, step](const std::string& reason) {
+            (*out)[at].data.available = false;
+            (*out)[at].data.unavailable_reason = reason;
+            (*step)();
+        };
+
+        if (key == "badgeswidget") {
+            // `PhpretroHomes::badges()`: awarded badges first, then by slot.
+            *db << "SELECT badge_code FROM users_badges WHERE user_id = ? "
+                   "ORDER BY slot_id > 0 DESC, slot_id, id"
+                << owner.id
+                >> [out, at, step](const drogon::orm::Result& r) {
+                       for (const auto& row : r) {
+                           HomeBadgeRecord badge;
+                           badge.badge_code = row["badge_code"].as<std::string>();
+                           (*out)[at].data.badges.push_back(std::move(badge));
+                       }
+                       (*step)();
+                   }
+                >> [failed](const drogon::orm::DrogonDbException& e) {
+                       failed("Badges could not be read: " + std::string(e.base().what()));
+                   };
+            return;
+        }
+        if (key == "groupswidget") {
+            // `PhpretroHomes::groups()`, including its level filter: 0, 1 and 2
+            // are member, admin and owner.
+            *db << "SELECT g.id, g.name, g.badge, m.level_id FROM guilds_members m "
+                   "JOIN guilds g ON g.id = m.guild_id "
+                   "WHERE m.user_id = ? AND m.level_id IN (0, 1, 2) ORDER BY g.name, g.id"
+                << owner.id
+                >> [out, at, step](const drogon::orm::Result& r) {
+                       for (const auto& row : r) {
+                           HomeGroupRecord group;
+                           group.id = row["id"].as<uint32_t>();
+                           group.name = row["name"].as<std::string>();
+                           group.badge = row["badge"].as<std::string>();
+                           group.level_id = row["level_id"].as<uint32_t>();
+                           (*out)[at].data.groups.push_back(std::move(group));
+                       }
+                       (*step)();
+                   }
+                >> [failed](const drogon::orm::DrogonDbException& e) {
+                       failed("Groups could not be read: " + std::string(e.base().what()));
+                   };
+            return;
+        }
+        if (key == "roomswidget") {
+            *db << "SELECT id, name, description FROM rooms WHERE owner_id = ? ORDER BY id"
+                << owner.id
+                >> [out, at, step](const drogon::orm::Result& r) {
+                       for (const auto& row : r) {
+                           HomeRoomRecord room;
+                           room.id = row["id"].as<uint32_t>();
+                           room.name = row["name"].as<std::string>();
+                           room.description = row["description"].as<std::string>();
+                           (*out)[at].data.rooms.push_back(std::move(room));
+                       }
+                       (*step)();
+                   }
+                >> [failed](const drogon::orm::DrogonDbException& e) {
+                       failed("Rooms could not be read: " + std::string(e.base().what()));
+                   };
+            return;
+        }
+
+        // friendswidget — `friendCount()`'s own predicate, `user_one_id` alone.
+        *db << "SELECT COUNT(*) AS total FROM messenger_friendships WHERE user_one_id = ?"
+            << owner.id
+            >> [out, at, step](const drogon::orm::Result& r) {
+                   if (!r.empty()) {
+                       (*out)[at].data.friend_count = r[0]["total"].as<uint32_t>();
+                       (*out)[at].data.friend_count_known = true;
+                   }
+                   (*step)();
+               }
+            >> [failed](const drogon::orm::DrogonDbException& e) {
+                   failed("Friends could not be counted: " + std::string(e.base().what()));
+               };
+    };
+    (*step)();
+}
+
 void HomesService::loadLayout(
     uint32_t userId,
     std::function<void(HomeError, const std::string&, HomeLayout)> callback
@@ -537,8 +850,7 @@ void HomesService::loadLayout(
                                  "WHERE user_id = ? AND guild_id = 0 AND visible = 1 "
                                  "ORDER BY column_number ASC, position ASC, id ASC"
                               << userId
-                              >> [db, userId, layout, callback](const drogon::orm::Result& rows) {
-                                     for (const auto& row : rows) {
+                              >> [db, userId, layout, callback](const drogon::orm::Result& rows) {                                     for (const auto& row : rows) {
                                          HomeWidgetRecord widget;
                                          widget.id = row["id"].as<uint32_t>();
                                          widget.widget_key = row["widget_key"].as<std::string>();
@@ -572,7 +884,7 @@ void HomesService::loadLayout(
                                             "WHERE i.user_id = ? AND i.guild_id = 0 AND i.placed = 1 "
                                             "ORDER BY i.z ASC, i.id ASC"
                                          << userId
-                                         >> [layout, callback](const drogon::orm::Result& items) {
+                                         >> [userId, layout, callback](const drogon::orm::Result& items) {
                                                 for (const auto& row : items) {
                                                     HomeItemRecord item;
                                                     item.id = row["id"].as<uint32_t>();
@@ -596,7 +908,31 @@ void HomesService::loadLayout(
                                                         break;
                                                     }
                                                 }
-                                                callback(HomeError::None, "", *layout);
+
+                                                // The boxes' contents, in the same
+                                                // request: `home.php` rendered the
+                                                // whole page server-side in one load,
+                                                // and splitting it into one request per
+                                                // box would be a different page.
+                                                loadOwnerProfile(
+                                                    userId,
+                                                    [layout, callback](bool found, const HomeOwner& owner) {
+                                                        if (!found) {
+                                                            callback(HomeError::NotFound,
+                                                                     "Profile not found.",
+                                                                     HomeLayout{});
+                                                            return;
+                                                        }
+                                                        layout->owner = owner;
+                                                        loadWidgetData(
+                                                            layout->owner,
+                                                            layout->widgets,
+                                                            [layout, callback](
+                                                                std::vector<HomeWidgetWithData> data) {
+                                                                layout->widget_data = std::move(data);
+                                                                callback(HomeError::None, "", *layout);
+                                                            });
+                                                    });
                                             }
                                          >> [callback](const drogon::orm::DrogonDbException& e) {
                                                 HOTEL_LOG_ERROR("HomesService::loadLayout items: {}",
@@ -675,6 +1011,15 @@ void HomesService::saveLayout(
         // outlives this scope.
         auto audit = std::make_shared<std::pair<uint32_t, std::string>>(actorId, actorIp);
 
+        // The version row is created BEFORE the transaction opens, so the
+        // transaction's first statement can be the compare-and-swap itself. An
+        // `INSERT IGNORE` inside the transaction would take a shared lock on the
+        // existing row (its duplicate-key check) that the UPDATE then has to
+        // upgrade — and two concurrent saves deadlock there. Measured:
+        // `scripts/smoke_phase8_homes.sh` section 7 returned A=200 B=503 with
+        // MariaDB 1213 until this moved out.
+        auto runTransaction = [db, userId, expectedVersion, placements, backgroundItemId, callback,
+                               result, settled, audit]() {
         std::shared_ptr<drogon::orm::Transaction> trans;
         try {
             trans = db->newTransaction([callback, result, settled, audit, userId, placements,
@@ -716,17 +1061,18 @@ void HomesService::saveLayout(
                 callback(*result);
             });
 
-        // 1. The version row must exist before the compare-and-swap can find it.
-        steps->add(
-            "INSERT IGNORE INTO phpretro_myhabbo_homes (user_id, guild_id, version, updated_at) "
-            "VALUES (?, 0, 1, 0)",
-            HomeError::Unavailable,
-            [steps](const drogon::orm::Result&) { steps->advance(); },
-            userId);
-
-        // 2. Compare-and-swap the version FIRST. It takes the row lock, so a
-        //    second writer blocks here and then finds its expectation stale.
-        //    Everything else in this transaction happens behind that lock.
+        // 1. Compare-and-swap the version FIRST, and NOTHING before it inside the
+        //    transaction. It takes the row's exclusive lock, so a second writer
+        //    blocks here and then finds its expectation stale — 409.
+        //
+        //    The `INSERT IGNORE` that creates a missing version row used to be the
+        //    first statement here, and it made two concurrent saves deadlock:
+        //    InnoDB's duplicate-key check takes a SHARED lock on the existing row,
+        //    and both transactions then tried to upgrade it for the UPDATE. That
+        //    is the classic lock-upgrade deadlock, it was reproduced by
+        //    `scripts/smoke_phase8_homes.sh` section 7 (A=200 B=503, MariaDB 1213),
+        //    and the row is now created before the transaction opens, where the
+        //    insert autocommits and holds nothing.
         const uint64_t now = static_cast<uint64_t>(std::time(nullptr));
         steps->add(
             "UPDATE phpretro_myhabbo_homes SET version = version + 1, updated_at = ? "
@@ -742,6 +1088,12 @@ void HomesService::saveLayout(
                 steps->advance();
             },
             now, userId, expectedVersion);
+        // A deadlock or lock-wait timeout on the CAS is the same event as a stale
+        // version, seen from the other side: another writer holds this page's
+        // version row. Reporting it as a conflict is what lets the client roll
+        // back to the server's layout; reporting 503 would tell the user the
+        // service is broken when somebody is simply saving the same page.
+        steps->setConflictOnContention(true);
 
         // 3. Read the home's rows FOR UPDATE and validate against them.
         auto existing = std::make_shared<std::vector<HomeWidgetRecord>>();
@@ -840,6 +1192,17 @@ void HomesService::saveLayout(
         }
 
         steps->start();
+        };
+
+        // Autocommitted, so it holds no lock while the transaction below runs.
+        *db << "INSERT IGNORE INTO phpretro_myhabbo_homes (user_id, guild_id, version, updated_at) "
+               "VALUES (?, 0, 1, 0)"
+            << userId
+            >> [runTransaction](const drogon::orm::Result&) { runTransaction(); }
+            >> [callback](const drogon::orm::DrogonDbException& e) {
+                   HOTEL_LOG_ERROR("HomesService::saveLayout version row: {}", e.base().what());
+                   callback({HomeError::Unavailable, "The layout could not be saved.", 0});
+               };
     });
 }
 

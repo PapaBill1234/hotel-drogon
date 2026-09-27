@@ -88,6 +88,73 @@ Value itemJson(const HomeItemRecord& item) {
     return out;
 }
 
+/**
+ * The owner block — legacy `PhpretroHomes::profile()`'s row.
+ *
+ * `tags` travels as the array the box renders, already split and filtered the
+ * way `array_values(array_filter(explode(';', $tags)))` did, so the client
+ * cannot disagree with the server about what a trailing separator means.
+ * `settings_available` is false when the `users_settings` half could not be read
+ * at all, which is what stops the box from rendering "No tags." for a user whose
+ * tags it simply could not see.
+ */
+Value ownerJson(const services::HomeOwner& owner) {
+    Value out;
+    out["id"] = owner.id;
+    out["username"] = owner.username;
+    out["motto"] = owner.motto;
+    out["look"] = owner.look;
+    out["account_created"] = static_cast<Json::UInt64>(owner.account_created);
+    out["last_online"] = static_cast<Json::UInt64>(owner.last_online);
+    out["online"] = owner.online;
+    out["hide_online"] = owner.hide_online;
+    out["settings_available"] = owner.settings_available;
+    Value tags(Json::arrayValue);
+    for (const auto& tag : services::HomesService::splitTags(owner.tags)) {
+        tags.append(tag);
+    }
+    out["tags"] = tags;
+    return out;
+}
+
+/** What one widget box renders inside itself. */
+Value widgetDataJson(const services::HomeWidgetData& data) {
+    Value out;
+    out["available"] = data.available;
+    if (!data.available) {
+        out["unavailable_reason"] = data.unavailable_reason;
+    }
+    Value badges(Json::arrayValue);
+    for (const auto& badge : data.badges) {
+        Value row;
+        row["badge_code"] = badge.badge_code;
+        badges.append(row);
+    }
+    out["badges"] = badges;
+    Value groups(Json::arrayValue);
+    for (const auto& group : data.groups) {
+        Value row;
+        row["id"] = group.id;
+        row["name"] = group.name;
+        row["badge"] = group.badge;
+        row["level_id"] = group.level_id;
+        groups.append(row);
+    }
+    out["groups"] = groups;
+    Value rooms(Json::arrayValue);
+    for (const auto& room : data.rooms) {
+        Value row;
+        row["id"] = room.id;
+        row["name"] = room.name;
+        row["description"] = room.description;
+        rooms.append(row);
+    }
+    out["rooms"] = rooms;
+    out["friend_count"] = data.friend_count;
+    out["friend_count_known"] = data.friend_count_known;
+    return out;
+}
+
 /** The full layout payload both GET and a successful PUT answer with. */
 Value layoutJson(
     const HomeLayout& layout,
@@ -120,10 +187,22 @@ Value layoutJson(
         lockJson["is_mine"] = false;
     }
     home["lock"] = lockJson;
+    home["owner"] = ownerJson(layout.owner);
 
     Value widgets(Json::arrayValue);
     for (const auto& widget : layout.widgets) {
-        widgets.append(widgetJson(widget));
+        Value entry = widgetJson(widget);
+        // Each box's content travels with the box: `home.php` rendered the whole
+        // page in one load, and a client that had to fetch per widget would be a
+        // different page with a different failure mode.
+        for (const auto& withData : layout.widget_data) {
+            if (withData.widget.id == widget.id &&
+                withData.widget.widget_key == widget.widget_key) {
+                entry["data"] = widgetDataJson(withData.data);
+                break;
+            }
+        }
+        widgets.append(entry);
     }
     Value items(Json::arrayValue);
     for (const auto& item : layout.items) {

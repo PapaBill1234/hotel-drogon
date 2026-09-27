@@ -108,7 +108,11 @@ check() { # LABEL EXPECTED
 }
 
 check_body() { # LABEL NEEDLE
-    if grep -q -- "$2" "$TMP/body" 2>/dev/null; then
+    # `-F`: the needles are literal JSON fragments, and several contain `[` —
+    # which a basic regular expression reads as the start of a bracket
+    # expression. `"tags":[` matched nothing that way, and the failure looked
+    # like a missing field rather than a broken pattern.
+    if grep -qF -- "$2" "$TMP/body" 2>/dev/null; then
         printf '  PASS  %-52s body contains %s\n' "$1" "$2"
         PASS=$((PASS + 1))
     else
@@ -163,6 +167,16 @@ check "guest reads a home" 200
 check_body "the read carries a version" '"version":'
 check_body "the background is a legacy class" '"background":"b_'
 check_body "a guest cannot edit" '"editable":false'
+# The owner block is legacy `PhpretroHomes::profile()`'s row. `tags` travels as
+# the array the box renders — already split and filtered the way
+# `array_values(array_filter(explode(';', $tags)))` did — and
+# `settings_available` is what stops the box saying "No tags." for a user whose
+# tags it could not read at all.
+check_body "the read carries the owner block" '"owner":{'
+check_body "the owner block names the profile" '"username":"testuser"'
+check_body "tags arrive as an array" '"tags":['
+check_body "the users_settings half of the join was read" '"settings_available":true'
+check_body "the owner's motto is the stored one" '"motto":"Exploring the hotel!"'
 if grep -q '"default_layout":true' "$TMP/body"; then
     check_body "an unsaved home reports the legacy default layout" '"default_layout":true'
     check_body "the default widget is the profile widget" '"widget_key":"profilewidget"'
@@ -405,6 +419,40 @@ check "the owner closes the edit session" 200
 do_req GET "$BASE/api/homes/2/layout" ""
 check "the home is readable at the end" 200
 check_body "the lock is released at the end" '"held":false'
+
+echo
+echo "[10] Widget bodies carry their data"
+# Every box's contents arrive with the box: `home.php` rendered the whole page in
+# one load, and a client that had to fetch per box would be a different page with
+# a different failure mode.
+check_body "the profile box carries data" '"widget_key":"profilewidget"'
+check_body "the profile box's data is available" '"available":true'
+check_body "the profile box knows the friend count field" '"friend_count":'
+
+printf '%s' '{"widget_key":"badgeswidget","column":1}' > "$TMP/add-badges.json"
+do_req POST "$BASE/api/homes/2/widgets" "$USER_COOKIES" "$TMP/add-badges.json" "$USER_CSRF"
+BADGES_ID=""
+if [ "$CODE" = "201" ]; then
+    check "a badges box can be placed" 201
+    BADGES_ID="$(json_field "$TMP/body" id)"
+fi
+
+do_req GET "$BASE/api/homes/2/layout" ""
+check "the home with a badges box is readable" 200
+check_body "the badges box carries a data block" '"badges":['
+# A stack with no PolarIS emulator behind it has no `users_badges`, so this is
+# where the box has to say so: an empty list and a failed read look identical on
+# screen, and only one of them is the truth.
+if grep -q '"badges":\[\].*"available":false' "$TMP/body" || grep -q '"available":false' "$TMP/body"; then
+    check_body "an unreadable box carries its reason" '"unavailable_reason":'
+else
+    check_body "a readable box lists its badges" '"badges":['
+fi
+
+if [ -n "$BADGES_ID" ]; then
+    do_req DELETE "$BASE/api/homes/2/widgets/$BADGES_ID" "$USER_COOKIES" "" "$USER_CSRF"
+    check "the badges box is removed again" 200
+fi
 
 echo
 echo "Phase 8 homes smoke: $PASS passed, $FAIL failed, $SKIP skipped"

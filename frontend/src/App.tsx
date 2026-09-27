@@ -336,6 +336,22 @@ export default function App() {
             />
           }
         />
+        {/*
+          A group page. `home-widget.php`'s groups box links every group the owner
+          belongs to at `phpretroGroupPath()`'s address, and this route keeps that
+          link honest instead of letting it fall through to "not found": the
+          groups and discussions surfaces are Phase 7, so the page says so.
+        */}
+        <Route
+          path="/groups/:id"
+          element={
+            <NotYetAvailablePage
+              title="Group"
+              phase="Phase 7 (groups and discussions)"
+              detail="Group pages, membership and forums are Phase 7. The link you followed came from a MyHabbo groups box, which is why it exists."
+            />
+          }
+        />
         <Route
           path="/habblet/proxy.php"
           element={

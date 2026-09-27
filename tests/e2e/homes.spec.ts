@@ -53,7 +53,21 @@ async function readLayout(page: Page) {
   const response = await page.request.get(`${BASE_NEW}/api/homes/${OWNER_ID}/layout`);
   expect(response.ok()).toBeTruthy();
   return (await response.json()) as {
-    home: { version: number; editable: boolean; background: string; lock: { held: boolean } };
+    home: {
+      version: number;
+      editable: boolean;
+      background: string;
+      lock: { held: boolean };
+      owner: {
+        username: string;
+        motto: string;
+        online: string;
+        hide_online: string;
+        account_created: number;
+        tags: string[];
+        settings_available: boolean;
+      };
+    };
     widgets: Array<{
       id: number;
       widget_key: string;
@@ -62,6 +76,7 @@ async function readLayout(page: Page) {
       left: number;
       top: number;
       z_index: number;
+      data?: { available: boolean; unavailable_reason?: string; friend_count_known: boolean };
     }>;
   };
 }
@@ -120,6 +135,70 @@ test.describe('MyHabbo home page', () => {
     await expect(page.locator('#mypage-bg')).toHaveClass(new RegExp(layout.home.background));
     await expect(page.locator('#edit-button')).toHaveCount(0);
     await expect(page.locator('[data-testid="home-widget-profilewidget"]')).toHaveCount(1);
+  });
+
+  /**
+   * The profile box's contents — `home-widget.php`'s first branch.
+   *
+   * These are content assertions rather than layout ones on purpose: the box was
+   * a placeholder until this unit, and a 2% pixel budget would not notice the
+   * difference between a rendered motto and an empty frame.
+   */
+  test('the profile box renders the owner legacy rendered', async ({ page }) => {
+    const layout = await readLayout(page);
+    await page.goto(`${BASE_NEW}/home/${OWNER_ID}`);
+
+    // The name, from the owner block rather than from the page heading.
+    await expect(page.locator('[data-testid="home-owner-name"]')).toHaveText(
+      layout.home.owner.username,
+    );
+
+    // The motto is rendered only when it is not empty (`if ($owner['motto'] !== '')`).
+    if (layout.home.owner.motto !== '') {
+      await expect(page.locator('[data-testid="profile-motto"]')).toHaveText(
+        layout.home.owner.motto,
+      );
+    } else {
+      await expect(page.locator('[data-testid="profile-motto"]')).toHaveCount(0);
+    }
+
+    // The online sprite is legacy's predicate: `online === '1'` and not hidden.
+    const expectOnline = layout.home.owner.hide_online !== '1' && layout.home.owner.online === '1';
+    await expect(page.locator('[data-testid="profile-online"]')).toHaveAttribute(
+      'data-online',
+      expectOnline ? 'true' : 'false',
+    );
+    await expect(page.locator('[data-testid="profile-online"]')).toHaveAttribute(
+      'src',
+      new RegExp(`habbo_${expectOnline ? 'online_anim' : 'offline'}\\.gif$`),
+    );
+
+    // `SHORTNAME . " Created On"`, where SHORTNAME is the `site_shortname` setting.
+    const settings = await page.request.get(`${BASE_NEW}/api/public/settings`);
+    const settingsBody = (await settings.json()) as { settings: Record<string, string> };
+    const shortname = settingsBody.settings['site_shortname'] ?? '';
+    await expect(page.locator('.birthday.text')).toHaveText(`${shortname} Created On:`);
+
+    // The date is `date('d-m-Y', $account_created)` — or empty when the column is
+    // zero, which is what legacy printed for a freshly created account.
+    const created = await page.locator('[data-testid="profile-created"]').innerText();
+    if (layout.home.owner.account_created) {
+      expect(created).toMatch(/^\d{2}-\d{2}-\d{4}$/);
+    } else {
+      expect(created).toBe('');
+    }
+
+    // Tags: the array the API split, or legacy's own empty sentence.
+    const tags = page.locator('[data-testid="profile-tags"]');
+    if (!layout.home.owner.settings_available) {
+      await expect(tags.locator('[data-testid="widget-unavailable"]')).toHaveCount(1);
+    } else if (layout.home.owner.tags.length === 0) {
+      await expect(tags).toHaveText('No tags.');
+    } else {
+      for (const tag of layout.home.owner.tags) {
+        await expect(tags.locator(`a.tag:text-is("${tag}")`)).toHaveCount(1);
+      }
+    }
   });
 
   test('the rendered geometry is the geometry the API returned', async ({ page }) => {

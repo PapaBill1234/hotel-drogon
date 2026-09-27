@@ -120,6 +120,68 @@ TEST_CASE("The page background class is legacy's itemCss", "[homes]") {
     REQUIRE(HomesService::defaultBackgroundClass() == "b_bg_pattern_abstract2");
 }
 
+/**
+ * `home-widget.php`'s online flag.
+ *
+ *   $online = $owner['hide_online'] === '1' ? false : $owner['online'] === '1';
+ *
+ * The `'2'` case is the interesting one: PolarIS's column is `enum('0','1','2')`
+ * and this test asserts the sprite is the OFFLINE one for it, because that is
+ * what the PHP rendered. Which value the emulator writes when is emulator
+ * behaviour this repository does not own, so the port keeps the legacy test
+ * rather than guessing that `'2'` means something else.
+ */
+TEST_CASE("The profile box's online sprite follows the legacy predicate", "[homes]") {
+    SECTION("online only for exactly '1'") {
+        REQUIRE(HomesService::onlineForDisplay("1", "0"));
+        REQUIRE_FALSE(HomesService::onlineForDisplay("0", "0"));
+        REQUIRE_FALSE(HomesService::onlineForDisplay("2", "0"));
+        REQUIRE_FALSE(HomesService::onlineForDisplay("", "0"));
+    }
+
+    SECTION("hiding wins over the online flag") {
+        REQUIRE_FALSE(HomesService::onlineForDisplay("1", "1"));
+        REQUIRE_FALSE(HomesService::onlineForDisplay("2", "1"));
+    }
+}
+
+/**
+ * `array_values(array_filter(explode(';', (string) $owner['tags'])))`.
+ *
+ * The separators are the whole behaviour: an empty part contributes nothing, so
+ * a trailing or doubled `;` produces no empty tag link — which is what the
+ * legacy page rendered, because `array_filter` drops `''`.
+ */
+TEST_CASE("Tags split the way the legacy template split them", "[homes]") {
+    SECTION("a plain list") {
+        const auto tags = HomesService::splitTags("retro;habbo;friends");
+        REQUIRE(tags.size() == 3);
+        REQUIRE(tags[0] == "retro");
+        REQUIRE(tags[1] == "habbo");
+        REQUIRE(tags[2] == "friends");
+    }
+
+    SECTION("empty parts are dropped, not kept as blank tags") {
+        const auto tags = HomesService::splitTags("retro;;friends;");
+        REQUIRE(tags.size() == 2);
+        REQUIRE(tags[0] == "retro");
+        REQUIRE(tags[1] == "friends");
+    }
+
+    SECTION("an empty or absent column yields no tags") {
+        REQUIRE(HomesService::splitTags("").empty());
+        REQUIRE(HomesService::splitTags(";").empty());
+        REQUIRE(HomesService::splitTags(";;;").empty());
+    }
+
+    SECTION("spaces inside a tag are kept — legacy trimmed nothing") {
+        const auto tags = HomesService::splitTags("two words; other");
+        REQUIRE(tags.size() == 2);
+        REQUIRE(tags[0] == "two words");
+        REQUIRE(tags[1] == " other");
+    }
+}
+
 namespace {
 
 HomeWidgetRecord widget(uint32_t id, uint32_t column, uint32_t position) {

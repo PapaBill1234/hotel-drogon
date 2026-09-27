@@ -106,6 +106,15 @@ int main(int argc, char* argv[]) {
                         "online ENUM('0','1','2') DEFAULT '0', "
                         "account_created BIGINT DEFAULT 0, "
                         "last_login BIGINT DEFAULT 0, "
+                        // `last_online` is PolarIS's own column
+                        // (`references/schema/CleanDB.sql`: `int(11) NOT NULL
+                        // DEFAULT 0`) and it is what `PhpretroHomes::profile()`
+                        // selects for the MyHabbo page. It was missing here, so
+                        // the owner read failed on every development stack with
+                        // "Unknown column 'u.last_online'". A database created
+                        // before this line keeps the old shape — the ALTER is
+                        // recorded in docs/phase1-parity-inventory.md.
+                        "last_online BIGINT DEFAULT 0, "
                         "ip_current VARCHAR(50) DEFAULT '', "
                         // `auth_ticket` is PolarIS's `varchar(256)` exactly
                         // (`references/schema/CleanDB.sql`); it was declared
@@ -160,6 +169,32 @@ int main(int argc, char* argv[]) {
                         "rank_level INT DEFAULT 0, "
                         "is_current INT DEFAULT 0, "
                         "PRIMARY KEY (guild_id, user_id)"
+                        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+                        // `users_settings` is PolarIS's own table and the emulator
+                        // writes it (`references/schema/CleanDB.sql` even says so in
+                        // a column comment). Only the columns this website reads are
+                        // declared here, with PolarIS's types: `hide_online`, `tags`
+                        // and `guild_id` are what `PhpretroHomes::profile()` joins
+                        // for, and `club_expire_timestamp` is what `hasClub()` reads
+                        // for the Habbo Club note skins.
+                        //
+                        // Same rule as the tables above: `CREATE TABLE IF NOT
+                        // EXISTS` cannot alter a database that already has the real
+                        // table, so this only ever supplies a development shape.
+                        // Without it the join fails on every fresh stack, and
+                        // `loadOwnerProfile` has to fall back and report the
+                        // settings fields as unreadable — which is the honest
+                        // outcome, but not the useful one.
+                        "CREATE TABLE IF NOT EXISTS users_settings ("
+                        "id INT NOT NULL AUTO_INCREMENT, "
+                        "user_id INT NOT NULL DEFAULT 0, "
+                        "guild_id INT NOT NULL DEFAULT 0, "
+                        "hide_online ENUM('0','1') NOT NULL DEFAULT '0', "
+                        "tags VARCHAR(255) NOT NULL DEFAULT '', "
+                        "club_expire_timestamp INT NOT NULL DEFAULT 0, "
+                        "PRIMARY KEY (id), "
+                        "INDEX idx_users_settings_user_id (user_id)"
                         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
                         "CREATE TABLE IF NOT EXISTS phpretro_admin_action_log ("

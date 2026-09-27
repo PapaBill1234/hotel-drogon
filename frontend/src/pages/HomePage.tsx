@@ -35,6 +35,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import CommunityShell from '../components/CommunityShell';
 import { Cbb } from '../components/Rounder';
+import { usePageSettings } from '../components/SiteSettings';
 import { useMe } from '../hooks/useAccount';
 import {
   placementsForMove,
@@ -47,8 +48,14 @@ import {
 } from '../hooks/useHomes';
 import { placementForPixels } from '../services/apiHomes';
 import { ApiRequestError } from '../services/api';
-import type { HomeLayout, HomeWidget, UserWidgetKey } from '../types/homes';
-import { REQUIRED_WIDGET_KEY, USER_WIDGET_KEYS, widgetClass, widgetTitle } from '../types/homes';
+import type { HomeLayout, HomeOwner, HomeWidget, UserWidgetKey } from '../types/homes';
+import {
+  REQUIRED_WIDGET_KEY,
+  USER_WIDGET_KEYS,
+  WIDGET_EMPTY_COPY,
+  widgetClass,
+  widgetTitle,
+} from '../types/homes';
 
 /**
  * A widget being dragged, in the coordinates the drag started at.
@@ -76,6 +83,220 @@ interface WidgetDrag {
 }
 
 /**
+ * The avatar URL, built the way `classes.php`'s `avatarURL($figure, $style)` did.
+ *
+ * `home-widget.php` called it as `avatarURL($owner['look'], 'b,4,4,,1,0')`, which
+ * expands to `?figure=<look>&size=b&direction=4&head_direction=4&crr=0&gesture=&frame=1`
+ * (the empty third field is the gesture, and the fifth is the frame). The host is
+ * the external Habbo imaging service the legacy site used, exactly as on `/me`:
+ * it is a plain URL rather than a data dependency, and the image is decorative.
+ */
+function avatarUrl(look: string): string {
+  return (
+    'https://www.habbo.com/habbo-imaging/avatarimage' +
+    `?figure=${encodeURIComponent(look)}&size=b&direction=4&head_direction=4&crr=0&gesture=&frame=1`
+  );
+}
+
+/**
+ * `date('d-m-Y', $account_created)`.
+ *
+ * Built from the epoch rather than through `toLocaleDateString`, because the
+ * legacy format is day-month-year with dashes and a locale call would produce
+ * slashes and follow the *browser's* locale. UTC is this stack's server
+ * timezone, so the rendered day matches what the PHP would have printed.
+ */
+function legacyDate(epochSeconds: number): string {
+  if (!epochSeconds) return '';
+  const date = new Date(epochSeconds * 1000);
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  return `${day}-${month}-${date.getUTCFullYear()}`;
+}
+
+/** A box whose data could not be read — the reason, not an empty list. */
+function Unavailable({ reason }: { reason: string }) {
+  return (
+    <p className="home-widget-unavailable" data-testid="widget-unavailable">
+      {reason}
+    </p>
+  );
+}
+
+/**
+ * The contents of one widget box — `includes/habblet-templates/home-widget.php`.
+ *
+ * Each branch follows the template's own markup and copy. Two things in there
+ * are deliberately not reproduced, and both are recorded in the inventory rather
+ * than hidden:
+ *
+ *   - **The badge sprite URL.** The template built it from `site_c_images_path`
+ *     and `site_badges_path`, and this fixture has neither setting, so legacy
+ *     rendered `url(.gif)` — an invisible badge. Where the paths are set the
+ *     sprite is rendered exactly as legacy did; where they are not, the badge
+ *     code is rendered as text, because a broken image is a control that appears
+ *     to work and does not.
+ *   - **The friends list.** The count is real (`friendCount()`), and the search
+ *     box and avatar list belong to Phase 6. The box states that instead of
+ *     rendering an input that would do nothing.
+ */
+function WidgetBody({
+  widget,
+  owner,
+  settings,
+}: {
+  widget: HomeWidget;
+  owner: HomeOwner;
+  settings: Record<string, string>;
+}) {
+  const data = widget.data;
+  const shortname = settings['site_shortname'] ?? '';
+  // The badge sprite is a background image built from two settings, and this
+  // fixture has neither, so legacy rendered `url(.gif)` — see the component doc.
+  const badgePathsSet =
+    Boolean(settings['site_c_images_path']) && Boolean(settings['site_badges_path']);
+
+  if (widget.widget_key === 'profilewidget') {
+    const online = owner.hide_online === '1' ? false : owner.online === '1';
+    return (
+      <div className="profile-info" data-testid="widget-body-profile">
+        <div className="name" style={{ float: 'left' }}>
+          <span className="name-text" data-testid="home-owner-name">
+            {owner.username}
+          </span>
+        </div>
+        <br className="clear" />
+        <img
+          alt={online ? 'online' : 'offline'}
+          data-testid="profile-online"
+          data-online={online ? 'true' : 'false'}
+          src={`/web-gallery/images/myhabbo/profile/habbo_${online ? 'online_anim' : 'offline'}.gif`}
+        />
+        <div className="birthday text">{shortname} Created On:</div>
+        <div className="birthday date" data-testid="profile-created">
+          {legacyDate(owner.account_created)}
+        </div>
+        <div className="profile-figure">
+          <img alt={owner.username} src={avatarUrl(owner.look)} />
+        </div>
+        {owner.motto !== '' ? (
+          <div className="profile-motto" data-testid="profile-motto">
+            {owner.motto}
+          </div>
+        ) : null}
+        <div id="profile-tags-container" data-testid="profile-tags">
+          {!owner.settings_available ? (
+            <Unavailable reason="This page's tags could not be read." />
+          ) : owner.tags.length === 0 ? (
+            WIDGET_EMPTY_COPY.tags
+          ) : (
+            owner.tags.map((tag) => (
+              <span className="tag-search-rowholder" key={tag}>
+                <a href={`/tag/${encodeURIComponent(tag)}`} className="tag">
+                  {tag}
+                </a>
+              </span>
+            ))
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (widget.widget_key === 'highscoreswidget') {
+    // The template renders this line unconditionally: there is no high-score
+    // source anywhere in the legacy checkout, so the box has always been static.
+    return (
+      <table data-testid="widget-body-highscores">
+        <tbody>
+          <tr>
+            <td>{WIDGET_EMPTY_COPY.highScores}</td>
+          </tr>
+        </tbody>
+      </table>
+    );
+  }
+
+  if (data && !data.available) {
+    return <Unavailable reason={data.unavailable_reason ?? 'This box could not be loaded.'} />;
+  }
+
+  if (widget.widget_key === 'badgeswidget') {
+    const badges = data?.badges ?? [];
+    if (badges.length === 0) return <p>{WIDGET_EMPTY_COPY.badges}</p>;
+    return (
+      <ul className="clearfix" data-testid="widget-body-badges">
+        {badges.map((badge) =>
+          badgePathsSet ? (
+            <li
+              key={badge.badge_code}
+              style={{
+                backgroundImage: `url(${settings['site_c_images_path']}${settings['site_badges_path']}${encodeURIComponent(badge.badge_code)}.gif)`,
+              }}
+            />
+          ) : (
+            <li key={badge.badge_code} className="badge-code" title="Badge image paths are not configured">
+              {badge.badge_code}
+            </li>
+          ),
+        )}
+      </ul>
+    );
+  }
+
+  if (widget.widget_key === 'groupswidget') {
+    const groups = data?.groups ?? [];
+    if (groups.length === 0) return <p>{WIDGET_EMPTY_COPY.groups}</p>;
+    return (
+      <ul className="groups-list" data-testid="widget-body-groups">
+        {groups.map((group) => (
+          // `phpretroGroupPath()`: `/groups/<alias>` when the group has one and
+          // `/groups/<id>/id` otherwise. The alias table is Phase 7's, so the id
+          // form is what this can build — and it is the same URL legacy fell back
+          // to for a group with no alias.
+          <li key={group.id}>
+            <a href={`/groups/${group.id}/id`}>{group.name}</a>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  if (widget.widget_key === 'roomswidget') {
+    const rooms = data?.rooms ?? [];
+    if (rooms.length === 0) return <p>{WIDGET_EMPTY_COPY.rooms}</p>;
+    return (
+      <ul className="rooms-list" data-testid="widget-body-rooms">
+        {rooms.map((room) => (
+          <li key={room.id}>{room.name}</li>
+        ))}
+      </ul>
+    );
+  }
+
+  if (widget.widget_key === 'friendswidget') {
+    return (
+      <p data-testid="widget-body-friends">
+        {data?.friend_count_known
+          ? `${data.friend_count} friend${data.friend_count === 1 ? '' : 's'}. The list and the search box are Phase 6.`
+          : 'The friend count could not be read; the list and the search box are Phase 6.'}
+      </p>
+    );
+  }
+
+  // guestbookwidget and ratingwidget: real slices of this phase, each with its
+  // own privacy, rate-limit and audit rules. The box says which, rather than
+  // rendering an empty frame that would look like a widget that failed to load.
+  return (
+    <p className="home-widget-pending" data-testid="widget-content-pending">
+      This widget&rsquo;s contents are not converted yet: the legacy body was rendered
+      by <code>includes/habblet-templates/home-widget.php</code>, which is the next
+      slice of this phase. The box itself is real, and so is its position.
+    </p>
+  );
+}
+
+/**
  * One draggable widget box — `home-widget.php`'s markup.
  *
  * The element ids are legacy's (`widget-<id>`, `widget-<id>-handle`,
@@ -85,7 +306,8 @@ interface WidgetDrag {
  */
 function WidgetBox({
   widget,
-  ownerName,
+  owner,
+  settings,
   editing,
   drag,
   onDragStart,
@@ -94,7 +316,8 @@ function WidgetBox({
   onRemove,
 }: {
   widget: HomeWidget;
-  ownerName: string;
+  owner: HomeOwner;
+  settings: Record<string, string>;
   editing: boolean;
   drag: WidgetDrag | null;
   onDragStart: (event: React.PointerEvent<HTMLElement>, widget: HomeWidget) => void;
@@ -148,32 +371,16 @@ function WidgetBox({
                 />
               ) : null}
               <span className="header-left">&nbsp;</span>
-              <span className="header-middle">{widgetTitle(widget.widget_key)}</span>
+              <span className="header-middle">
+                {widgetTitle(widget.widget_key, widget.data?.friend_count_known ? widget.data.friend_count : undefined)}
+              </span>
               <span className="header-right">&nbsp;</span>
             </h3>
           </div>
         </div>
         <div className="widget-body">
           <div className="widget-content">
-            {widget.widget_key === 'profilewidget' ? (
-              <div className="profile-info">
-                <div className="name" style={{ float: 'left' }}>
-                  {/* `home-widget.php` echoed the owner's username here. It is
-                      the one field of that template this payload already
-                      carries; the figure, motto and created-on line are not in
-                      the layout contract and are not invented. */}
-                  <span className="name-text" data-testid="home-owner-name">
-                    {ownerName}
-                  </span>
-                </div>
-              </div>
-            ) : null}
-            <p className="home-widget-pending" data-testid="widget-content-pending">
-              This widget&rsquo;s contents are not converted yet: the legacy body was
-              rendered by <code>includes/habblet-templates/home-widget.php</code>, which
-              is the next slice of this phase. The box itself is real, and so is its
-              position.
-            </p>
+            <WidgetBody widget={widget} owner={owner} settings={settings} />
             {removable ? (
               <button
                 type="button"
@@ -264,6 +471,9 @@ export default function HomePage({ mode }: { mode: 'view' | 'edit' }) {
   const me = useMe();
   const layoutQuery = useHomeLayout(userId);
   const layout = layoutQuery.data;
+  // `SHORTNAME` and the badge sprite paths come from the same settings the
+  // legacy templates read through `$settings->find()` — one page, one source.
+  const settings = usePageSettings();
 
   const [lockToken, setLockToken] = useState('');
   const [lockError, setLockError] = useState('');
@@ -580,7 +790,8 @@ export default function HomePage({ mode }: { mode: 'view' | 'edit' }) {
                         <div id="playground-outer">
                           <Playground
                             widgets={widgetList}
-                            ownerName={layout.home.username}
+                            owner={layout.home.owner}
+                            settings={settings}
                             editing
                             drag={drag}
                             onDragStart={handleDragStart}
@@ -601,7 +812,8 @@ export default function HomePage({ mode }: { mode: 'view' | 'edit' }) {
                       ) : (
                         <Playground
                           widgets={widgetList}
-                          ownerName={layout.home.username}
+                          owner={layout.home.owner}
+                          settings={settings}
                           editing={false}
                           drag={null}
                           onDragStart={handleDragStart}
@@ -658,7 +870,8 @@ export default function HomePage({ mode }: { mode: 'view' | 'edit' }) {
  */
 function Playground({
   widgets,
-  ownerName,
+  owner,
+  settings,
   editing,
   drag,
   onDragStart,
@@ -667,7 +880,8 @@ function Playground({
   onRemove,
 }: {
   widgets: HomeWidget[];
-  ownerName: string;
+  owner: HomeOwner;
+  settings: Record<string, string>;
   editing: boolean;
   drag: WidgetDrag | null;
   onDragStart: (event: React.PointerEvent<HTMLElement>, widget: HomeWidget) => void;
@@ -681,7 +895,8 @@ function Playground({
         <WidgetBox
           key={widget.id}
           widget={widget}
-          ownerName={ownerName}
+          owner={owner}
+          settings={settings}
           editing={editing}
           drag={drag}
           onDragStart={onDragStart}
