@@ -1,5 +1,5 @@
 {
-  "note": "Seed list for tools/modern-theme/fetch-assets.mjs. Add a page here (name + url + the hashed bundles its HTML references) and re-run the script; it follows every asset those files reference. The mirror itself is never committed — see docs/modern-theme-assets.md.",
+  "note": "Seed list for tools/modern-theme/fetch-assets.mjs. Add a page here (name + url + any hashed bundles its HTML references) and re-run the script; it follows every asset those files reference. A 404 is recorded as 'missing' and skipped, because this list probes candidate route names. The mirror itself lives outside the repository — see docs/modern-theme-assets.md.",
   "allowedHosts": [
     "www.habbo.com",
     "images.habbo.com",
@@ -23,6 +23,56 @@
     {
       "name": "shop",
       "url": "https://www.habbo.com/shop",
+      "assets": []
+    },
+    {
+      "name": "playing-habbo",
+      "url": "https://www.habbo.com/playing-habbo",
+      "assets": []
+    },
+    {
+      "name": "credits",
+      "url": "https://www.habbo.com/credits",
+      "assets": []
+    },
+    {
+      "name": "help",
+      "url": "https://www.habbo.com/help",
+      "assets": []
+    },
+    {
+      "name": "safety",
+      "url": "https://www.habbo.com/safety",
+      "assets": []
+    },
+    {
+      "name": "articles",
+      "url": "https://www.habbo.com/articles",
+      "assets": []
+    },
+    {
+      "name": "groups",
+      "url": "https://www.habbo.com/groups",
+      "assets": []
+    },
+    {
+      "name": "rooms",
+      "url": "https://www.habbo.com/rooms",
+      "assets": []
+    },
+    {
+      "name": "habbo-nft",
+      "url": "https://www.habbo.com/habbo-nft",
+      "assets": []
+    },
+    {
+      "name": "l10n",
+      "url": "https://images.habbo.com/habbo-web-l10n/com.json",
+      "assets": []
+    },
+    {
+      "name": "rss",
+      "url": "https://www.habbo.com/rss.xml",
       "assets": []
     }
   ]

@@ -138,6 +138,14 @@ async function capture({ url, referrer }) {
     return;
   }
   if (!response.ok) {
+    // A candidate page that does not exist is expected: the seed manifest lists
+    // route names to probe, and the reference site does not publish all of them.
+    // A 404 is recorded and skipped; anything else is a failure worth an exit code.
+    if (response.status === 404) {
+      console.log(`  SKIP  ${url} — HTTP 404 (not published)`);
+      lock.push({ url, path: target, bytes: 0, sha256: '', contentType: '', status: 'missing', referrer: referrer ?? null });
+      return;
+    }
     console.error(`  FAIL  ${url} — HTTP ${response.status}`);
     failures += 1;
     return;
