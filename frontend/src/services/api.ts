@@ -56,13 +56,30 @@ export class ApiRequestError extends Error {
   /** Present only on a banned-user login refusal (`AuthResult.errorCode == 3`). */
   readonly banReason?: string;
   readonly banExpires?: string;
+  /**
+   * The parsed response body, when there was one.
+   *
+   * Kept because a failure body is sometimes the result the caller needs rather
+   * than a description of the failure: a `409` from the Homes layout API carries
+   * the server's current layout, and `current` is what an optimistic update must
+   * roll back to. Re-fetching instead would be a second request that can itself
+   * race the writer it is trying to observe.
+   */
+  readonly payload?: unknown;
 
-  constructor(status: number, message: string, banReason?: string, banExpires?: string) {
+  constructor(
+    status: number,
+    message: string,
+    banReason?: string,
+    banExpires?: string,
+    payload?: unknown,
+  ) {
     super(message);
     this.name = 'ApiRequestError';
     this.status = status;
     this.banReason = banReason;
     this.banExpires = banExpires;
+    this.payload = payload;
   }
 
   /** True when the failure means "no valid public session" (missing/expired). */
@@ -105,7 +122,12 @@ export function hasRememberMeFlag(): boolean {
 }
 
 interface RequestJsonInit {
-  method: 'GET' | 'POST';
+  /**
+   * `PUT` and `DELETE` joined the list for the MyHabbo layout API, whose writes
+   * are a replace and a removal rather than a form post. The CSRF path is the
+   * same for all four: the filter validates the header on any non-GET request.
+   */
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
   /** Absolute API path beginning with `/`. */
   path: string;
   body?: unknown;
@@ -170,8 +192,16 @@ export async function requestJson<T>(init: RequestJsonInit): Promise<T> {
 
   if (!response.ok) {
     // Error bodies are `{error, message, status}`; fall back to the HTTP text.
+    // `parsed` travels with the error as well: a `409` from the Homes layout API
+    // carries the server's current layout, and that is the rollback target.
     const message = body.message ?? body.error ?? `${response.status} ${response.statusText}`;
-    throw new ApiRequestError(response.status, message, body.ban_reason, body.ban_expires);
+    throw new ApiRequestError(
+      response.status,
+      message,
+      body.ban_reason,
+      body.ban_expires,
+      parsed,
+    );
   }
 
   return body as T;

@@ -422,6 +422,19 @@ jobs:
           BASE_NEW: http://localhost:3000
         run: npx playwright test landing-login.spec.ts
 
+      # The Phase 8 MyHabbo page and editor. This is the only check that can
+      # answer what the endpoint suite cannot: that the boxes render at the
+      # geometry the API computed, that a real pointer drag produces a save, and
+      # that a save losing the version race rolls back to the server's layout.
+      # It needs the Docker CLI for one case (advancing the version row to fake a
+      # concurrent writer), so it runs here rather than in the parity container.
+      - name: MyHabbo home page and editor browser flow (Phase 8)
+        working-directory: tests/e2e
+        env:
+          PLAYWRIGHT_HOMES: '1'
+          BASE_NEW: http://localhost:3000
+        run: npx playwright test homes.spec.ts
+
       # The comparison runs in the PINNED Playwright container, not on the
       # runner's own Chromium. The image pins the Chromium build *and* the font
       # set, which is what makes the comparison environment genuinely the same as

@@ -22,6 +22,32 @@ if (!container) {
   throw new Error('Root container #root was not found in index.html');
 }
 
+/**
+ * Remove Prototype's `toJSON` patches before anything serializes JSON.
+ *
+ * `index.html` loads the legacy `web-gallery/static/js/libs.js`, which is
+ * Prototype 1.7 — and Prototype adds `toJSON` to `Array.prototype` and
+ * `Object.prototype`. Native `JSON.stringify` calls `toJSON()` on any value that
+ * has one, so `JSON.stringify({widgets: [row]})` produced
+ *
+ *   {"widgets":"[{\"id\": 0, \"column\": 2, \"position\": 1}]"}
+ *
+ * — the array as a **string**, in Prototype's own formatting. It was found on the
+ * MyHabbo layout save, where the server correctly answered "widgets must be an
+ * array." and the editor reported that verbatim. Every API call that sends an
+ * array was affected; the others send objects and scalars and never showed it.
+ *
+ * Deleting the prototype methods restores the native semantics the API client
+ * depends on. Prototype's own static `Object.toJSON` is untouched, so the legacy
+ * scripts that call it explicitly keep working, and nothing in this SPA calls
+ * `value.toJSON()` expecting Prototype's string.
+ */
+for (const proto of [Array.prototype, Object.prototype] as object[]) {
+  if (Object.prototype.hasOwnProperty.call(proto, 'toJSON')) {
+    delete (proto as { toJSON?: unknown }).toJSON;
+  }
+}
+
 ReactDOM.createRoot(container).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>

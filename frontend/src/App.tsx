@@ -12,6 +12,7 @@ import ArticlesPage from './pages/ArticlesPage';
 import HelpPage from './pages/HelpPage';
 import CollectablesPage from './pages/CollectablesPage';
 import MaintenancePage from './pages/MaintenancePage';
+import HomePage from './pages/HomePage';
 import AdminLayout from './pages/admin/AdminLayout';
 import AdminHomePage from './pages/admin/AdminHomePage';
 import AdminNewsPage from './pages/admin/AdminNewsPage';
@@ -62,6 +63,12 @@ const BODY_BY_PATH: Record<string, { id: string; className: string }> = {
   // the class is empty either way once a user is signed in.
   '/credits': { id: 'home', className: '' },
   '/credits/history': { id: 'home', className: '' },
+  // home.php: `$page['bodyid'] = $page['edit'] ? 'editmode' : 'viewmode'`.
+  // `body#editmode` is what the legacy stylesheets key the editor's playground
+  // off, so the mode has to reach the body element — which is why the editor is
+  // its own URL (see the routes below) rather than a flag on one page.
+  '/home': { id: 'viewmode', className: '' },
+  '/home/edit': { id: 'editmode', className: '' },
   // client.php emitted its own page shell (templates/client_header.php) with
   // <body id="client" class="wide">. The converted page reuses the community
   // shell instead, because the Shockwave document the legacy body was built
@@ -128,7 +135,16 @@ function LegacyBodyAttributes() {
     // templates/housekeeping_header.php emits a plain <body> with no id and no
     // class, and the admin panel carries its own scoped stylesheet, so the
     // fallback below (empty id and class) is the accurate value.
-    const key = pathname.startsWith('/articles/') ? '/articles' : pathname;
+    //
+    // `/home/<id>` and `/home/<id>/edit` are the two MyHabbo body ids; the edit
+    // route is matched first because both start with `/home/`.
+    const key = pathname.startsWith('/articles/')
+      ? '/articles'
+      : pathname.startsWith('/home/')
+        ? pathname.endsWith('/edit')
+          ? '/home/edit'
+          : '/home'
+        : pathname;
     const cfg = BODY_BY_PATH[key] ?? { id: '', className: '' };
     document.body.id = cfg.id;
     document.body.className = cfg.className;
@@ -207,6 +223,20 @@ export default function App() {
         <Route path="/help/:id" element={<HelpPage />} />
         <Route path="/credits/collectables" element={<CollectablesPage />} />
         <Route path="/maintenance" element={<MaintenancePage />} />
+
+        {/* home.php — a MyHabbo page. Two routes because legacy had two: the
+            page itself, and the `myhabbo/startSession/<id>` URL the Edit button
+            went to (which set the session's edit flag and came back to the page
+            in edit mode). `home.php` also set `$page['bodyid']` to `viewmode` or
+            `editmode`, and the legacy stylesheets size the playground from
+            `body#editmode`, so the mode is carried by the URL rather than by a
+            flag the body-attribute map could not see. */}
+        <Route path="/home/:userId" element={<HomePage mode="view" />} />
+        <Route path="/home/:userId/edit" element={<HomePage mode="edit" />} />
+        {/* The legacy start-session URL, kept so a link written by the old site
+            still lands on the editor instead of the SPA catch-all. The legacy
+            rule is `^myhabbo/startSession/(.*)$`. */}
+        <Route path="/myhabbo/startSession/:userId" element={<HomePage mode="edit" />} />
 
         {/* Account surface. `/account` is the sign-in destination the anonymous
             header form posts to, matching the legacy `account.php` entry point;

@@ -1,9 +1,45 @@
 # MyHabbo Homes layout API (Phase 8)
 
-Status: **the backend half is implemented and verified against a live stack.** The
-React editor is the next work unit in the same phase. This document is the
-"present the request/response and conflict schema" artifact the plan asks for
-before implementation; it describes what is built, not what is planned.
+Status: **the backend half and the React page/editor are implemented and verified
+against a live stack.** Widget *contents*, ratings, the guestbook, notes,
+stickers, the store and group homes are the remaining slices of the phase. This
+document is the "present the request/response and conflict schema" artifact the
+plan asks for before implementation; it describes what is built, not what is
+planned.
+
+## The React side
+
+`/home/{userId}` renders the page (`home.php`); `/home/{userId}/edit` is the
+editor, and the legacy `myhabbo/startSession/{userId}` URL routes to it as well.
+Both use the legacy element ids and classes (`#mypage-wrapper.cbb.blue`,
+`#mypage-content`, `#top-toolbar`, `#mypage-bg`, `#playground`,
+`.movable.widget.<Class>`), so the legacy stylesheets paint them.
+
+* The geometry is **used, not re-derived**: the API returns `left`/`top`/`z_index`
+  and the canvas writes them as the box's inline style. `homes.spec.ts` asserts
+  the rendered style equals the API's value for every box, which is what would
+  fail if the canvas ever grew its own copy of `widgetStyle()`.
+* A drag turns pixels into a slot with `saveWidgetCoords()`'s rule
+  (`placementForPixels`), and a drop onto an occupied slot **swaps** the two
+  boxes, so the request is always a valid permutation and the server never has to
+  refuse a move the user made on screen.
+* A move is applied optimistically and a `409` rolls it back to the `current`
+  payload the conflict body carries — no second request, so the rollback cannot
+  race the writer it is reacting to.
+* Cancel releases the lease (and so does leaving the route), because a lock held
+  by a tab the user has left is a lock nobody can take.
+
+`@dnd-kit/core` is **not** used: it was installed and its `DndContext` blanked the
+editor with `TypeError: e.reduce is not a function` in this bundle, so the drag is
+native pointer events. That substitution, the exact error and the versions are
+recorded in `docs/ai-run-state.md` as an open item rather than hidden here.
+
+Two defects found while building this are also recorded there: Prototype's
+`toJSON` patch (loaded from the legacy assets) made `JSON.stringify` serialize any
+array as a string, which broke the layout save until `main.tsx` removed the
+prototype methods; and `useParams()` returned a route's parameter descriptor
+instead of its value, which this page sidesteps by reading the id from the path.
+
 
 Every rule below was read out of the read-only PHPRetro checkout at
 `../legacy/phpretro-pdo`, not invented:
