@@ -4,6 +4,9 @@ import { Route, Routes, useLocation } from 'react-router-dom';
 import LandingPage from './pages/LandingPage';
 import NotFoundPage from './pages/NotFoundPage';
 import NotYetAvailablePage from './pages/NotYetAvailablePage';
+import PapersPage from './pages/PapersPage';
+import TagPage from './pages/TagPage';
+import { disableLegacyRounder } from './components/Rounder';
 import CommunityPage from './pages/CommunityPage';
 import ArticlesPage from './pages/ArticlesPage';
 import HelpPage from './pages/HelpPage';
@@ -92,6 +95,25 @@ const BODY_BY_PATH: Record<string, { id: string; className: string }> = {
   // way the legacy sign-in form does on `/`.
   '/account': { id: 'landing', className: 'process-template' },
   '/logout': { id: 'home', className: '' },
+  // tag.php: `$page['bodyid'] = 'tags'`, `$page['cat'] = 'community'`, guests
+  // allowed. The id matters beyond styling: the navi2 strip keys its selected
+  // "Tags" tab on it.
+  '/tag': { id: 'tags', className: 'anonymous' },
+  // papers.php: `$page['bodyid'] = 'landing'` through login_header.php, so the
+  // same `body#landing.process-template` as the recovery pages. Without these
+  // two entries the Disclaimer and Privacy Policy pages — which are in the
+  // footer of EVERY page — rendered with no process-template layout at all.
+  '/papers/disclaimer': { id: 'landing', className: 'process-template' },
+  '/papers/privacy': { id: 'landing', className: 'process-template' },
+  // club.php and pixels.php: both `bodyid = "home"`, `cat = "credits"`, both
+  // `allow_guests = true`, both rendered through community_header.php.
+  '/credits/club': { id: 'home', className: 'anonymous' },
+  '/credits/pixels': { id: 'home', className: 'anonymous' },
+  // register.php is a FOURTH body variant: templates/register_header.php:157 is
+  // the only template that emits both a non-empty id and an extra class —
+  // `<body id="register" class="process-template secure-page">`. `secure-page`
+  // is what makes `process.css:27` size the header logo to 42px.
+  '/register': { id: 'register', className: 'process-template secure-page' },
 };
 
 function LegacyBodyAttributes() {
@@ -110,25 +132,31 @@ function LegacyBodyAttributes() {
   }, [pathname]);
 
   useEffect(() => {
-    // The legacy templates call these after the DOM exists (see
-    // templates/community_footer.php). They are loaded as classic scripts from
-    // index.html, so they are defined by the time this effect runs.
+    // `HabboView.run()` flushes the callbacks the legacy templates registered
+    // (see templates/community_footer.php). It is wrapped because a failure in
+    // legacy code must not take the React tree down with it.
     //
-    // Rounder.init() is the important one for parity: it rewrites `.rounded`
-    // elements into the nested .rounded-container gradient markup that the
-    // legacy pages actually render. HabboView.run() flushes callbacks that
-    // templates registered. Both are wrapped because a failure in legacy code
-    // must not take the React tree down with it.
+    // `Rounder.init()` used to be called here as well, for visual parity. It is
+    // gone on purpose; see `disableLegacyRounder()` below and
+    // `components/Rounder.tsx`.
     const w = window as unknown as {
-      Rounder?: { init?: () => void };
       HabboView?: { run?: () => void };
     };
     const timer = window.setTimeout(() => {
-      try {
-        w.Rounder?.init?.();
-      } catch (err) {
-        console.warn('Rounder.init() failed', err);
-      }
+      // The legacy `Rounder` must never run against React's DOM: `addCorners`
+      // does `N.cloneNode(true)` + `parentNode.replaceChild(...)`, which throws
+      // React's node away, so every later React update is written to a detached
+      // node and silently disappears. That single legacy operation is why
+      // `/forgot` rendered "Forgotten Your  Name?" on a page whose settings had
+      // resolved to "Retro", and it orphaned 106 of 167 React nodes there and
+      // 183 of 316 on `/credits/collectables`.
+      //
+      // Its markup is reproduced in React instead — see `components/Rounder.tsx`
+      // — and this call stops the legacy copy. It has to happen before
+      // `HabboView.run()` because `visual.js:228` registers a SECOND
+      // `Rounder.init()` through `HabboView.add`, so merely not calling it
+      // ourselves leaves it running.
+      disableLegacyRounder();
       try {
         w.HabboView?.run?.();
       } catch (err) {
@@ -216,38 +244,28 @@ export default function App() {
         <Route path="/housekeeping/login" element={<HousekeepingLoginPage />} />
 
         {/*
-          Routes the legacy site has and this stack does not — yet.
+          Routes the legacy site has and this stack does not have a real page
+          for — yet.
 
           Without these the catch-all below sent every one of them to "/", so a
-          click looked like the site had thrown the visitor back to the front page
-          for no reason. `/papers/disclaimer` and `/papers/privacy` are in the
-          footer of EVERY page, and `/credits/club` / `/credits/pixels` are in the
+          click looked like the site had thrown the visitor back to the front
+          page for no reason. `/credits/club` and `/credits/pixels` are in the
           signed-in header and the /me link bar, so this was easy to hit.
 
           Each states what is missing and which phase delivers it, which is the
           honest version of "not converted" and matches the plan's rule against
           controls that appear to work but do nothing.
+
+          `/papers/disclaimer`, `/papers/privacy` and `/tag` used to be stubs
+          too. They are real ports now: `papers.php` and `tag.php` are small,
+          fully-readable legacy pages (see `PapersPage` and `TagPage`), and
+          `tag.php` in particular already shipped the honest "no tags table"
+          message itself — a generic "not converted" notice was less accurate
+          than the page it replaced.
         */}
-        <Route
-          path="/papers/disclaimer"
-          element={
-            <NotYetAvailablePage
-              title="Disclaimer"
-              phase="Phase 4 (public content pages)"
-              detail="The legacy site served this from papers.php with tenant-authored copy, which has not been ported."
-            />
-          }
-        />
-        <Route
-          path="/papers/privacy"
-          element={
-            <NotYetAvailablePage
-              title="Privacy Policy"
-              phase="Phase 4 (public content pages)"
-              detail="The legacy site served this from papers.php with tenant-authored copy, which has not been ported."
-            />
-          }
-        />
+        <Route path="/papers/disclaimer" element={<PapersPage which="disclaimer" />} />
+        <Route path="/papers/privacy" element={<PapersPage which="privacy" />} />
+        <Route path="/tag" element={<TagPage />} />
         <Route
           path="/register"
           element={
@@ -278,17 +296,6 @@ export default function App() {
             />
           }
         />
-        <Route
-          path="/tag"
-          element={
-            <NotYetAvailablePage
-              title="Tags"
-              phase="Phase 7 (rooms and tags)"
-              detail="Room tags are a denormalised field in the hotel database; the legacy tag cloud and search are not ported."
-            />
-          }
-        />
-
         <Route
           path="/habblet/proxy.php"
           element={

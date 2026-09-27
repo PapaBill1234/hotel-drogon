@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 
 import CommunityShell from '../components/CommunityShell';
+import { Cbb, BoxTitle } from '../components/Rounder';
 import { useCollectibles, useSettings } from '../hooks/usePublicContent';
 import { formatMonthYear, holoUrl, isEven } from '../services/legacy';
 import type { Collectible } from '../types/api';
@@ -80,8 +81,8 @@ export default function CollectablesPage() {
           <div id="content" style={{ position: 'relative' }} className="clearfix">
             <div id="column1" className="column">
               <div className="habblet-container " id="collectible-current">
-                <div className="cbb clearfix gray ">
-                  <h2 className="title">Current Collectable</h2>
+                <Cbb className="cbb clearfix gray ">
+                  <BoxTitle>Current Collectable</BoxTitle>
                   <div id="collectible-current-content" className="clearfix">
                     <div
                       id="collectibles-current-img"
@@ -102,12 +103,12 @@ export default function CollectablesPage() {
                       </p>
                     )}
                   </div>
-                </div>
+                </Cbb>
               </div>
 
               <div className="habblet-container ">
-                <div className="cbb clearfix red ">
-                  <h2 className="title">Collectable Showroom</h2>
+                <Cbb className="cbb clearfix red ">
+                  <BoxTitle>Collectable Showroom</BoxTitle>
                   <ul id="collectibles-list">
                     {showroom.map((showroomRow, index) => (
                       <li
@@ -126,22 +127,22 @@ export default function CollectablesPage() {
                       </li>
                     ))}
                   </ul>
-                </div>
+                </Cbb>
               </div>
             </div>
             <div id="column2" className="column">
               <div className="habblet-container ">
-                <div className="cbb clearfix red ">
-                  <h2 className="title">What are Collectables?</h2>
+                <Cbb className="cbb clearfix red ">
+                  <BoxTitle>What are Collectables?</BoxTitle>
                   <div id="collectibles-instructions" className="box-content">
                     {collectablesDesc}
                   </div>
-                </div>
+                </Cbb>
               </div>
 
               <div className="habblet-container ">
-                <div className="cbb clearfix red ">
-                  <h2 className="title">Invest in Collectables</h2>
+                <Cbb className="cbb clearfix red ">
+                  <BoxTitle>Invest in Collectables</BoxTitle>
                   <div className="box-content">
                     <p className="collectibles-value-intro">
                       <img
@@ -164,7 +165,7 @@ export default function CollectablesPage() {
                       />
                     </p>
                   </div>
-                </div>
+                </Cbb>
               </div>
             </div>
           </div>

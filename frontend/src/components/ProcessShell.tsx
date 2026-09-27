@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 
 import { ProcessStyles } from './LegacyStyles';
+import { Cbb } from './Rounder';
 import { useFaq, useSettings } from '../hooks/usePublicContent';
 import { holoText } from '../services/legacy';
 
@@ -70,7 +71,7 @@ export default function ProcessShell({
       <div id="overlay"></div>
 
       <div id="container">
-        <div className="cbb process-template-box clearfix">
+        <Cbb className="cbb process-template-box clearfix">
           <div id="content">
             <div id="header" className="clearfix">
               <h1>
@@ -127,7 +128,7 @@ export default function ProcessShell({
               </p>
             </div>
           </div>
-        </div>
+        </Cbb>
       </div>
       {siteTracking !== '' && <div dangerouslySetInnerHTML={{ __html: siteTracking }} />}
     </>

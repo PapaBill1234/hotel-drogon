@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
 import ProcessShell from '../../components/ProcessShell';
+import { Cbb, BoxTitle } from '../../components/Rounder';
 import { SiteSettingsProvider, useSiteShortname } from '../../components/SiteSettings';
 import {
   useRequestPasswordReset,
@@ -98,8 +99,8 @@ export default function ForgotPasswordPage() {
 function FalseAlarmBox() {
   return (
     <div className="habblet-container">
-      <div className="cbb clearfix">
-        <h2 className="title">False Alarm!</h2>
+      <Cbb className="cbb clearfix">
+        <BoxTitle>False Alarm!</BoxTitle>
         <div className="box-content">
           <p>
             If you have remembered your password, or if you just came here by
@@ -109,7 +110,7 @@ function FalseAlarmBox() {
             <a href="/">Back to homepage &raquo;</a>
           </p>
         </div>
-      </div>
+      </Cbb>
     </div>
   );
 }
@@ -132,10 +133,10 @@ function PasswordResetRequestForm() {
   }
 
   return (
-    <div className="cbb clearfix">
+    <Cbb className="cbb clearfix">
       {/* `en.php:509` — `$loc['forgot.pass']`. Kept in the legacy capitalisation:
           "Forgotten Your Password?", not "Forgotten your password?". */}
-      <h2 className="title">Forgotten Your Password?</h2>
+      <BoxTitle>Forgotten Your Password?</BoxTitle>
       <div className="box-content">
         {notice !== null && <p data-testid="forgot-notice">{notice}</p>}
         {/* `en.php:515` — `$loc['forgot.pass.content']`. */}
@@ -185,7 +186,7 @@ function PasswordResetRequestForm() {
           <Link to="/account">Back to sign in</Link>
         </p>
       </div>
-    </div>
+    </Cbb>
   );
 }
 
@@ -213,7 +214,7 @@ function UsernameReminderForm() {
   }
 
   return (
-    <div className="cbb clearfix">
+    <Cbb className="cbb clearfix">
       {/* `en.php:518` — `$loc['forgot.name']` is
           "Forgotten Your ".SHORTNAME." Name?", which renders as "Forgotten Your
           Retro Name?" on this site. SHORTNAME is the `site_shortname` setting,
@@ -232,7 +233,7 @@ function UsernameReminderForm() {
         found; see the run state. Do not "fix" it by hard-coding "Retro" — that
         would hide whatever is actually wrong.
       */}
-      <h2 className="title">{`Forgotten Your ${shortname} Name?`}</h2>
+      <BoxTitle>{`Forgotten Your ${shortname} Name?`}</BoxTitle>
       <div className="box-content">
         {error !== null && <p data-testid="username-error">{error}</p>}
         {/* `en.php:519` — `$loc['forgot.name.message']`. */}
@@ -290,7 +291,7 @@ function UsernameReminderForm() {
           </div>
         )}
       </div>
-    </div>
+    </Cbb>
   );
 }
 
@@ -329,8 +330,8 @@ export function ResetPasswordPage() {
       <div id="container">
         <div id="content" className="clearfix">
           <div id="column1" className="column">
-            <div className="cbb clearfix">
-              <h2 className="title">Choose a new password</h2>
+            <Cbb className="cbb clearfix">
+              <BoxTitle>Choose a new password</BoxTitle>
               <div className="box-content">
                 {token === '' ? (
                   <p data-testid="reset-no-token">
@@ -374,7 +375,7 @@ export function ResetPasswordPage() {
                   </>
                 )}
               </div>
-            </div>
+            </Cbb>
           </div>
         </div>
       </div>

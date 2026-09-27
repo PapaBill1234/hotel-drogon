@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import CommunityShell from '../../components/CommunityShell';
+import { Cbb, BoxTitle } from '../../components/Rounder';
 import { useReauthenticate, useSessionState } from '../../hooks/useAccount';
 
 /**
@@ -50,8 +51,8 @@ export function ReauthenticateScreen({ username }: { username?: string }) {
       <div id="container">
         <div id="content" className="clearfix">
           <div id="column1" className="column">
-            <div className="cbb clearfix green">
-              <h2 className="title">Confirm your password</h2>
+            <Cbb className="cbb clearfix green">
+              <BoxTitle>Confirm your password</BoxTitle>
               <div className="box-content" data-testid="reauth-screen">
                 <p>
                   For your security, please confirm your password before continuing.
@@ -64,7 +65,7 @@ export function ReauthenticateScreen({ username }: { username?: string }) {
                   Forgotten your password? <Link to="/account/password/forgot">Recover it here</Link>.
                 </p>
               </div>
-            </div>
+            </Cbb>
           </div>
         </div>
       </div>

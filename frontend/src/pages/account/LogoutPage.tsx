@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import CommunityShell from '../../components/CommunityShell';
+import { Cbb, BoxTitle } from '../../components/Rounder';
 import { useClearSessionCache, useLogout } from '../../hooks/useAccount';
 
 /**
@@ -48,8 +49,8 @@ export default function LogoutPage() {
         <div id="content" className="clearfix">
           <div id="column1" className="column">
             <div className="habblet-container">
-              <div className="cbb clearfix default">
-                <h2 className="title">Signed out</h2>
+              <Cbb className="cbb clearfix default">
+                <BoxTitle>Signed out</BoxTitle>
                 <div className="box-content">
                   <p data-testid="logout-status">
                     {done ? 'You have been signed out.' : 'Signing you out…'}
@@ -58,7 +59,7 @@ export default function LogoutPage() {
                     <Link to="/">Back to the front page</Link>
                   </p>
                 </div>
-              </div>
+              </Cbb>
             </div>
           </div>
         </div>

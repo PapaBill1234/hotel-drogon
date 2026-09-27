@@ -4,7 +4,25 @@ This mutable state follows [plan v2](cpp-drogon-conversion-plan.md) (`AI_CONTEXT
 
 - **active_phase:** 5
 - **selected_next_work_unit:** Phase 5 registration decision gate recorded, or Phase 6 minimail list/read/send; the Octane replay bound is verified, so an HTTPS (non-loopback) client origin is the open follow-up
-- **last completed work unit:** whole-site visual audit, and the four page defects it found and fixed
+- **last completed work unit:** the legacy `Rounder` DOM-ownership defect — root-caused, ported to React, and measured
+
+**The `Rounder` defect (this unit).** A user's report that `/papers/disclaimer` rendered outside its panel turned out to be the visible end of a site-wide fault: the legacy `Rounder.init()` rewrites React-owned DOM and **replaces nodes with clones**, so every later React update inside a `.cbb` box was written to a detached node and never appeared. It froze `/forgot`'s SHORTNAME heading at its pre-query value (`"Forgotten Your  Name?"`), and it orphaned 40-183 React nodes on every page carrying a `.cbb` box.
+
+Measured before changing anything:
+
+- **Is the rewrite visually load-bearing?** Yes — with it disabled, `/` goes **7.7% -> 36.0%** and `/community` **6.0% -> 20.7%** pixel difference against the legacy baselines (`.bt`/`.bb`/`.i1`/`.i2` carry the box sprite chrome in `style.css:1228-1289`). Deleting it was never an option.
+- **Is the measurement itself trustworthy?** The first attempt said "Rounder has no visual effect" because disabling our own `Rounder.init()` call is not enough — `visual.js:228` registers a second one through `HabboView.add`, so `HabboView.run()` ran it anyway. Two identical score sets were the tell. The toggle was reworked to neuter the global, and the effect appeared immediately.
+- **Ownership after the fix:** `orphaned=0` on `/`, `/community`, `/articles`, `/help`, `/credits/collectables`, `/forgot`, `/papers/disclaimer`, `/tag`, `/register`; the `.rounded-container` counts match the legacy rewrite exactly (1/3/2/2/5/3/0/2/1).
+- **Parity, same host harness across three builds:** landing 7.68% (legacy Rounder) -> **7.45%** (React port); community 5.95% -> **5.95%**; articles 9.19% -> **9.20%**; help 13.33% -> **12.98%**; collectables 12.86% -> **12.87%** — i.e. equal or better on every page, and far better than the 10-36% the pages show without the rewrite.
+
+Ported rather than approximated: `visual.js`'s geometry (`G`, `F`, `E`, `A`, `D`) is transcribed into `frontend/src/components/Rounder.tsx`, including the nested 1px-div chains each row is built from and the fact that a row's chain hangs off the row container individually. Two legacy quirks are preserved deliberately and documented in place: `E`'s 3-digit-hex expansion goes through `substring` bounds that look like typos, and `F` ends each channel with `.toString(16)` on a *string*, where it is inert (TypeScript rejects it; dropping it changes no colour). The rows need computed background colours, so they are built once every stylesheet is **applied** — the same condition the parity harness waits on — because measuring earlier reads `rgba(0,0,0,0)` and bakes it in.
+
+Two legacy pages that were stubs became real ports in the same unit, because their legacy sources turned out to be small and fully readable:
+
+- **`/papers/disclaimer` and `/papers/privacy`** (`PapersPage`). `papers.php` is five lines: a `landing`/process-template page rendering `#terms > .tos-header + .tos-item`. The stub was not wired into the process-template body at all, so `#container` measured **930px wide instead of 766px** with the logo at the viewport's top-left. The page deliberately does NOT inject the stored copy: `paper_*` are raw-HTML settings, the public API withholds markup-bearing values, and the plan makes HTML sanitisation an explicit dependency gate. In this fixture there are no `paper_*` rows at all and `HoloSettings::find` returns `''`, which is what the legacy page renders too.
+- **`/tag`** (`TagPage`). `tag.php` already shipped the honest "no tags table" message itself, so a generic "not converted" notice was *less* accurate than the legacy page. Ported verbatim in the community shell, with the body id `tags` the navi2 strip keys on — and heading "Tag Search", not "Tags" (`en.php:1087`).
+
+Also corrected: five routes had no `BODY_BY_PATH` entry, so they rendered with no body id or class at all. `/papers/*` needed `landing`/`process-template`; `/tag`, `/credits/club`, `/credits/pixels` needed `home`/`tags`; and `/register` turned out to be a **fourth** body variant — `templates/register_header.php:157` is the only template emitting an extra class, `<body id="register" class="process-template secure-page">`, and `secure-page` is what sizes the header logo (`process.css:27`).
 
 **Whole-site visual audit (this session).** A user reported that "a lot is simple wrong and weird" and specifically named the recovery page and housekeeping. Rather than spot-check, a measurement harness was built and the whole surface swept:
 
@@ -189,13 +207,14 @@ Two defects were found by the browser suite and fixed rather than worked around:
 
 ## Known gaps opened or confirmed by this unit
 
-- **OPEN, unexplained: one `site_shortname` interpolation renders empty on `/forgot`.** The recovery page's second heading renders **"Forgotten Your  Name?"** — a double space where SHORTNAME should be — and everything measurable around it says it should not:
-  - `/api/public/settings` returns `site_shortname: "Retro"` (13 keys, confirmed both by curl and by a `fetch` from inside the page);
-  - `usePageSettings()` reports `mergedShortname: "Retro"` **at runtime on that same page** (temporary probe, since removed);
-  - the shell's `<title>`, two nodes away, resolves the same key through the same hook to `"Retro: Forgotten password "`;
-  - the shipped bundle is correct: `function B0(){return H0().site_shortname??""}` and `const c=B0();` feeding `` `Forgotten Your ${c} Name?` ``;
-  - the served text is a genuine double space, verified at the code-point level (`20 20`), not a zero-width character.
-  A settings context (`SiteSettingsProvider` / `usePageSettings`) was added to remove the per-component duplicate reads — architecturally right, and worth keeping — but it did **not** change this heading. The cause is still unknown. **Do not hard-code "Retro" to make it go away**; that would hide the real fault. `tests/e2e/forgot-chars.spec.ts` reproduces it and dumps the code points.
+- **CLOSED — the `site_shortname` interpolation that rendered empty was the legacy `Rounder`, not the settings code.** The recovery page's second heading rendered **"Forgotten Your  Name?"** with a double space while `/api/public/settings` returned `site_shortname: "Retro"` and the shell's `<title>`, two nodes away, resolved the same key through the same hook. Every previous measurement pointed at the settings layer and none of them was wrong — they were measuring a component that had rendered correctly. The fault was one layer down, in the DOM:
+
+  - `Rounder.addCorners` (`web-gallery/static/js/visual.js:226`) does `var P = N.cloneNode(true); … N.parentNode.replaceChild(I, N)`. It **replaces React's `<h2>` with a clone**. React kept updating its own detached node; the clone on screen never changed.
+  - The value it froze was the FIRST render's, which ran before the settings query resolved — hence `""` and the double space, permanently.
+  - `tests/e2e/react-ownership.spec.ts` made it visible: the heading had no `__reactFiber$` own property while `#root` had `__reactContainer$`. Across the site **106 of 167** React nodes were orphaned on `/forgot`, **183 of 316** on `/credits/collectables`, 40-183 on every page carrying `.cbb` boxes.
+  - Two earlier conclusions in this file were wrong and are corrected here: reading `document.title` said nothing about the React `<title>` (React 18 does not hoist an in-tree `<title>` into `<head>`, so it returns the static `index.html` value), and the temporary `SiteSettingsProvider` debug trace proved the provider published `Retro` and the consumer *received* `Retro` — the value was never lost. **The settings context was right; the DOM was stale.**
+  - Fixed by reproducing `Rounder`'s markup in React (`frontend/src/components/Rounder.tsx`: `Cbb`, `BoxTitle`, `Rounded`) and neutering the legacy global before either of its two call sites can run. `forgot-chars.spec.ts` now reports `"Forgotten Your Retro Name?"`. Do not hard-code "Retro" — the fix is that the real value now reaches the screen.
+  - **This was not a one-page bug.** Any React update inside a `.cbb` box was silently discarded: box titles, and any other node Rounder re-created. That is a large part of what "a lot is simple wrong and weird" was describing.
 
 - **The staff panel's chrome matches; its content LAYOUT does not.** Every housekeeping page sits at 27-31% (settings 49%) after the chrome port. Legacy's nav is a horizontal two-row bar of drop-down groups across the page top and its admin content is tables; the React panel uses a vertical sidebar and `hk-*`-styled blocks. Closing that is a Phase 9 design decision, not a defect fix, so it is recorded rather than changed silently.
 - **Two comparable pairs cannot be scored, for stated reasons.** `client`: legacy 302s a signed-in visitor to `/client_popup/install_shockwave` because the hotel client was a Shockwave embed — there is no legacy client page to compare against the new ticket-and-launch page. `reauthenticate`: a mid-session step-up screen that legacy renders only for a session carrying the reauthenticate flag; an anonymous visitor is bounced to the landing page. The flows themselves are covered by `password-reset.spec.ts` and `remember-me.spec.ts`.

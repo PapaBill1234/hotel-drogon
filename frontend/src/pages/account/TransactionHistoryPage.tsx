@@ -1,4 +1,5 @@
 import AccountPage from '../../components/AccountPage';
+import { Cbb, BoxTitle } from '../../components/Rounder';
 import { useTransactions } from '../../hooks/useCredits';
 import type { Transaction } from '../../types/account';
 
@@ -51,8 +52,8 @@ function History() {
       <div id="content" className="clearfix">
         <div id="column1" className="column">
           <div className="habblet-container">
-            <div className="cbb clearfix default">
-              <h2 className="title">Transaction history</h2>
+            <Cbb className="cbb clearfix default">
+              <BoxTitle>Transaction history</BoxTitle>
               <div className="box-content">
                 {isPending && <p data-testid="history-loading">Loading your transactions…</p>}
 
@@ -88,7 +89,7 @@ function History() {
                   </>
                 )}
               </div>
-            </div>
+            </Cbb>
           </div>
         </div>
       </div>

@@ -1,30 +1,35 @@
 import ProcessShell from '../components/ProcessShell';
+import { BoxTitle, Cbb } from '../components/Rounder';
 
 /**
- * An honest landing page for a route that exists in the legacy site but has not
- * been converted yet.
+ * The honest "this route exists in the legacy site but has no page here yet"
+ * screen, rendered in the legacy process-template chrome.
  *
- * ## Why this exists
+ * ## Why it is not just a redirect
  *
- * The router ends with `<Route path="*" element={<Navigate to="/" replace />} />`,
- * so **every** unconverted link silently bounced the visitor to the front page.
- * A link audit over the public pages found seven of them, two of which are in the
- * footer of every page:
+ * The catch-all used to be `<Navigate to="/" replace />`, so every unconverted
+ * URL silently bounced the visitor to the front page — a click looked like the
+ * site had thrown them out for no reason. `/papers/disclaimer` and
+ * `/papers/privacy` are in the footer of EVERY page and `/credits/club` and
+ * `/credits/pixels` are in the signed-in header, so this was easy to hit.
  *
- *   /papers/disclaimer  /papers/privacy     footer, site-wide
- *   /credits/club                           "Join Habbo Club" in the header and /me
- *   /credits/pixels                         "Pixels" in the /me link bar
- *   /register                               header and the landing "Join now" button
- *   /tag                                    the community navi2 "Tags" tab
- *   /habblet/proxy.php?hid=…                habblet placeholders
+ * ## Why the markup looks like this
  *
- * Clicking any of them looked like the site had thrown you back to the home page
- * for no reason. That is the "control that looks like it works but does not" the
- * plan forbids, and it is worse than saying so plainly.
+ * The shell (`ProcessShell`) already renders
+ * `#overlay > #container > .cbb.process-template-box > #content`, so children
+ * belong directly in `#process-content`. An earlier version of this page
+ * re-declared `#container`/`#content`/`#column1` inside the shell's own
+ * `#container`, which nested the panel inside itself; the page then rendered
+ * outside the centred 766px panel with the logo at the top-left of the viewport.
  *
- * This page states which feature is missing and why, using the same
- * process-template shell the legacy error and notice pages use, so it reads as
- * part of the site rather than a dead end.
+ * The layout here matches the legacy single-box process pages: `#column1` is
+ * `float: none; width: auto` under `body.process-template` (`process.css:41`),
+ * so the box spans the panel.
+ *
+ * NOT every unconverted route should become a page: several are deliberate
+ * handoffs to the hotel client or plan decision gates. `phase` and `detail`
+ * exist so each one says which, rather than implying the feature is missing by
+ * accident.
  */
 export default function NotYetAvailablePage({
   title,
@@ -40,21 +45,25 @@ export default function NotYetAvailablePage({
 }) {
   return (
     <ProcessShell pageName={title}>
-      <div className="cbb clearfix">
-        <h2 className="title">{title}</h2>
-        <div className="box-content">
-          <p data-testid="not-yet-available">
-            This part of the site has not been converted yet, so there is nothing
-            to show here. The rest of the hotel works as normal.
-          </p>
-          <p>{detail}</p>
-          <p>
-            Planned for <strong>{phase}</strong>. Until then this page says so
-            rather than sending you back to the front page.
-          </p>
-          <p>
-            <a href="/">Back to the homepage &raquo;</a>
-          </p>
+      <div id="column1" className="column">
+        <div className="habblet-container ">
+          <Cbb className="cbb clearfix orange ">
+            <BoxTitle>{title}</BoxTitle>
+            <div className="box-content">
+              <p data-testid="not-yet-available">
+                This part of the site has not been converted yet, so there is
+                nothing to show here. The rest of the hotel works as normal.
+              </p>
+              <p>{detail}</p>
+              <p>
+                Planned for <strong>{phase}</strong>. Until then this page says
+                so rather than sending you back to the front page.
+              </p>
+              <p>
+                <a href="/">Back to the homepage &raquo;</a>
+              </p>
+            </div>
+          </Cbb>
         </div>
       </div>
     </ProcessShell>

@@ -1,4 +1,5 @@
 import CommunityShell from '../components/CommunityShell';
+import { BoxTitle, Cbb } from '../components/Rounder';
 
 /**
  * `error.php` — the legacy 404, ported.
@@ -24,8 +25,8 @@ export default function NotFoundPage() {
         <div id="content" style={{ position: 'relative' }} className="clearfix">
           <div id="column1" className="column">
             <div className="habblet-container ">
-              <div className="cbb clearfix red ">
-                <h2 className="title">Page not found!</h2>
+              <Cbb className="cbb clearfix red ">
+                <BoxTitle>Page not found!</BoxTitle>
                 <div id="notfound-content" className="box-content">
                   <p className="error-text" data-testid="notfound-message">
                     Sorry, but the page you were looking for was not found.
@@ -36,14 +37,14 @@ export default function NotFoundPage() {
                     Please use the &apos;Back&apos; button to get back to where you started.
                   </p>
                 </div>
-              </div>
+              </Cbb>
             </div>
           </div>
 
           <div id="column2" className="column">
             <div className="habblet-container ">
-              <div className="cbb clearfix green ">
-                <h2 className="title">Were you looking for...</h2>
+              <Cbb className="cbb clearfix green ">
+                <BoxTitle>Were you looking for...</BoxTitle>
                 <div id="notfound-looking-for" className="box-content">
                   <p>
                     <b>A friend&apos;s group or personal page?</b>
@@ -66,7 +67,7 @@ export default function NotFoundPage() {
                     Have a look at the <a href="/credits">Coins</a> page.
                   </p>
                 </div>
-              </div>
+              </Cbb>
             </div>
           </div>
         </div>

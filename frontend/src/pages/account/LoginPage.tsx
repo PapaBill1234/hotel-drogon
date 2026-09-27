@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import ProcessShell from '../../components/ProcessShell';
+import { Cbb, BoxTitle } from '../../components/Rounder';
 import { useLogin } from '../../hooks/useAccount';
 import { AccountApiError } from '../../services/apiAccount';
 
@@ -87,8 +88,8 @@ export default function LoginPage() {
         `body#landing`/`body#reauthenticate`, and the legacy sign-in box is a
         plain block inside `#process-content`.
       */}
-      <div className="cbb clearfix">
-        <h2 className="title">Sign in</h2>
+      <Cbb className="cbb clearfix">
+        <BoxTitle>Sign in</BoxTitle>
         <div className="box-content">
           {error !== null && (
             <p className="error" data-testid="login-error">
@@ -132,7 +133,7 @@ export default function LoginPage() {
             <a href="/account/password/forgot">I forgot my password/username</a>
           </p>
         </div>
-      </div>
+      </Cbb>
     </ProcessShell>
   );
 }

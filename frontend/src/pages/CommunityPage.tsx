@@ -1,4 +1,5 @@
 import CommunityShell from '../components/CommunityShell';
+import { Cbb, BoxTitle } from '../components/Rounder';
 import { useCommunityNews } from '../hooks/usePublicContent';
 import { buildPromoNews } from '../services/communityNews';
 import { articleHref, roomOccupancy } from '../services/legacy';
@@ -221,7 +222,7 @@ export default function CommunityPage() {
           <div id="content" style={{ position: 'relative' }} className="clearfix">
             <div id="column1" className="column">
               <div className="habblet-container ">
-                <div className="cbb clearfix green ">
+                <Cbb className="cbb clearfix green ">
                   <div className="box-tabs-container clearfix">
                     <h2>Rooms</h2>
                     <ul className="box-tabs">
@@ -266,11 +267,11 @@ export default function CommunityPage() {
                       </div>
                     </div>
                   </div>
-                </div>
+                </Cbb>
               </div>
 
               <div className="habblet-container ">
-                <div className="cbb clearfix blue ">
+                <Cbb className="cbb clearfix blue ">
                   <div className="box-tabs-container clearfix">
                     <h2>Groups</h2>
                     <ul className="box-tabs">
@@ -314,12 +315,12 @@ export default function CommunityPage() {
                       </a>
                     </div>
                   </div>
-                </div>
+                </Cbb>
               </div>
 
               <div className="habblet-container ">
-                <div className="cbb clearfix activehomes ">
-                  <h2 className="title">Random Habbos</h2>
+                <Cbb className="cbb clearfix activehomes ">
+                  <BoxTitle>Random Habbos</BoxTitle>
                   <div id="homes-habblet-list-container" className="habblet-list-container">
                     <img
                       className="active-habbo-imagemap"
@@ -361,12 +362,12 @@ export default function CommunityPage() {
                     <area id="imagemap-area-16" shape="rect" coords="315,153,355,203" href="#" alt="" />
                     <area id="imagemap-area-17" shape="rect" coords="380,153,420,203" href="#" alt="" />
                   </map>
-                </div>
+                </Cbb>
               </div>
             </div>
             <div id="column2" className="column">
               <div className="habblet-container news-promo">
-                <div className="cbb clearfix notitle ">
+                <Cbb className="cbb clearfix notitle ">
                   <div id="newspromo">
                     <div id="topstories">
                       {news.map((topStory, index) => (
@@ -416,12 +417,12 @@ export default function CommunityPage() {
                       </li>
                     </ul>
                   </div>
-                </div>
+                </Cbb>
               </div>
 
               <div className="habblet-container ">
-                <div className="cbb clearfix green ">
-                  <h2 className="title">Tags</h2>
+                <Cbb className="cbb clearfix green ">
+                  <BoxTitle>Tags</BoxTitle>
                   <div className="habblet box-content">
                     No tags to display yet.
                     <div className="tag-search-form">
@@ -447,7 +448,7 @@ export default function CommunityPage() {
                       </form>
                     </div>
                   </div>
-                </div>
+                </Cbb>
               </div>
             </div>
           </div>

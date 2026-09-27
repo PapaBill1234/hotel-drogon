@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useLogin } from '../hooks/useAccount';
 import { useFaq, useSettings } from '../hooks/usePublicContent';
 import { LandingStyles } from '../components/LegacyStyles';
+import { Cbb, BoxTitle } from '../components/Rounder';
 import { splitPromoPhrases } from '../services/legacy';
 
 /**
@@ -194,7 +195,7 @@ export default function LandingPage() {
       <div id="overlay"></div>
 
       <div id="container">
-        <div className="cbb process-template-box clearfix">
+        <Cbb className="cbb process-template-box clearfix">
           <div id="content">
             <div id="header" className="clearfix">
               <h1>
@@ -257,8 +258,8 @@ export default function LandingPage() {
 
               <div id="column2" className="column">
                 <div className="habblet-container ">
-                  <div className="cbb loginbox clearfix">
-                    <h2 className="title">{SIGN_IN}</h2>
+                  <Cbb className="cbb loginbox clearfix">
+                    <BoxTitle>{SIGN_IN}</BoxTitle>
 
                     <div className="box-content clearfix" id="login-habblet">
                       {/* `Csrf::field()` emitted a hidden input here; the SPA
@@ -347,7 +348,7 @@ export default function LandingPage() {
                         )}
                       </form>
                     </div>
-                  </div>
+                  </Cbb>
 
                   <div
                     id="remember-me-notification"
@@ -429,7 +430,7 @@ export default function LandingPage() {
               </div>
             </div>
           </div>
-        </div>
+        </Cbb>
       </div>
 
       {/*

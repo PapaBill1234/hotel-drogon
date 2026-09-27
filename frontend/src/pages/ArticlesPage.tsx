@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 
 import CommunityShell from '../components/CommunityShell';
+import { Cbb, BoxTitle } from '../components/Rounder';
 import { useNews, useNewsItem } from '../hooks/usePublicContent';
 import {
   articleHref,
@@ -96,8 +97,8 @@ export default function ArticlesPage() {
           <div id="content" style={{ position: 'relative' }} className="clearfix">
             <div id="column1" className="column">
               <div className="habblet-container">
-                <div className="cbb clearfix default">
-                  <h2 className="title">News</h2>
+                <Cbb className="cbb clearfix default">
+                  <BoxTitle>News</BoxTitle>
                   <div id="article-archive">
                     {archive && (
                       <div id="article-paging" className="clearfix">
@@ -135,12 +136,12 @@ export default function ArticlesPage() {
                       <a href="/articles?archive=true">More news &raquo;</a>
                     )}
                   </div>
-                </div>
+                </Cbb>
               </div>
             </div>
             <div id="column2" className="column">
               <div className="habblet-container">
-                <div className="cbb clearfix notitle">
+                <Cbb className="cbb clearfix notitle">
                   <div id="article-wrapper">
                     {article ? (
                       <>
@@ -196,7 +197,7 @@ export default function ArticlesPage() {
                       <p>No news to display.</p>
                     )}
                   </div>
-                </div>
+                </Cbb>
               </div>
             </div>
           </div>

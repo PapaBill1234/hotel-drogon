@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react';
 
 import AccountPage from '../../components/AccountPage';
+import { Cbb, BoxTitle } from '../../components/Rounder';
 import {
   LOOK_MAX_CHARS,
   MOTTO_MAX_CHARS,
@@ -63,8 +64,8 @@ function ProfileContent({ user }: { user: User }) {
       <div id="content" className="clearfix">
         <div id="column1" className="column">
           <div className="habblet-container">
-            <div className="cbb clearfix default">
-              <h2 className="title">Edit profile</h2>
+            <Cbb className="cbb clearfix default">
+              <BoxTitle>Edit profile</BoxTitle>
               <div className="box-content">
                 <p>
                   Account: <strong data-testid="profile-username">{user.username}</strong>
@@ -76,7 +77,7 @@ function ProfileContent({ user }: { user: User }) {
                   )}
                 </p>
               </div>
-            </div>
+            </Cbb>
           </div>
 
           <MottoAndFigureForm user={user} />
@@ -150,8 +151,8 @@ function MottoAndFigureForm({ user }: { user: User }) {
 
   return (
     <div className="habblet-container">
-      <div className="cbb clearfix default">
-        <h2 className="title">Profile</h2>
+      <Cbb className="cbb clearfix default">
+        <BoxTitle>Profile</BoxTitle>
         <div className="box-content">
           {notice !== null && <Notice kind={notice.kind} text={notice.text} />}
           <form onSubmit={(e) => void onSubmit(e)}>
@@ -194,7 +195,7 @@ function MottoAndFigureForm({ user }: { user: User }) {
             </button>
           </form>
         </div>
-      </div>
+      </Cbb>
     </div>
   );
 }
@@ -229,8 +230,8 @@ function EmailForm({ user }: { user: User }) {
 
   return (
     <div className="habblet-container">
-      <div className="cbb clearfix default">
-        <h2 className="title">Email</h2>
+      <Cbb className="cbb clearfix default">
+        <BoxTitle>Email</BoxTitle>
         <div className="box-content">
           {notice !== null && <Notice kind={notice.kind} text={notice.text} />}
           <form onSubmit={(e) => void onSubmit(e)}>
@@ -249,7 +250,7 @@ function EmailForm({ user }: { user: User }) {
             </button>
           </form>
         </div>
-      </div>
+      </Cbb>
     </div>
   );
 }
@@ -290,8 +291,8 @@ function PasswordForm() {
 
   return (
     <div className="habblet-container">
-      <div className="cbb clearfix default">
-        <h2 className="title">Password</h2>
+      <Cbb className="cbb clearfix default">
+        <BoxTitle>Password</BoxTitle>
         <div className="box-content">
           {notice !== null && <Notice kind={notice.kind} text={notice.text} />}
           <form onSubmit={(e) => void onSubmit(e)}>
@@ -322,7 +323,7 @@ function PasswordForm() {
             </button>
           </form>
         </div>
-      </div>
+      </Cbb>
     </div>
   );
 }

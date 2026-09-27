@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { CommunityStyles } from './LegacyStyles';
+import { Rounded } from './Rounder';
 import { useLogin } from '../hooks/useAccount';
 import { useBanners, useFaq, useSettings } from '../hooks/usePublicContent';
 import { holoUrl } from '../services/legacy';
@@ -331,11 +332,17 @@ export default function CommunityShell({
           </ul>
 
           <div id="habbos-online">
-            <div className="rounded">
+            {/*
+              A bare `.rounded`, which the legacy page relied on `Rounder.init`
+              to rewrite into `.rounded-container` + gradient rows with radius 8.
+              `Rounded` renders that markup through React, because the legacy
+              rewrite cloned the node and React then lost ownership of it.
+            */}
+            <Rounded>
               {/* Legacy: `<?= $online ?> Retros online` — SHORTNAME, not the full
                   site name ("Retros", not "PHPRetros"). */}
               <span>0 Retros online</span>
-            </div>
+            </Rounded>
           </div>
         </div>
       </div>

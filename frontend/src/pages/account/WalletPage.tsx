@@ -1,4 +1,5 @@
 import AccountPage from '../../components/AccountPage';
+import { Cbb, BoxTitle } from '../../components/Rounder';
 import { usePurse } from '../../hooks/useCredits';
 import { useSettings } from '../../hooks/usePublicContent';
 import { holoText } from '../../services/legacy';
@@ -73,8 +74,8 @@ function CreditsColumns() {
 function HowToGetCredits() {
   return (
     <div className="habblet-container ">
-      <div className="cbb clearfix green ">
-        <h2 className="title">How to get Credits</h2>
+      <Cbb className="cbb clearfix green ">
+        <BoxTitle>How to get Credits</BoxTitle>
         <p className="credits-countries-select">
           THIS IS A SAMPLE HABBLET ONLY! PLEASE EDIT /credits.php TO CHANGE THE CONTENTS!
         </p>
@@ -166,7 +167,7 @@ function HowToGetCredits() {
             </ul>
           </li>
         </ul>
-      </div>
+      </Cbb>
     </div>
   );
 }
@@ -181,8 +182,8 @@ function Purse() {
 
   return (
     <div className="habblet-container ">
-      <div className="cbb clearfix brown ">
-        <h2 className="title">Your purse</h2>
+      <Cbb className="cbb clearfix brown ">
+        <BoxTitle>Your purse</BoxTitle>
         <div id="purse-habblet">
           {isPending && <div className="box-content">Loading your purse…</div>}
           {isError && (
@@ -218,7 +219,7 @@ function Purse() {
             </ul>
           )}
         </div>
-      </div>
+      </Cbb>
     </div>
   );
 }
@@ -233,8 +234,8 @@ function WhatAreCoins() {
 
   return (
     <div className="habblet-container ">
-      <div className="cbb clearfix orange ">
-        <h2 className="title">{holoText(`What are ${shortname} Coins?`)}</h2>
+      <Cbb className="cbb clearfix orange ">
+        <BoxTitle>{holoText(`What are ${shortname} Coins?`)}</BoxTitle>
         <div id="credits-promo" className="box-content credits-info">
           <div className="credit-info-text clearfix">
             <img
@@ -252,7 +253,7 @@ function WhatAreCoins() {
             {`All legitimate ways to get ${shortname} coins are to the left. Remember: ${shortname} coins are ALWAYS and always will be free.`}
           </p>
         </div>
-      </div>
+      </Cbb>
     </div>
   );
 }

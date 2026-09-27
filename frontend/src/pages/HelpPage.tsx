@@ -1,6 +1,7 @@
 import { Fragment, useMemo } from 'react';
 
 import CommunityShell from '../components/CommunityShell';
+import { Cbb, BoxTitle } from '../components/Rounder';
 import { useFaq } from '../hooks/usePublicContent';
 import { nl2br } from '../services/legacy';
 import type { FaqItem } from '../types/api';
@@ -51,8 +52,8 @@ export default function HelpPage() {
           <div id="content" className="clearfix">
             <div id="column1" className="column">
               <div className="habblet-container">
-                <div className="cbb clearfix default">
-                  <h2 className="title">Help and FAQ</h2>
+                <Cbb className="cbb clearfix default">
+                  <BoxTitle>Help and FAQ</BoxTitle>
                   <div className="box-content">
                     {groups.length === 0 && <p>No FAQ entries are available yet.</p>}
                     {groups.map(([category, entries]) => (
@@ -67,7 +68,7 @@ export default function HelpPage() {
                       </Fragment>
                     ))}
                   </div>
-                </div>
+                </Cbb>
               </div>
             </div>
           </div>

@@ -1,6 +1,7 @@
 import { Navigate } from 'react-router-dom';
 
 import AccountPage from '../../components/AccountPage';
+import { Cbb, BoxTitle } from '../../components/Rounder';
 import { useSessionState } from '../../hooks/useAccount';
 import { useClientEntry } from '../../hooks/useCredits';
 import { launchUrl, voidTime } from '../../services/clientEntry';
@@ -65,8 +66,8 @@ function ClientEntry() {
       <div id="content" className="clearfix">
         <div id="column1" className="column">
           <div className="habblet-container">
-            <div className="cbb clearfix default">
-              <h2 className="title">Enter the hotel</h2>
+            <Cbb className="cbb clearfix default">
+              <BoxTitle>Enter the hotel</BoxTitle>
               <div className="box-content">
                 <div id="enter-hotel">
                   {launch !== null ? (
@@ -131,7 +132,7 @@ function ClientEntry() {
                   <a href="/me">Go to your page</a>
                 </div>
               </div>
-            </div>
+            </Cbb>
           </div>
         </div>
       </div>
@@ -145,10 +146,10 @@ function Shell({ children }: { children: React.ReactNode }) {
       <div id="content" className="clearfix">
         <div id="column1" className="column">
           <div className="habblet-container">
-            <div className="cbb clearfix default">
-              <h2 className="title">Enter the hotel</h2>
+            <Cbb className="cbb clearfix default">
+              <BoxTitle>Enter the hotel</BoxTitle>
               <div className="box-content">{children}</div>
-            </div>
+            </Cbb>
           </div>
         </div>
       </div>

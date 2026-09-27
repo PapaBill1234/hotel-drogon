@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import CommunityShell from './CommunityShell';
+import { Cbb, BoxTitle } from './Rounder';
 import LoginPage from '../pages/account/LoginPage';
 import { ReauthenticateScreen } from '../pages/account/ReauthenticatePage';
 import { useMe, useRememberLogin } from '../hooks/useAccount';
@@ -177,10 +178,10 @@ function AccountFrame({
         <div id="content" className="clearfix">
           <div id="column1" className="column">
             <div className="habblet-container">
-              <div className="cbb clearfix default">
-                <h2 className="title">{pageName}</h2>
+              <Cbb className="cbb clearfix default">
+                <BoxTitle>{pageName}</BoxTitle>
                 <div className="box-content">{children}</div>
-              </div>
+              </Cbb>
             </div>
           </div>
         </div>

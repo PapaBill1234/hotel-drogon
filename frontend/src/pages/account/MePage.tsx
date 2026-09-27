@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 
 import AccountPage from '../../components/AccountPage';
+import { Cbb, BoxTitle } from '../../components/Rounder';
 import { useClearSessionCache, useLogout } from '../../hooks/useAccount';
 import { useCampaigns } from '../../hooks/usePublicContent';
 import { creditsKeys } from '../../hooks/useCredits';
@@ -283,8 +284,8 @@ function HotCampaigns() {
 
   return (
     <div className="habblet-container ">
-      <div className="cbb clearfix orange ">
-        <h2 className="title">Hot Campaigns</h2>
+      <Cbb className="cbb clearfix orange ">
+        <BoxTitle>Hot Campaigns</BoxTitle>
         <div id="hotcampaigns-habblet-list-container">
           <ul id="hotcampaigns-habblet-list">
             {campaigns.map((campaign, index) => (
@@ -304,7 +305,7 @@ function HotCampaigns() {
             ))}
           </ul>
         </div>
-      </div>
+      </Cbb>
     </div>
   );
 }
