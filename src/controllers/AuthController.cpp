@@ -1,4 +1,5 @@
 #include "controllers/AuthController.h"
+#include "utils/ClientAddress.h"
 #include "services/UserAccountService.h"
 #include "services/SessionManager.h"
 #include "services/BanService.h"
@@ -60,7 +61,7 @@ void AuthController::login(
 
     std::string username = (*json)["username"].asString();
     std::string password = (*json)["password"].asString();
-    std::string ip = req->peerAddr().toIp();
+    std::string ip = utils::ClientAddress::of(req);
 
     // The anonymous header's checkbox is `_login_remember_me` with value "true";
     // the JSON field keeps the legacy name so the two cannot drift.
@@ -76,6 +77,20 @@ void AuthController::login(
         [req, rememberMe, callback](services::AuthResult result) {
             if (!result.success || !result.user.has_value()) {
                 Value err;
+                // A throttled attempt answers 429 rather than 401: the password
+                // may well have been right, and the caller needs to know to
+                // wait instead of retrying. The message is the one the throttle
+                // produced, which says nothing about whether the account exists.
+                if (result.errorCode == 5) {
+                    err["error"] = "TooManyAttempts";
+                    err["message"] = result.errorMessage;
+                    err["status"] = 429;
+                    auto resp = drogon::HttpResponse::newHttpJsonResponse(err);
+                    resp->setStatusCode(drogon::k429TooManyRequests);
+                    resp->addHeader("Retry-After", std::to_string(result.retryAfterSeconds));
+                    callback(resp);
+                    return;
+                }
                 err["error"] = (result.errorCode == 3) ? "Banned" : "Unauthorized";
                 err["message"] = result.errorMessage;
                 err["status"] = (result.errorCode == 3) ? 403 : 401;
@@ -90,7 +105,7 @@ void AuthController::login(
             }
 
             const auto& user = *result.user;
-            std::string userIp = req->peerAddr().toIp();
+            std::string userIp = utils::ClientAddress::of(req);
 
             services::SessionManager::createUserSession(
                 user,
@@ -161,8 +176,8 @@ void AuthController::login(
                                     if (!stored) {
                                         // The password was right and the session
                                         // exists; only the long-lived token failed.
-                                        // The login still succeeds — refusing it
-                                        // would be worse than not remembering — but
+                                        // The login still succeeds ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â refusing it
+                                        // would be worse than not remembering ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â but
                                         // no cookie is set, so the client is not
                                         // told it will be remembered.
                                         HOTEL_LOG_WARN(
@@ -178,7 +193,7 @@ void AuthController::login(
                                     flagCookie.setPath("/");
                                     // Readable, because the client tests it to
                                     // decide whether to attempt a token login at
-                                    // all — the role the legacy front controller
+                                    // all ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the role the legacy front controller
                                     // played when it read `$_COOKIE['rememberme']`.
                                     flagCookie.setHttpOnly(false);
                                     flagCookie.setSameSite(drogon::Cookie::SameSite::kLax);
@@ -276,7 +291,7 @@ void AuthController::rememberLogin(
 
                     services::SessionManager::createUserSession(
                         record,
-                        req->peerAddr().toIp(),
+                        utils::ClientAddress::of(req),
                         [callback, deny, record,
                          req](std::optional<services::UserSessionData> session) {
                             if (!session.has_value()) {
@@ -378,7 +393,7 @@ void AuthController::logout(
     // keyed by user id and clearing it is what makes a deliberate sign-out end
     // the long-lived credential too. Legacy only cleared the cookies; leaving the
     // stored digest live would mean a copied cookie still worked after the user
-    // had signed out — a session the user cannot end.
+    // had signed out ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â a session the user cannot end.
     services::SessionManager::getUserSession(
         token,
         [req, callback, token](std::optional<services::UserSessionData> session) {
@@ -431,7 +446,7 @@ void AuthController::logout(
                             // Signing out ends the client credential as well as
                             // the browser session. Waiting for the ticket's own
                             // deadline would leave a captured ticket usable after
-                            // the user had deliberately signed out — the same
+                            // the user had deliberately signed out ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the same
                             // reasoning that clears the remember-me digest above.
                             // A failure here does not fail the sign-out: the
                             // session is already gone, and the ticket still has
@@ -439,7 +454,7 @@ void AuthController::logout(
                             services::UserAccountService::voidIssuedAuthTicket(
                                 userId,
                                 "logout",
-                                req->peerAddr().toIp(),
+                                utils::ClientAddress::of(req),
                                 [sendLoggedOut](bool /*voided*/) { sendLoggedOut(); });
                         });
                 });
@@ -472,7 +487,7 @@ void AuthController::getMe(
                 // The step-up flag, reported here as well as on
                 // `/api/account/session`. Every guarded page already fetches
                 // `/api/me`, so without this a client would need a second request
-                // just to learn whether it may render anything — and the guard
+                // just to learn whether it may render anything ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â and the guard
                 // that decides that would be reading a value it did not ask for.
                 root["reauth_required"] = session.reauth_required;
                 auto resp = drogon::HttpResponse::newHttpJsonResponse(root);
@@ -511,7 +526,7 @@ void AuthController::staffLogin(
     std::string username = (*json)["username"].asString();
     std::string password = (*json)["password"].asString();
     std::string totpCode = json->isMember("totp_code") ? (*json)["totp_code"].asString() : "";
-    std::string ip = req->peerAddr().toIp();
+    std::string ip = utils::ClientAddress::of(req);
 
     services::UserAccountService::authenticate(
         username,
@@ -520,6 +535,16 @@ void AuthController::staffLogin(
         [totpCode, ip, callback](services::AuthResult result) {
             if (!result.success || !result.user.has_value()) {
                 Value err;
+                if (result.errorCode == 5) {
+                    err["error"] = "TooManyAttempts";
+                    err["message"] = result.errorMessage;
+                    err["status"] = 429;
+                    auto resp = drogon::HttpResponse::newHttpJsonResponse(err);
+                    resp->setStatusCode(drogon::k429TooManyRequests);
+                    resp->addHeader("Retry-After", std::to_string(result.retryAfterSeconds));
+                    callback(resp);
+                    return;
+                }
                 err["error"] = "Unauthorized";
                 err["message"] = result.errorMessage;
                 err["status"] = 401;

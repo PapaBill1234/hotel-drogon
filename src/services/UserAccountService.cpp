@@ -2,6 +2,7 @@
 #include "services/BanService.h"
 #include "services/AuditService.h"
 #include "services/ContentService.h"
+#include "services/LoginThrottle.h"
 #include "utils/Config.h"
 #include "utils/Crypto.h"
 #include "utils/Logger.h"
@@ -95,37 +96,26 @@ void UserAccountService::findByUsername(
         };
 }
 
-void UserAccountService::authenticate(
+// The credential check itself: read the account, verify the password, run the
+// ban check, and sign the caller in. It is reached only for an attempt the
+// throttle has already allowed, which is what makes every refusal inside it a
+// counted failure rather than another free try.
+static void signInWithCredentials(
+    const drogon::orm::DbClientPtr& db,
     const std::string& username,
     const std::string& password,
     const std::string& ipAddress,
     std::function<void(AuthResult)> callback
 ) {
-    if (username.empty() || password.empty()) {
-        AuthResult res;
-        res.success = false;
-        res.errorCode = 1;
-        res.errorMessage = "Username and password are required.";
-        callback(res);
-        return;
-    }
-
-    auto db = drogon::app().getDbClient("default");
-    if (!db) {
-        AuthResult res;
-        res.success = false;
-        res.errorCode = 4;
-        res.errorMessage = "Database service unavailable.";
-        callback(res);
-        return;
-    }
-
     *db << "SELECT id, username, real_name, password, mail, mail_verified, rank, credits, pixels, points, "
            "look, gender, motto, online, account_created, last_login, ip_current, auth_ticket "
            "FROM users WHERE username = ? LIMIT 1"
         << username
-        >> [password, ipAddress, db, callback](const drogon::orm::Result& r) {
+        >> [username, password, ipAddress, db, callback](const drogon::orm::Result& r) {
             if (r.empty()) {
+                // Counted even though no account matched: a counter that moved
+                // only for real accounts would answer "does this one exist?".
+                LoginThrottle::recordFailure(username, ipAddress);
                 AuthResult res;
                 res.success = false;
                 res.errorCode = 2;
@@ -142,6 +132,7 @@ void UserAccountService::authenticate(
             // Password verification
             auto verifyResult = hotel::utils::Crypto::verifyPassword(password, storedPassword, userLogin);
             if (!verifyResult.verified) {
+                LoginThrottle::recordFailure(username, ipAddress);
                 AuthResult res;
                 res.success = false;
                 res.errorCode = 2;
@@ -164,7 +155,7 @@ void UserAccountService::authenticate(
             }
 
             // Ban check
-            BanService::checkUserBan(userId, [row, userId, ipAddress, db, callback](BanCheckResult banCheck) {
+            BanService::checkUserBan(userId, [username, row, userId, ipAddress, db, callback](BanCheckResult banCheck) {
                 if (banCheck.isBanned) {
                     AuthResult res;
                     res.success = false;
@@ -192,6 +183,12 @@ void UserAccountService::authenticate(
 
                 AuditService::logAction(userId, "user_login", "user", userId, "Login from " + ipAddress, ipAddress);
 
+                // A real sign-in clears the account's failures. The ban branch
+                // above deliberately does neither: a banned account presenting
+                // the right password is not a failed attempt, and must not be
+                // able to spend a counter down either.
+                LoginThrottle::clearAccount(username);
+
                 UserRecord user = mapUserRow(row);
                 user.last_login = nowUnix;
                 user.ip_current = ipAddress;
@@ -204,13 +201,64 @@ void UserAccountService::authenticate(
             });
         }
         >> [callback](const drogon::orm::DrogonDbException& e) {
-            HOTEL_LOG_ERROR("UserAccountService::authenticate error: {}", e.base().what());
+            HOTEL_LOG_ERROR("UserAccountService::signInWithCredentials error: {}", e.base().what());
             AuthResult res;
             res.success = false;
             res.errorCode = 4;
             res.errorMessage = "Authentication failed due to system error.";
             callback(res);
         };
+}
+
+void UserAccountService::authenticate(
+    const std::string& username,
+    const std::string& password,
+    const std::string& ipAddress,
+    std::function<void(AuthResult)> callback
+) {
+    if (username.empty() || password.empty()) {
+        AuthResult res;
+        res.success = false;
+        res.errorCode = 1;
+        res.errorMessage = "Username and password are required.";
+        callback(res);
+        return;
+    }
+
+    auto db = drogon::app().getDbClient("default");
+    if (!db) {
+        AuthResult res;
+        res.success = false;
+        res.errorCode = 4;
+        res.errorMessage = "Database service unavailable.";
+        callback(res);
+        return;
+    }
+
+    // The counters are read before the account lookup, so a throttled caller
+    // costs one Redis read and reaches neither the database nor the password
+    // comparison. `errorCode` 5 is the refusal; 4 is the counter store being
+    // unreachable, which is refused too rather than allowed through.
+    LoginThrottle::check(username, ipAddress, [username, password, ipAddress, db, callback](LoginThrottleState throttle) {
+        if (!throttle.available) {
+            AuthResult res;
+            res.success = false;
+            res.errorCode = 4;
+            res.errorMessage = "Authentication failed due to system error.";
+            callback(res);
+            return;
+        }
+        if (!throttle.allowed) {
+            AuthResult res;
+            res.success = false;
+            res.errorCode = 5;
+            res.errorMessage = LoginThrottle::refusalMessage(throttle.retryAfterSeconds);
+            res.retryAfterSeconds = throttle.retryAfterSeconds;
+            callback(res);
+            return;
+        }
+        signInWithCredentials(db, username, password, ipAddress, callback);
+    });
 }
 
 void UserAccountService::updateMotto(

@@ -1,4 +1,5 @@
 #include "controllers/CreditsController.h"
+#include "utils/ClientAddress.h"
 #include "filters/AuthPolicy.h"
 #include "services/ContentService.h"
 #include "services/TransactionService.h"
@@ -68,7 +69,7 @@ std::string octaneClientUrl() {
  * Load the signed-in user, answering 404/401 itself when that is not possible.
  *
  * Extracted so both handlers authorize and resolve identically instead of each
- * re-deriving it — the balance route and the ledger route must not disagree
+ * re-deriving it Ã¢â‚¬â€ the balance route and the ledger route must not disagree
  * about who is signed in.
  */
 void withSignedInUser(
@@ -108,7 +109,7 @@ void CreditsController::purse(
         req,
         [callback](const services::UserRecord& user) {
             // Read from the live PolarIS row, exactly as `credits.php` read
-            // `$user->user("credits")` — not from the ledger. The ledger records
+            // `$user->user("credits")` Ã¢â‚¬â€ not from the ledger. The ledger records
             // what changed and when; the row is the balance of record. Deriving
             // the balance from the ledger would silently disagree with the hotel
             // the moment the emulator changes credits itself.
@@ -180,9 +181,9 @@ void CreditsController::clientEntry(
             // The four lookups are issued together and complete on Drogon's
             // database loop threads, which run CONCURRENTLY: this join is shared
             // mutable state reached from more than one thread, so it is guarded.
-            // It was not, and the endpoint crashed the server — AddressSanitizer
+            // It was not, and the endpoint crashed the server Ã¢â‚¬â€ AddressSanitizer
             // caught two callbacks inserting into one `std::map` at once
-            // (`std::map::operator[]` → red-black tree corruption → SIGSEGV,
+            // (`std::map::operator[]` Ã¢â€ â€™ red-black tree corruption Ã¢â€ â€™ SIGSEGV,
             // exit 139), which took roughly eight to ten consecutive requests to
             // reproduce. `remaining` was racy in the same way, and its failure
             // mode was the quieter one: two callbacks could both see zero and
@@ -214,7 +215,7 @@ void CreditsController::clientEntry(
 
                 // A setting that is absent *or present but empty* is the same
                 // fact to a client: nothing to connect to. Both are reported, and
-                // neither is papered over with a placeholder — the plan forbids
+                // neither is papered over with a placeholder Ã¢â‚¬â€ the plan forbids
                 // shipping a control that silently no-ops, and a handoff page
                 // claiming "Enter the hotel" over a blank host would be exactly
                 // that.
@@ -229,16 +230,16 @@ void CreditsController::clientEntry(
                 const bool ready = !octaneUrl.empty() || legacyReady;
 
                 // Issue a fresh ticket on every request, as legacy client.php
-                // did. Rotation on its own is not a lifetime — the pinned
+                // did. Rotation on its own is not a lifetime Ã¢â‚¬â€ the pinned
                 // emulator restores a consumed ticket after disconnect and its
-                // game lookup ignores any expiry — so the ticket is issued with a
+                // game lookup ignores any expiry Ã¢â‚¬â€ so the ticket is issued with a
                 // scheduled void, and `sso_ticket_void_at` reports that deadline
                 // instead of leaving the caller to assume one.
                 const std::string ticket = utils::Crypto::generateSsoTicket();
                 services::UserAccountService::generateAuthTicket(
                     userId,
                     ticket,
-                    req->peerAddr().toIp(),
+                    utils::ClientAddress::of(req),
                     [callback, state, host, port, mus, dcr, octaneUrl, ticket, ready,
                      legacyReady, missing](
                         bool stored,

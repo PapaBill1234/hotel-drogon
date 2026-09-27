@@ -1,4 +1,5 @@
 #include "controllers/SecurityController.h"
+#include "utils/ClientAddress.h"
 #include "filters/AuthPolicy.h"
 #include "services/SessionManager.h"
 #include "services/UserAccountService.h"
@@ -60,10 +61,23 @@ void SecurityController::reauth(
             services::UserAccountService::authenticate(
                 session.username,
                 password,
-                req->peerAddr().toIp(),
+                utils::ClientAddress::of(req),
                 [session, callback](services::AuthResult result) {
                     if (!result.success) {
                         Value err;
+                        // Throttled step-ups answer 429 like a throttled sign-in,
+                        // and not "Password does not match": the password was
+                        // never compared, so saying otherwise would be untrue.
+                        if (result.errorCode == 5) {
+                            err["error"] = "TooManyAttempts";
+                            err["message"] = result.errorMessage;
+                            err["status"] = 429;
+                            auto resp = drogon::HttpResponse::newHttpJsonResponse(err);
+                            resp->setStatusCode(drogon::k429TooManyRequests);
+                            resp->addHeader("Retry-After", std::to_string(result.retryAfterSeconds));
+                            callback(resp);
+                            return;
+                        }
                         err["error"] = "Unauthorized";
                         err["message"] = "Password does not match.";
                         err["status"] = 401;

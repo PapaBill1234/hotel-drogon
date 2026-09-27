@@ -1,4 +1,5 @@
 #include "controllers/StaffTestController.h"
+#include "utils/ClientAddress.h"
 #include "filters/AuthPolicy.h"
 #include "services/BanService.h"
 #include "utils/Logger.h"
@@ -85,7 +86,7 @@ void StaffTestController::banUser(
             uint64_t expire = json->isMember("expire") ? (*json)["expire"].asUInt64() : 0;
             std::string banType = json->isMember("type") ? (*json)["type"].asString() : "account";
             std::string cfhTopic = json->isMember("cfh_topic") ? (*json)["cfh_topic"].asString() : "";
-            std::string ip = req->peerAddr().toIp();
+            std::string ip = utils::ClientAddress::of(req);
 
             services::BanService::banUser(
                 session.user_id,
@@ -144,7 +145,7 @@ void StaffTestController::revokeBan(
             }
 
             uint32_t targetId = (*json)["user_id"].asUInt();
-            std::string ip = req->peerAddr().toIp();
+            std::string ip = utils::ClientAddress::of(req);
 
             services::BanService::unbanUser(
                 session.user_id,

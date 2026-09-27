@@ -1,4 +1,5 @@
 #include "controllers/HomesController.h"
+#include "utils/ClientAddress.h"
 #include "filters/AuthPolicy.h"
 #include "services/HomesService.h"
 #include "utils/Logger.h"
@@ -89,7 +90,7 @@ Value itemJson(const HomeItemRecord& item) {
 }
 
 /**
- * The owner block — legacy `PhpretroHomes::profile()`'s row.
+ * The owner block â€” legacy `PhpretroHomes::profile()`'s row.
  *
  * `tags` travels as the array the box renders, already split and filtered the
  * way `array_values(array_filter(explode(';', $tags)))` did, so the client
@@ -300,7 +301,7 @@ void HomesController::saveLayout(
                 backgroundItemId = (*body)["background_item_id"].asUInt();
             }
 
-            const std::string ip = req->getPeerAddr().toIp();
+            const std::string ip = utils::ClientAddress::of(req);
             services::HomesService::saveLayout(
                 userId,
                 session.user_id,
@@ -313,7 +314,7 @@ void HomesController::saveLayout(
                     if (result.error != HomeError::None) {
                         // A stale version is answered with the current layout, so
                         // the client can roll its optimistic update back to the
-                        // server's state without a second request — and without
+                        // server's state without a second request â€” and without
                         // ever being told its own write landed.
                         if (result.error == HomeError::VersionConflict) {
                             services::HomesService::loadLayout(
@@ -454,7 +455,7 @@ void HomesController::addWidget(
                                                               services::HomeEditLock) {
                     if (lockError != HomeError::None) {
                         // A widget add is an edit, so it needs the edit session
-                        // too — otherwise the lock would be advisory for exactly
+                        // too â€” otherwise the lock would be advisory for exactly
                         // the operation that changes the page's structure.
                         callback(jsonError(lockError, lockMessage));
                         return;
@@ -463,7 +464,7 @@ void HomesController::addWidget(
                         session.user_id,
                         key,
                         column,
-                        req->getPeerAddr().toIp(),
+                        utils::ClientAddress::of(req),
                         [callback](HomeError error, const std::string& message,
                                    HomeWidgetRecord widget) {
                             if (error != HomeError::None) {
@@ -505,7 +506,7 @@ void HomesController::removeWidget(
                         userId,
                         session.user_id,
                         widgetId,
-                        req->getPeerAddr().toIp(),
+                        utils::ClientAddress::of(req),
                         [callback](HomeError error, const std::string& message) {
                             if (error != HomeError::None) {
                                 callback(jsonError(error, message));

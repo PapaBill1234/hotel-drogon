@@ -1,4 +1,5 @@
 #include "controllers/AccountController.h"
+#include "utils/ClientAddress.h"
 #include "services/UserAccountService.h"
 #include "services/MailService.h"
 #include "filters/AuthPolicy.h"
@@ -84,7 +85,7 @@ void AccountController::updateMotto(
                 return;
             }
 
-            std::string ip = req->peerAddr().toIp();
+            std::string ip = utils::ClientAddress::of(req);
             services::UserAccountService::updateMotto(
                 session.user_id,
                 newMotto,
@@ -153,7 +154,7 @@ void AccountController::updateLook(
                 replyInvalidProfileDetails(callback);
                 return;
             }
-            std::string ip = req->peerAddr().toIp();
+            std::string ip = utils::ClientAddress::of(req);
             services::UserAccountService::updateLook(
                 session.user_id,
                 newLook,
@@ -218,7 +219,7 @@ void AccountController::updateEmail(
                 return;
             }
 
-            std::string ip = req->peerAddr().toIp();
+            std::string ip = utils::ClientAddress::of(req);
             services::UserAccountService::updateEmail(
                 session.user_id,
                 newEmail,
@@ -284,7 +285,7 @@ void AccountController::changePassword(
                 return;
             }
 
-            std::string ip = req->peerAddr().toIp();
+            std::string ip = utils::ClientAddress::of(req);
 
             services::UserAccountService::authenticate(
                 session.username,
@@ -293,6 +294,21 @@ void AccountController::changePassword(
                 [session, newPass, ip, callback](services::AuthResult authResult) {
                     if (!authResult.success) {
                         Value err;
+                        // The step-up shares `authenticate`'s counters, so a
+                        // caller who has been trying passwords on the sign-in
+                        // page is refused here too -- and must not be told
+                        // "Current password does not match", which would be a
+                        // statement about a password this route never checked.
+                        if (authResult.errorCode == 5) {
+                            err["error"] = "TooManyAttempts";
+                            err["message"] = authResult.errorMessage;
+                            err["status"] = 429;
+                            auto resp = drogon::HttpResponse::newHttpJsonResponse(err);
+                            resp->setStatusCode(drogon::k429TooManyRequests);
+                            resp->addHeader("Retry-After", std::to_string(authResult.retryAfterSeconds));
+                            callback(resp);
+                            return;
+                        }
                         err["error"] = "Unauthorized";
                         err["message"] = "Current password does not match.";
                         err["status"] = 401;
@@ -342,7 +358,7 @@ namespace {
  *
  * `forgot.php` sent `$lang->loc['forgot.mail.subject']` with a body containing
  * the account name and the new password. The wording is reproduced; what differs
- * is *what* is sent — a single-use reset link rather than a plaintext password,
+ * is *what* is sent Ã¢â‚¬â€ a single-use reset link rather than a plaintext password,
  * because a password in an inbox is a credential in an inbox and the plan asks
  * for reset tokens. That divergence is recorded in the inventory.
  */
@@ -481,7 +497,7 @@ void AccountController::resetPassword(
     services::UserAccountService::consumePasswordResetToken(
         token,
         newPassword,
-        req->peerAddr().toIp(),
+        utils::ClientAddress::of(req),
         [callback](bool success, bool invalidToken, const std::string& error) {
             Value root;
             if (success) {
@@ -521,7 +537,7 @@ void AccountController::listAccounts(
     const std::string mail = trimmed((*json)["email"].asString());
 
     // Legacy `actionList` mailed the list. With no transport the names are
-    // returned instead — the same information, delivered the only way this stack
+    // returned instead Ã¢â‚¬â€ the same information, delivered the only way this stack
     // currently can. It is not a disclosure beyond what legacy already did: the
     // caller must supply the address, and learns only the account names on it.
     services::UserAccountService::listUsernamesForMail(

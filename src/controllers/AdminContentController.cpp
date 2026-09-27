@@ -1,4 +1,5 @@
 #include "controllers/AdminContentController.h"
+#include "utils/ClientAddress.h"
 #include "filters/AuthPolicy.h"
 #include "services/ContentService.h"
 #include "utils/Logger.h"
@@ -217,7 +218,7 @@ services::Campaign campaignFromJson(const Value& v) {
 }
 
 std::string clientIp(const drogon::HttpRequestPtr& req) {
-    return req->peerAddr().toIp();
+    return utils::ClientAddress::of(req);
 }
 
 }  // namespace

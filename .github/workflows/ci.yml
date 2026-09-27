@@ -284,6 +284,16 @@ jobs:
       - name: MyHabbo edit lock (a foreign lock refuses the owner)
         run: sh scripts/check_homes_edit_lock.sh http://localhost:3000
 
+      # The shared credential boundary, against a live stack: repeated failures,
+      # concurrent ones, a successful sign-in resetting the budget, all four
+      # routes that check a password sharing one counter, the CSRF filter still
+      # running in front of it, and the address budget keyed on the visitor
+      # rather than on the proxy every visitor arrives through. It clears its own
+      # counters on exit, so a failure here cannot leave the fixture throttled
+      # for the suites below.
+      - name: Login throttling (repeated, concurrent, and step-up)
+        run: sh scripts/check_login_throttle.sh http://localhost:3000 hotel_redis
+
       - name: Seed rank-5 staff account (high-trust boundary test)
         run: |
           # sha1('password123' . 'staff5') — the legacy scheme is username-dependent

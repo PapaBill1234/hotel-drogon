@@ -30,11 +30,14 @@ struct UserRecord {
 
 struct AuthResult {
     bool success = false;
-    int errorCode = 0; // 0=ok, 1=missing input, 2=invalid credentials, 3=banned, 4=system error
+    int errorCode = 0; // 0=ok, 1=missing input, 2=invalid credentials, 3=banned, 4=system error, 5=throttled
     std::string errorMessage;
     std::optional<UserRecord> user;
     std::string banReason;
     std::string banExpires;
+    // Set with errorCode 5: how long the caller should wait, in seconds. The
+    // controllers turn it into a `Retry-After` header; nothing else reads it.
+    int retryAfterSeconds = 0;
 };
 
 class UserAccountService {
