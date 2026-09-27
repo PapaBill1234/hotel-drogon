@@ -1,7 +1,7 @@
 /**
- * Plan v3's typed website contracts — **types only, imported by nothing yet.**
+ * Plan v4's typed website contracts — **types only, imported by nothing yet.**
  *
- * Plan v3 ("Modular CMS expansion") asks for the presentation, navigation,
+ * Plan v4 ("Modular CMS expansion") asks for the presentation, navigation,
  * translation and theme contracts to be defined *before* any route changes, so
  * that the units which follow implement a shape instead of inventing one. This
  * module is that definition and nothing else: it declares no request, renders
@@ -64,7 +64,7 @@ export interface NavigationDocument {
 export type ThemeId = 'legacy' | 'modern';
 
 export interface ThemeDescriptor {
-  /** v3's two themes: the legacy PHPRetro look and the Chocolatey-inspired one. */
+  /** The legacy PHPRetro look and the Chocolatey-inspired one. */
   id: ThemeId;
   revision: CmsRevision;
   /** Published at this time (epoch seconds), for the audit trail. */
@@ -90,13 +90,13 @@ export interface TranslationCatalog {
  */
 export type TypedBlock =
   | { type: 'heading'; textKey: string; level: 2 | 3 }
-  | { type: 'richText'; textKey: string }
-  | { type: 'newsList'; limit: number; source: 'phpretro_news' | 'hotelview_news' }
+  | { type: 'paragraph'; textKey: string }
+  /** Semantic source; the service resolves this without accepting a table name. */
+  | { type: 'newsList'; limit: number; source: 'articles' | 'community' }
   | { type: 'bannerSlot'; bannerId: number }
   | { type: 'campaignSlot'; campaignId: number }
   | { type: 'faqList'; category?: string }
-  | { type: 'collectables' }
-  | { type: 'homePromo'; userId?: number };
+  | { type: 'collectables' };
 
 /** One ordered position in a page. */
 export interface PageSlot {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Legacy surface inventory — plan v3 unit 1's evidence step.
+ * Legacy surface inventory — plan v4 unit 1's evidence step.
  *
  * Reads the **read-only** PHPRetro checkout and prints a Markdown route/action
  * map: every entry point, the permission idiom it uses, and the tables it
@@ -85,7 +85,9 @@ function row(path, source) {
   return {
     file: relative(root, path).replace(/\\/g, '/'),
     rank: rankExpr || (staffSession ? '(hksession, no $page[rank])' : ''),
-    gate: staffSession ? 'staff' : userSession ? 'signed-in' : guests ? 'guests allowed' : '',
+    // A page can include session.php while explicitly allowing guests (for
+    // example home.php). That flag must take precedence over the include.
+    gate: staffSession ? 'staff' : guests ? 'guests allowed' : userSession ? 'signed-in' : '',
     writes: writes.length ? writes.join(', ') : '',
     reads: reads.length,
   };
@@ -144,7 +146,7 @@ try {
     .filter(Boolean);
   console.log(`### URL shapes (\`.htaccess\`)\n`);
   console.log(`**${rules.length}** rewrite rules, which are the URLs the legacy site served.\n`);
-  console.log(table(rules, ['pattern', 'target']) + '\n');
+  console.log(table(rules, ['pattern', 'target']));
 } catch {
   console.log('### URL shapes\n\n_(no `.htaccess` in the checkout)_\n');
 }
