@@ -144,7 +144,10 @@ become a generic table write.
   states plus evidence and scope notes. The join is reproducible with
   `node scripts/join_legacy_surface_status.mjs`; it does not rewrite the
   generated source map or infer behavior from filenames.
-* **Unit 2 is now the next gate-controlled unit.** It may begin only as a
-  separate vertical slice implementing website-owned presentation config with
-  server-side route/block/media/role validation, CSRF, rank checks, audit,
-  optimistic conflict handling and preview/publish/rollback coverage.
+* **Unit 2 has started with a read-only validation slice.**
+  `PresentationValidationService` defines a database-free, fail-closed boundary
+  for navigation and page documents: known public routes, HTTPS-only external
+  targets, safe keys, role visibility, bounded ordering and the closed typed
+  block registry. It performs no draft, publish, rollback, audit or schema
+  mutation. The unit 2 exit is not met; those persistence and browser gates
+  remain ahead.
