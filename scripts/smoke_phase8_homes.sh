@@ -333,8 +333,29 @@ curl -s -o "$TMP/race-b.body" -w '%{http_code}' -X PUT \
      -H 'Content-Type: application/json' --data-binary "@$TMP/race-b.json" \
      "$BASE/api/homes/2/layout" > "$TMP/race-b.code" &
 PID_B=$!
+# On a diagnostic run, sample the database WHILE the two PUTs are outstanding.
+# A processlist collected after nginx's 60-second timeout can miss the wait and
+# cannot distinguish a MariaDB row lock from a Drogon callback that never ran.
+# The queries are read-only and use this suite's explicitly selected DB.
+DIAG_PID=''
+if [ "${HOMES_DIAG:-0}" = '1' ]; then
+    (
+        for delay in 5 15; do
+            sleep "$delay"
+            echo "  diag  concurrent-save MariaDB snapshot after ${delay}s interval"
+            docker exec "$DB_CONTAINER" mariadb -uroot -proot_secret -e \
+                "SELECT ID, USER, COMMAND, TIME, STATE, LEFT(INFO, 180) AS query_text FROM information_schema.PROCESSLIST WHERE USER = 'hotel' ORDER BY ID; SELECT trx_id, trx_mysql_thread_id, trx_state, trx_started, LEFT(trx_query, 180) AS query_text FROM information_schema.INNODB_TRX; SELECT * FROM information_schema.INNODB_LOCK_WAITS;" \
+                2>&1 || echo '  diag  MariaDB snapshot unavailable'
+        done
+    ) &
+    DIAG_PID=$!
+fi
 wait "$PID_A"
 wait "$PID_B"
+if [ -n "$DIAG_PID" ]; then
+    kill "$DIAG_PID" 2>/dev/null || true
+    wait "$DIAG_PID" 2>/dev/null || true
+fi
 CODE_A="$(cat "$TMP/race-a.code")"
 CODE_B="$(cat "$TMP/race-b.code")"
 echo "  info  concurrent saves: A=$CODE_A B=$CODE_B"

@@ -274,6 +274,9 @@ jobs:
       - name: MyHabbo Homes layout API smoke (Phase 8 layout slice)
         env:
           HOMES_RESET: '1'
+          # Capture processlist and InnoDB transaction/lock state during the
+          # concurrent PUTs if they stall, before nginx's 60-second timeout.
+          HOMES_DIAG: '1'
         run: sh scripts/smoke_phase8_homes.sh http://localhost:3000
 
       # The other half of "concurrent edits don't silently overwrite each other".
