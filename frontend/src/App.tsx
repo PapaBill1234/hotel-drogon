@@ -1,7 +1,9 @@
 import { useEffect } from 'react';
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Route, Routes, useLocation } from 'react-router-dom';
 
 import LandingPage from './pages/LandingPage';
+import NotFoundPage from './pages/NotFoundPage';
+import NotYetAvailablePage from './pages/NotYetAvailablePage';
 import CommunityPage from './pages/CommunityPage';
 import ArticlesPage from './pages/ArticlesPage';
 import HelpPage from './pages/HelpPage';
@@ -163,6 +165,15 @@ export default function App() {
         <Route path="/articles" element={<ArticlesPage />} />
         <Route path="/articles/:id" element={<ArticlesPage />} />
         <Route path="/help" element={<HelpPage />} />
+        {/*
+          Every page footer links its FAQ entries as `/help/<id>`
+          (`login_footer.php`/`community_footer.php` build
+          `PATH.'/help/'.(int) $row['id']`), and the site's own tests use those
+          URLs. Legacy `help.php` ignored the segment and rendered the whole help
+          page, so this does the same rather than 404ing on a link the footer puts
+          on every page.
+        */}
+        <Route path="/help/:id" element={<HelpPage />} />
         <Route path="/credits/collectables" element={<CollectablesPage />} />
         <Route path="/maintenance" element={<MaintenancePage />} />
 
@@ -204,7 +215,92 @@ export default function App() {
             a staff session, and the login screen is how one is obtained. */}
         <Route path="/housekeeping/login" element={<HousekeepingLoginPage />} />
 
-        <Route path="*" element={<Navigate to="/" replace />} />
+        {/*
+          Routes the legacy site has and this stack does not — yet.
+
+          Without these the catch-all below sent every one of them to "/", so a
+          click looked like the site had thrown the visitor back to the front page
+          for no reason. `/papers/disclaimer` and `/papers/privacy` are in the
+          footer of EVERY page, and `/credits/club` / `/credits/pixels` are in the
+          signed-in header and the /me link bar, so this was easy to hit.
+
+          Each states what is missing and which phase delivers it, which is the
+          honest version of "not converted" and matches the plan's rule against
+          controls that appear to work but do nothing.
+        */}
+        <Route
+          path="/papers/disclaimer"
+          element={
+            <NotYetAvailablePage
+              title="Disclaimer"
+              phase="Phase 4 (public content pages)"
+              detail="The legacy site served this from papers.php with tenant-authored copy, which has not been ported."
+            />
+          }
+        />
+        <Route
+          path="/papers/privacy"
+          element={
+            <NotYetAvailablePage
+              title="Privacy Policy"
+              phase="Phase 4 (public content pages)"
+              detail="The legacy site served this from papers.php with tenant-authored copy, which has not been ported."
+            />
+          }
+        />
+        <Route
+          path="/register"
+          element={
+            <NotYetAvailablePage
+              title="Register"
+              phase="Phase 5 (a recorded decision about the Polaris write path)"
+              detail="Creating an account writes a new row into the hotel's users table, which the plan makes an explicit decision gate rather than something to enable quietly."
+            />
+          }
+        />
+        <Route
+          path="/credits/club"
+          element={
+            <NotYetAvailablePage
+              title="Retro Club"
+              phase="Phase 5 (the Club handoff)"
+              detail="Club membership lives in the hotel's subscription table and the legacy page was a purchasing flow, neither of which is ported."
+            />
+          }
+        />
+        <Route
+          path="/credits/pixels"
+          element={
+            <NotYetAvailablePage
+              title="Pixels"
+              phase="Phase 8"
+              detail="The legacy pixels page was a purchasing flow with its own catalogue, which is not ported."
+            />
+          }
+        />
+        <Route
+          path="/tag"
+          element={
+            <NotYetAvailablePage
+              title="Tags"
+              phase="Phase 7 (rooms and tags)"
+              detail="Room tags are a denormalised field in the hotel database; the legacy tag cloud and search are not ported."
+            />
+          }
+        />
+
+        <Route
+          path="/habblet/proxy.php"
+          element={
+            <NotYetAvailablePage
+              title="Habblet tabs"
+              phase="Phase 7 (rooms, discussions and tags)"
+              detail="The community page's tab bodies were AJAX-loaded from this endpoint by the legacy page's own JavaScript. Those habblets have no anonymous API here yet, so there is nothing to load."
+            />
+          }
+        />
+
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </>
   );

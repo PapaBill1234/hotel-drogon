@@ -87,8 +87,32 @@ const HABBO_SLOTS: { id: number; left: number; top: number }[] = (() => {
   return slots;
 })();
 
-interface RoomRow {
-  id: number;
+/**
+ * The empty `a.tab-ajax` anchors `community.php` put inside each habblet tab.
+ *
+ * In the legacy page these are not navigation: `HabbletTabber` intercepts the
+ * click and AJAX-loads `/habblet/proxy.php?hid=…` into the tab body. The port
+ * reproduced the anchors but nothing intercepts them here, so clicking one
+ * navigated to that URL — which the React router does not own, so the visitor got
+ * a 404 for a link that visually does nothing at all.
+ *
+ * These tabs hold the rooms and discussions habblets, which have no anonymous
+ * endpoint yet (Phase 7). Rather than leave an invisible link that 404s,
+ * `preventDefault` keeps the visitor on the page. The anchor and its class are
+ * kept so the legacy stylesheet and any `tab-ajax` rule still apply.
+ */
+function LegacyTabHook({ hid }: { hid: string }) {
+  return (
+    <a
+      href={`/habblet/proxy.php?hid=${hid}`}
+      className="tab-ajax"
+      data-testid={`tab-ajax-${hid}`}
+      onClick={(e) => e.preventDefault()}
+    ></a>
+  );
+}
+
+interface RoomRow {  id: number;
   name: string;
   owner_display: string;
   users: number;
@@ -220,7 +244,7 @@ export default function CommunityPage() {
                         height="6"
                       />
                     </div>
-                    <a href="/habblet/proxy.php?hid=h120" className="tab-ajax"></a>
+                    <LegacyTabHook hid="h120" />
                   </div>
                   <div id="tab-0-0-2-content">
                     <div
@@ -269,7 +293,7 @@ export default function CommunityPage() {
                         height="6"
                       />
                     </div>
-                    <a href="/habblet/proxy.php?hid=h122" className="tab-ajax"></a>
+                    <LegacyTabHook hid="h122" />
                   </div>
                   <div id="tab-0-1-2-content">
                     <ul className="active-discussions-toplist">
