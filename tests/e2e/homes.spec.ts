@@ -101,23 +101,34 @@ async function dragWidget(page: Page, widgetId: number, dx: number, dy: number):
 test.describe('MyHabbo home page', () => {
   test.skip(process.env.PLAYWRIGHT_HOMES !== '1', 'set PLAYWRIGHT_HOMES=1 to run');
 
-  test.beforeAll(async ({ browser }) => {
-    // A home that has never been saved renders `displayLayouts()`'s synthesised
-    // profile widget, which has no row behind it (`id: 0`) and which the write
-    // routes correctly refuse to place. The drag cases need a real row, so one
-    // is added first — `add()`'s own rule is one of each key per home, so a
-    // second run's 409 is expected and not a failure.
-    const page = await browser.newPage();
-    await signIn(page, OWNER_USER, OWNER_PASS);
-    const layout = await readLayout(page);
-    if (layout.home.default_layout) {
-      const response = await page.request.post(`${BASE_NEW}/api/homes/${OWNER_ID}/widgets`, {
-        data: { widget_key: 'profilewidget', column: 1 },
-        headers: { 'X-XSRF-TOKEN': await csrfToken(page) },
-      });
-      expect([201, 409]).toContain(response.status());
-    }
-    await page.close();
+  /**
+   * Every case starts from the same home.
+   *
+   * The suite used to share one fixture across five serial cases, and one of them
+   * advances `phpretro_myhabbo_homes.version` directly (to fake a concurrent
+   * writer). A drag in a later case could then race a version bump an earlier
+   * case had installed, which read as a flaky editor: measured 4/5, 5/5, 4/5
+   * across three runs before this fixture existed, while the endpoint suite over
+   * the same code was 83/83.
+   *
+   * The state written here is exactly what the application itself writes — one
+   * profile widget in column 1, the home's version row at 1 — not a shortcut the
+   * product could not produce. `id` is fixed so a rerun replaces its own row
+   * rather than accumulating widgets.
+   */
+  test.beforeEach(async () => {
+    await sql(
+      `DELETE FROM phpretro_myhabbo_layouts WHERE user_id = ${OWNER_ID};
+       DELETE FROM phpretro_myhabbo_homes WHERE user_id = ${OWNER_ID};
+       INSERT INTO phpretro_myhabbo_homes (user_id, guild_id, version, updated_at)
+         VALUES (${OWNER_ID}, 0, 1, 0);
+       INSERT INTO phpretro_myhabbo_layouts
+         (id, user_id, guild_id, column_number, widget_key, position, visible, privacy)
+         VALUES (900002, ${OWNER_ID}, 0, 1, 'profilewidget', 0, 1, 'public');`,
+    );
+    // The edit lease lives in Redis, so a case that left one held would make the
+    // next case's editor open fail with 423 rather than with a real result.
+    await redis('DEL homes_edit_lock:' + OWNER_ID);
   });
 
   test('a guest reads the page and cannot edit it', async ({ page }) => {
@@ -341,4 +352,10 @@ async function sql(statement: string): Promise<void> {
     ['exec', 'hotel_mariadb', 'mysql', '-uhotel', '-photel_secret', 'polaris', '-e', statement],
     { stdio: 'pipe' },
   );
+}
+
+/** One `redis-cli` command against the stack's Redis, for the edit lease. */
+async function redis(command: string): Promise<void> {
+  const { execFileSync } = await import('node:child_process');
+  execFileSync('docker', ['exec', 'hotel_redis', 'redis-cli', command], { stdio: 'pipe' });
 }

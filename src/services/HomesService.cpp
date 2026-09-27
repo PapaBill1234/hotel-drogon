@@ -42,6 +42,9 @@ bool isUniqueViolation(const std::string& message) {
     return message.find("Duplicate entry") != std::string::npos;
 }
 
+/** How long a save may make no progress before its transaction is released. */
+constexpr double kAbandonedSaveSeconds = 15.0;
+
 /**
  * The transaction stepper.
  *
@@ -100,7 +103,51 @@ public:
 
     void start() {
         self_ = shared_from_this();
+        // A watchdog for the abandoned request.
+        //
+        // The SQL timeout bounds a *statement*, and that is not enough: measured
+        // on this stack, ten pooled connections sat `Sleep` with **zero** open
+        // transactions while every database-backed route hung — a chain that
+        // stops with nothing in flight, so nothing can time out, and the
+        // connection is held by this object for as long as it lives. The trigger
+        // was a client that went away mid-save (a browser test timing out, a
+        // proxy giving up), which is ordinary traffic, not an attack: a website
+        // that dies because a visitor closed a tab is not shippable.
+        //
+        // After the deadline the transaction is rolled back and released, which
+        // returns the connection to the pool, and the caller is told the save was
+        // abandoned. The timer is not cancelled on the happy path — it fires
+        // once, sees `done_`, and does nothing, which is cheaper and harder to
+        // get wrong than invalidating it from three different completion paths.
+        drogon::app().getLoop()->runAfter(kAbandonedSaveSeconds, [self = self_]() {
+            if (self && !self->done_) {
+                HOTEL_LOG_WARN(
+                    "HomesService: a layout save made no progress for {}s; releasing its "
+                    "transaction so the connection returns to the pool",
+                    kAbandonedSaveSeconds);
+                self->releaseAbandoned();
+            }
+        });
         advance();
+    }
+
+    /** End a transaction whose chain stopped, and report it as a refusal. */
+    void releaseAbandoned() {
+        if (done_) return;
+        done_ = true;
+        auto keepAlive = self_;
+        self_.reset();
+        steps_.clear();
+        if (trans_) {
+            // The rollback is requested and then the reference is dropped, which
+            // is what returns the connection: `TransactionImpl` queues its
+            // teardown from the destructor. Ordering here is deliberate — every
+            // use of `this` is above, and `keepAlive` holds the object until the
+            // end of the function.
+            trans_->rollback();
+            trans_.reset();
+        }
+        onFail_(HomeError::Unavailable, "The save was abandoned before it finished.");
     }
 
     /** Run the next queued statement, or finish the transaction. */
