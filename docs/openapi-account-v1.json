@@ -196,13 +196,15 @@
         "tags": ["Auth"],
         "operationId": "forgotPassword",
         "summary": "Request a password reset link for an account",
-        "description": "The converted `forgot.php` `actionForgot`. The account must match on BOTH username and email exactly, with `mail_verified = '1'` — legacy's own predicate, condition for condition. On a match a single-use token is generated, stored in Redis only as a SHA-256 hash under `password_reset:<hash>` with a 30-minute TTL, and sent to the account's own address; no column is added to a PolarIS table because PolarIS has none for this. **No mail transport exists in this stack**, so delivery is the log-only transport and the message is recorded rather than sent; the response does not distinguish that, and must not be read as proof an email arrived. Unlike legacy, every outcome answers with the same 200 and the same text: legacy's distinct \"Invalid details.\" turned the form into an oracle for which accounts exist. Carries `CsrfPublicFilter`, not `CsrfFilter`, because the caller has no session for a session-bound token to be validated against; the filter requires the `X-XSRF-TOKEN` header, which a cross-origin request cannot set without a preflight this application does not answer.",
+        "description": "The converted `forgot.php` `actionForgot`. The account must match on BOTH username and email exactly, with `mail_verified = '1'` — legacy's own predicate, condition for condition. On a match a single-use token is generated, stored in Redis only as a SHA-256 hash under `password_reset:<hash>` with a 30-minute TTL, and sent to the account's own address; no column is added to a PolarIS table because PolarIS has none for this. **No mail transport exists in this stack**, so delivery is the log-only transport and the message is recorded rather than sent; the response does not distinguish that, and must not be read as proof an email arrived. Unlike legacy, every admitted lookup outcome answers with the same 200 and the same text: legacy's distinct \"Invalid details.\" turned the form into an oracle for which accounts exist. Before lookup, this and username recovery share a Redis request budget of five per normalized email and twenty per visitor address in a refreshed 900-second window; over-budget requests answer 429 with Retry-After and unavailable Redis answers 503. Carries `CsrfPublicFilter`, not `CsrfFilter`, because the caller has no session for a session-bound token to be validated against; the filter requires the `X-XSRF-TOKEN` header, which a cross-origin request cannot set without a preflight this application does not answer.",
         "parameters": [{ "$ref": "#/components/parameters/CsrfPublicHeader" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ForgotPasswordRequest" } } } },
         "responses": {
           "200": { "$ref": "#/components/responses/ForgotPasswordNeutral" },
           "400": { "$ref": "#/components/responses/InvalidJson" },
-          "403": { "$ref": "#/components/responses/PublicCsrfForbidden" }
+          "403": { "$ref": "#/components/responses/PublicCsrfForbidden" },
+          "429": { "$ref": "#/components/responses/RecoveryLimit" },
+          "503": { "$ref": "#/components/responses/RecoveryUnavailable" }
         }
       }
     },
@@ -227,13 +229,15 @@
         "tags": ["Auth"],
         "operationId": "forgotUsername",
         "summary": "List the account names registered to an email address",
-        "description": "The converted `forgot.php` `actionList`. Legacy mailed the list; there is no mail transport here, so the names are returned in the response instead and `mail_transport` says `log-only` so no caller implies an email was sent. Legacy did not require the address to be verified for this action and neither does this: it discloses only names the requester already has the address for, and it is the documented recovery path for a forgotten username. Carries `CsrfPublicFilter` for the same no-session reason as the other two.",
+        "description": "The converted `forgot.php` `actionList`. Legacy mailed the list; there is no mail transport here, so the names are returned in the response instead and `mail_transport` says `log-only` so no caller implies an email was sent. Legacy did not require the address to be verified for this action and neither does this. Before lookup, this and password recovery share a Redis request budget of five per normalized email and twenty per visitor address in a refreshed 900-second window; over-budget requests answer 429 with Retry-After and unavailable Redis answers 503. Carries `CsrfPublicFilter` for the same no-session reason as the other two.",
         "parameters": [{ "$ref": "#/components/parameters/CsrfPublicHeader" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ForgotUsernameRequest" } } } },
         "responses": {
           "200": { "$ref": "#/components/responses/ForgotUsernameSuccess" },
           "400": { "$ref": "#/components/responses/InvalidJson" },
-          "403": { "$ref": "#/components/responses/PublicCsrfForbidden" }
+          "403": { "$ref": "#/components/responses/PublicCsrfForbidden" },
+          "429": { "$ref": "#/components/responses/RecoveryLimit" },
+          "503": { "$ref": "#/components/responses/RecoveryUnavailable" }
         }
       }
     },
@@ -429,6 +433,8 @@
       "ReauthenticateSuccess": { "description": "The password matched and the step-up flag is cleared.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReauthenticateResponse" } } } },
       "InvalidResetToken": { "description": "The token is unknown, expired or already spent — one answer for all three.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "PublicCsrfForbidden": { "description": "The X-XSRF-TOKEN header was absent. The value is not checked; see the CsrfPublicHeader parameter.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "RecoveryLimit": { "description": "Request budget exceeded before account lookup or token issuance; the same message is used for either budget.", "headers": { "Retry-After": { "description": "Seconds remaining in the refreshed 900-second window.", "schema": { "type": "integer" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "RecoveryUnavailable": { "description": "The Redis request counter could not confirm admission within two seconds. No account lookup or reset token is issued.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "ReauthFlagFailure": { "description": "The password was correct but the session flag could not be cleared, so the step-up did not take effect.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "RememberLoginSuccess": {
         "description": "Session restored from the remember-me token; step-up is now required. Clears the rememberme and rememberme_token cookies because the token has been spent, and sets hotel_session and XSRF-TOKEN.",

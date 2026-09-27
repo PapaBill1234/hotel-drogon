@@ -294,6 +294,13 @@ jobs:
       - name: Login throttling (repeated, concurrent, and step-up)
         run: sh scripts/check_login_throttle.sh http://localhost:3000 hotel_redis
 
+      # Both public recovery forms share one email budget before lookup or
+      # token issuance. The test also checks the visitor budget, a concurrent
+      # burst, CSRF ordering and that a refused request creates no reset token.
+      # Its project-label guard runs before any fixture write.
+      - name: Recovery throttling (shared target and visitor budgets)
+        run: sh scripts/check_recovery_throttle.sh http://localhost:3000 hotel-drogon hotel_proxy hotel_mariadb hotel_redis
+
       - name: Seed rank-5 staff account (high-trust boundary test)
         run: |
           # sha1('password123' . 'staff5') — the legacy scheme is username-dependent
