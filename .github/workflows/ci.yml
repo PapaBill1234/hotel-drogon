@@ -259,6 +259,23 @@ jobs:
           SSO_TICKET_SWEEP_SECONDS: '2'
         run: sh scripts/check_sso_replay_bound.sh http://localhost:3000
 
+      # The Phase 8 user-home layout API. `HOMES_RESET=1` lets the suite start
+      # from a home that has never been saved, which is the state its first
+      # section asserts (`displayLayouts()`'s synthesised default widget); it
+      # needs the Docker CLI, which the runner has.
+      - name: MyHabbo Homes layout API smoke (Phase 8 layout slice)
+        env:
+          HOMES_RESET: '1'
+        run: sh scripts/smoke_phase8_homes.sh http://localhost:3000
+
+      # The other half of "concurrent edits don't silently overwrite each other".
+      # A user home is edited by its owner and nobody else, so two different
+      # accounts are refused by the ownership rule before the lock is consulted;
+      # this seeds a foreign lock straight into Redis to reach the refusal the
+      # lock exists for, and asserts the refused save did not move the version.
+      - name: MyHabbo edit lock (a foreign lock refuses the owner)
+        run: sh scripts/check_homes_edit_lock.sh http://localhost:3000
+
       - name: Seed rank-5 staff account (high-trust boundary test)
         run: |
           # sha1('password123' . 'staff5') — the legacy scheme is username-dependent

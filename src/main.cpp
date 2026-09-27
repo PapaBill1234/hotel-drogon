@@ -6,6 +6,7 @@
 #include "utils/Config.h"
 #include "utils/Readiness.h"
 #include "services/ContentService.h"
+#include "services/HomesService.h"
 #include "services/TransactionService.h"
 #include "services/UserAccountService.h"
 #include <functional>
@@ -279,7 +280,20 @@ int main(int argc, char* argv[]) {
 
                         // Website-owned ledger: `phpretro_transactions`, shape
                         // taken from legacy migrations/001_custom_tables.sql.
-                        hotel::services::TransactionService::ensureSchema(db, seedUsers);
+                        // The seed runs only from its completion callback.
+                        //
+                        // MyHabbo Homes (`phpretro_myhabbo_*`, migrations
+                        // 001/004/007 plus the website-owned per-home version row)
+                        // chains ahead of it, because two of its tables declare
+                        // foreign keys onto `users` and `phpretro_homes_catalogue`
+                        // — and `users` is created by the statements above. It has
+                        // to be sequenced here rather than fired alongside them:
+                        // an FK onto a table that does not exist yet is MariaDB
+                        // errno 150, and `CREATE TABLE IF NOT EXISTS` would leave
+                        // the table permanently missing.
+                        hotel::services::HomesService::ensureSchema(db, [db, seedUsers]() {
+                            hotel::services::TransactionService::ensureSchema(db, seedUsers);
+                        });
                     };
                     (*step)(0);
                 });
