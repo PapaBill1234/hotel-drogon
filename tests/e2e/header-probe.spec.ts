@@ -37,6 +37,13 @@ test('header probe', async ({ browser }) => {
     // probe only knew the React one, so on the legacy stack it silently did
     // nothing and the "legacy" column below was the ANONYMOUS header being
     // compared against the signed-in one. Same approach as `audit.spec.ts`.
+    //
+    // AND: point the legacy run at `http://localhost:8081`, not
+    // `http://127.0.0.1:8081`. `login_header.php` writes the form's action as an
+    // ABSOLUTE URL (`http://localhost:8081/account/submit`), so signing in from
+    // `127.0.0.1` posts to a different origin, the session cookie is set for the
+    // other host, and the next navigation is anonymous again — which looks
+    // exactly like "the fixture's password is wrong".
     const isNew = BASE.includes(':3000');
     if (isNew) {
       await p.goto(`${BASE}/account`, { waitUntil: 'domcontentloaded' });
