@@ -1,6 +1,6 @@
 # C++ (Drogon) + React conversion plan
 
-<!-- AI_CONTEXT_ID: hotel-drogon-plan-v2 -->
+<!-- AI_CONTEXT_ID: hotel-drogon-plan-v3 -->
 
 ## AI context and prompt-cache contract
 
@@ -35,10 +35,13 @@ well as the hit ratio.
 ## Status relative to prior plans
 
 This supersedes the Laravel + Inertia plan for the **application layer only**.
-It does not change table ownership: PolarIS still owns hotel users, rooms,
-guilds, inventory, catalog, balances, and hotel-side permissions. The website
-still owns `phpretro_*` tables. What changes is the language and framework
-serving the website/CMS, and the frontend integration model.
+For the existing PolarIS deployment, it does not change table ownership:
+PolarIS still owns hotel users, rooms, guilds, inventory, catalog, balances,
+and hotel-side permissions. The website still owns `phpretro_*` tables. What
+changes is the language and framework serving the website/CMS, and the
+frontend integration model. A second game profile must define its own verified
+ownership map before it can be supported; it cannot inherit PolarIS table or
+identity assumptions.
 
 **After reading this plan, read `phase1-parity-inventory.md` before taking any
 action.** Nothing in the existing `hotel` Laravel repo is reusable as code
@@ -199,6 +202,108 @@ passing a narrower phase check never proves a broader milestone.
    interfaces without Ruffle. Trax save/play requires verified PolarIS/Nitro
    capability. This milestone is tracked separately from the first CMS
    release and never silently counted as complete.
+
+## Modular CMS expansion — deliberate v3 architecture
+
+The complete supported PHPRetro behavior remains the parity target through
+Phases 5–10. Preserve its current legacy theme and measured pages while adding
+a second public theme, operator-owned presentation controls, English/Dutch
+localization, a visual **in-game furniture catalog** editor, and an optional
+Pixel63 game profile from `muff1n-pixel/Hotel`. These are new product
+capabilities, not claims that PHPRetro or the present React app already has
+them. The existing Drogon/React stack, security gates, and completed work stay
+in place.
+
+Two axes must stay separate:
+
+- **Website theme:** the operator can preview and publish either the legacy
+  PHPRetro look or a Chocolatey-inspired modern Habbo look from housekeeping.
+  Both use the same website API, account session, content, navigation and
+  translations. Theme selection cannot change the game database or client.
+- **Game profile:** one verified emulator/client profile is configured per
+  installation at deployment. PolarIS/Octane remains the working profile.
+  Pixel63 is a distinct game server, protocol, client, identity and schema,
+  not an Octane skin or a live housekeeping toggle. Do not share user tables,
+  tickets, passwords, balances, catalog writes or session semantics across
+  profiles by name alone. A migration between profiles is a separate project.
+
+Do the following small units in order at the next verified work-unit boundary,
+before adding further public page variants. Keep the active parity phase in
+run state rather than pretending this track completes it:
+
+1. **Contracts and evidence first.** Inventory every remaining PHPRetro route
+   and housekeeping action against the read-only checkout, including
+   permissions and table effects. Compare the pinned PolarIS catalog schema,
+   reload behavior and client assets with Pixel63's own shop schema, event
+   permissions, authentication and asset pipeline in isolated, read-only
+   checkouts. Record a per-profile capability matrix and explicit unsupported
+   actions. Define typed website presentation, navigation, translation and
+   theme contracts before changing routes. Exit: a reviewed route/action map,
+   ownership map, capability matrix and API contracts; no inferred emulator
+   write or client handoff.
+2. **Website-owned presentation.** Add versioned `phpretro_*` site config for
+   navigation/button destinations, page slots and a small registry of typed
+   blocks. Housekeeping edits drafts, previews the real React renderer,
+   publishes atomically and can roll back a revision. Validate allowed routes,
+   external URLs, block props, media references, role visibility and ordering
+   server-side; reject arbitrary JavaScript and unsafe HTML. Preserve the
+   existing settings API and migrated content. Exit: a representative page
+   can be changed without code, with CSRF, rank checks, audit, conflict,
+   preview/publish/rollback, API and Playwright coverage.
+3. **Two public themes.** Give both themes the same typed content/slot
+   contract; retain the legacy DOM and screenshot baselines. Port Chocolatey
+   appearance into React rather than running its Lumen/AngularJS application.
+   Reproduce agreed reference screens at the same viewport and content, then
+   add a housekeeping preview and atomic theme publish/rollback. Before
+   importing any source, image, font or other asset, verify file-level
+   provenance, licensing and redistribution rights; the upstream repository
+   contains both GPL-3.0 and Apache-2.0 license files. Exit: public account,
+   content and Homes routes work in both themes, switching requires no code,
+   and visual plus functional checks pass for both. A 1:1 appearance claim
+   requires a measured page-by-page baseline, not a sample screenshot.
+4. **English and Dutch.** Replace inline public/admin copy with keyed,
+   context-encoded translations, initially seeded from verified legacy
+   strings and reviewed Dutch copy. Housekeeping can edit draft translations,
+   preview each theme, validate placeholders and missing keys, publish and
+   roll back. Define a deterministic fallback, language URL/cookie behavior
+   and what content is translatable versus an operator-authored article.
+   Exit: account, navigation, public content and housekeeping journeys pass
+   browser checks in both languages, with missing-key and unsafe-markup tests.
+5. **In-game furniture catalog.** Do not confuse legacy
+   `housekeeping/catalogue.php` (the website-owned MyHabbo Homes store) or
+   `/credits/collectables` with an emulator's furniture catalog. First deliver
+   a read-only page tree and item/price/asset preview against the selected
+   profile. A draft must render with the target client's actual assets and
+   layout, or be labelled a structural preview if that is impossible. Only
+   after proving the profile's schema/API, privilege rules, reload semantics
+   and rollback path may named, authorized, audited service methods publish
+   pages/items. Validate parent cycles, ordering, item references, assets,
+   currencies, prices, rank/visibility and partial failures; require a
+   reviewed diff and explicit publish confirmation. No generic table editor.
+   Exit: create/edit/reorder/disable and rollback work in an isolated hotel,
+   a real client displays the published result, and ownership, CSRF,
+   authorization, audit, concurrency and failure tests pass.
+6. **Optional Pixel63 profile.** Use a profile-specific adapter with named
+   operations and declared capabilities; keep CMS-owned content independent
+   of game tables. Pixel63's own shop-page editor and `shop:edit` protocol
+   are evidence to assess, not permission for Drogon to impersonate a game
+   client or write its tables. Verify its MySQL schema, UUID identities,
+   password/SSO contract, Protobuf/WebSocket protocol and separate SWF asset
+   acquisition in an isolated Compose project before enabling login, client
+   launch or catalog mutation. An unsupported capability remains hidden with
+   an inventory gap. Exit: one existing-user CMS-to-client journey and each
+   enabled operation pass profile-specific integration and browser tests;
+   PolarIS/Octane regression and data isolation checks remain green.
+
+Do not start these by importing either upstream codebase wholesale. New
+dependencies, remote services, game assets and changed redistribution terms
+retain rule 9 and Phase 10 provenance gates. Every new mutation keeps the
+existing CSRF, named-service, prepared-statement, authorization and audit
+requirements; each profile's owner controls its own schema. Run the applicable
+ASan/UBSan, security lints, API, browser, visual and isolated integration
+checks before claiming a unit complete. The full PHPRetro port and community
+release still require the Phase 9/10 exit conditions, real staff TOTP,
+login throttling, fresh installation and the supported/unsupported list.
 
 ## Development and verification loop
 
@@ -490,8 +595,10 @@ language.
   concurrency via a version field) served by Drogon, backed by
   `phpretro_myhabbo_*` tables. Present the request/response and conflict schema
   for approval before implementation.
-- React + dnd-kit for the canvas/drag-drop, TanStack Query for cached layout
-  state and optimistic updates with rollback on version conflict.
+- React canvas/drag interaction and TanStack Query for cached layout state and
+  optimistic updates with rollback on version conflict. The verified native
+  pointer implementation remains valid; use dnd-kit only after resolving its
+  recorded render failure and the dependency gate.
 - Redis-backed distributed lock per home during an active edit session to
   prevent two staff/users corrupting one layout simultaneously. Test two
   concurrent edits and prove that the loser is rejected or safely merged,
@@ -516,6 +623,10 @@ React admin UI — no PHP anywhere.
   owning table family, with confirmation flows for destructive actions.
   Bans and credit changes require a second explicit server-side confirmation,
   not only a UI dialog.
+- Here legacy `housekeeping/catalogue.php` means the website-owned MyHabbo
+  Homes store. The new in-game furniture catalog editor has the separate
+  profile-specific evidence, publish and rollback gate above; passing one
+  does not complete the other.
 - RCON/API integration for alerts and any live-emulator commands, implemented
   against a verified PolarIS/Nitro interface — do not ship a control that
   silently no-ops.
