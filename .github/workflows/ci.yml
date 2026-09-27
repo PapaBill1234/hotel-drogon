@@ -461,6 +461,7 @@ jobs:
         env:
           PLAYWRIGHT_HOMES: '1'
           BASE_NEW: http://localhost:3000
+          HOMES_COMPOSE_PROJECT: hotel-drogon
         run: npx playwright test homes.spec.ts
 
       # The comparison runs in the PINNED Playwright container, not on the
