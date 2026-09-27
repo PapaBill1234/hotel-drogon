@@ -143,6 +143,11 @@ public:
      * chain the transaction is already driving: the queue drains in order, the
      * connection goes idle normally, and the destructor's COMMIT lands after the
      * database has already ended the transaction, where it is a no-op.
+     *
+     * The ROLLBACK step's callbacks capture the `self_` shared_ptr as well as
+     * `this`. Every other step's callbacks capture the caller's `steps` pointer
+     * by accident, which is what hid a use-after-free in `finishAbort`; these
+     * cannot, so they hold the object themselves.
      */
     void abort(HomeError error, const std::string& message) {
         if (done_ || aborting_) return;
@@ -153,10 +158,11 @@ public:
         // Everything queued after the statement that refused is dropped.
         steps_.clear();
         index_ = 0;
-        steps_.push_back([this]() {
+        auto self = self_;
+        steps_.push_back([this, self]() {
             auto binder = *trans_ << "ROLLBACK";
-            binder >> [this](const drogon::orm::Result&) { finishAbort(); };
-            binder >> [this](const drogon::orm::DrogonDbException& e) {
+            binder >> [this, self](const drogon::orm::Result&) { finishAbort(); };
+            binder >> [this, self](const drogon::orm::DrogonDbException& e) {
                 // The transaction is ending either way; the refusal the caller
                 // asked for is what is reported, and the driver's own message is
                 // logged so a real failure is not invisible.
@@ -186,14 +192,27 @@ public:
     void setConflictOnContention(bool enabled) { conflictOnContention_ = enabled; }
 
 private:
-    /** Release everything and report the refusal recorded by `abort`. */
+    /**
+     * Release everything and report the refusal recorded by `abort`.
+     *
+     * `keepAlive` holds the self-reference for the WHOLE function, and the last
+     * statement is the callback — releasing it first and then touching
+     * `onFail_`/`pending_*` is a use-after-free, and it is not theoretical: the
+     * ROLLBACK step's callbacks capture only `this` (the other steps' callbacks
+     * happen to capture the `steps` shared_ptr, which is what masked this), so
+     * dropping the last reference destroyed the object mid-function and the
+     * backend died with SIGSEGV — `Exited (139)` — on the first refused save.
+     * Reproduced by `scripts/smoke_phase8_homes.sh` section 4.
+     */
     void finishAbort() {
         if (done_) return;
         done_ = true;
+        auto keepAlive = self_;
+        self_.reset();
         steps_.clear();
         trans_.reset();
-        releaseSelf();
         onFail_(pending_error_, pending_message_);
+        // `keepAlive` releases here, after the last use of `this`.
     }
 
     /**

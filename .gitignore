@@ -54,3 +54,6 @@ frontend/node_modules/
 # Legacy reference
 legacy/
 
+
+# Local CMake build directory used for pinned-image checks (the repo ignores`build/`).
+build-ci/
