@@ -31,7 +31,9 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+
+import { useRouteParam } from '../hooks/useRouteParam';
 
 import CommunityShell from '../components/CommunityShell';
 import { Cbb } from '../components/Rounder';
@@ -449,7 +451,7 @@ export function parseHomeUserId(pathname: string): number {
 }
 
 export default function HomePage({ mode }: { mode: 'view' | 'edit' }) {
-  const location = useLocation();
+  const userIdParam = useRouteParam('userId', /^\/(?:home|myhabbo\/startSession)\/(\d+)/);
   /**
    * The id comes from the path, not from `useParams()`.
    *
@@ -466,7 +468,7 @@ export default function HomePage({ mode }: { mode: 'view' | 'edit' }) {
    * one the routes are written with — so the page does not depend on that
    * question being answered before it can work.
    */
-  const userId = parseHomeUserId(location.pathname);
+  const userId = userIdParam ? Number(userIdParam) : 0;
   const navigate = useNavigate();
   const me = useMe();
   const layoutQuery = useHomeLayout(userId);

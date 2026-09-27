@@ -1,5 +1,7 @@
 import { useMemo } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
+
+import { useRouteParam } from '../hooks/useRouteParam';
 
 import CommunityShell from '../components/CommunityShell';
 import { Cbb, BoxTitle } from '../components/Rounder';
@@ -39,7 +41,9 @@ const OLDER = '<< Older';
 const NEWER = 'Newer >>';
 
 export default function ArticlesPage() {
-  const { id: idParam } = useParams<{ id: string }>();
+  // `useRouteParam`, not `useParams` directly: this router does not deliver the
+  // value, so `/articles/5-title-safe` rendered the list. See the hook.
+  const idParam = useRouteParam('id', /^\/articles\/([^/]+)/);
   const [searchParams] = useSearchParams();
 
   const articleId = parseArticleId(idParam ?? searchParams.get('id') ?? undefined);
