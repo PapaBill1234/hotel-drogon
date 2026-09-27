@@ -35,9 +35,26 @@ Answered from evidence while capturing: the reference bundles are an **AngularJS
 
 So a statement that blocks on a row lock hangs forever, its transaction keeps its pooled connection, and once ten of those accumulate **every** route that needs a connection waits — the login route included, which is why the failure looked like a flaky sign-in rather than a connection leak. `src/main.cpp` now sets a **10 s statement timeout** on the default client: a blocked statement errors to the caller, the transaction rolls back, and the connection returns. Verified after the change: the hung routes answer again in milliseconds, and after three more browser runs the routes still answer — the pool is no longer the failure mode.
 
-**The pool exhaustion is NOT fixed, and two defensive fixes have been measured and found insufficient (2026-09-27, latest).** Being precise, because the next attempt must start from the measurements rather than from another guess:
+**The pool diagnosis was wrong, and the measurement that disproved it came first (2026-09-27).** The earlier entry said abandoned transactions were exhausting the connection pool, and two defensive fixes were built on that. A disposable stack with **`DB_MAX_CONNECTIONS=2`** says otherwise:
 
-* **What is known.** After a couple of browser-suite runs the pool ends up holding **all ten** connections while `information_schema.innodb_trx` reports **zero open transactions** and every one of those connections is `Sleep` with no query. From then on every database-backed route hangs — `/api/auth/login` included — until the container is restarted; `/health` still answers 200 because it needs no connection.
+| step (cap = 2) | occupancy | read |
+| --- | --- | --- |
+| after login | 2 conns (`353,354`) sleeping, 0 trx | 200 in 5 ms |
+| after 1 GET, after 10 GETs | unchanged | 200 in 5–21 ms |
+| after 12 s idle (two SSO sweeps) | unchanged | 200 in 4 ms |
+| after a whole save (session + PUT) | unchanged | 200 in 2.5 ms |
+| after 3 refused saves | unchanged | 200 in 2.5 ms |
+| after 3 abandoned GETs / 3 abandoned PUTs / 3 abandoned edit-sessions | unchanged | 200 in 2–3 ms |
+| after 20 s idle | unchanged | 200 in 5 ms |
+| **one concurrent save pair** | **unchanged, same two ids** | **A=200 (23 ms), B=409 (18 ms)**, read 200 in 5 ms, still clean after 15 s |
+
+* **Ten connections, all `Sleep`, with `innodb_trx` at zero is Drogon's NORMAL steady state**, not exhaustion: it opens `connectionNumber` connections and keeps them idle. The earlier reading — "the pool sat at its full ten connections, therefore exhausted" — was an occupancy metric that measured the wrong thing, and the commit message on `a69802d` repeats that error. The rate and the statement timeout it added are both still defensible on their own merits (an unbounded statement is a real hazard, and a 10 s bound is cheap), but **neither was shown to cause or cure anything**, and the run state must not claim it did.
+* **Nothing in the hand-drivable set reproduces the stall**: not a save, not refusals, not abandoned requests at three different endpoints, not a concurrent save pair, not idling across two sweeps. The one thing that still correlates with it is **running the Playwright browser suite**, which is also the one client this probe cannot imitate — a real browser aborting in-flight requests at the HTTP layer, not a `curl --max-time` socket close.
+* **So the leak is not identified, and no further patch is written.** The next diagnostic is to make the disposable harness serve the SPA (it currently has no frontend service, which is why the browser suite can only run against the primary stack) and run the real suite there while sampling occupancy and per-route latency. That is the honest path to the holder; every earlier attempt patched before measuring.
+* `TxnSteps::releaseAbandoned` (the 15 s watchdog) stays: it cannot fire on a healthy save and it bounds a genuinely stuck one. It is **not** evidence of a fix, and the browser suite's flakiness is unresolved.
+
+
+* **What is known.** *(Superseded by the cap=2 measurement above, and kept deliberately: the bullets in this block were written before that experiment and rest on the occupancy reading it disproved — "ten connections held" is Drogon's normal steady state. Read them as the reasoning that produced two patches which measurement then found irrelevant, not as current findings.)* After a couple of browser-suite runs the pool ends up holding **all ten** connections while `information_schema.innodb_trx` reports **zero open transactions** and every one of those connections is `Sleep` with no query. From then on every database-backed route hangs — `/api/auth/login` included — until the container is restarted; `/health` still answers 200 because it needs no connection.
 * **What has been ruled out by measurement, not argument.**
   * The **10 s SQL statement timeout** (`src/main.cpp`, committed as `a69802d`) did not prevent it. It bounds a *statement*; these connections have no statement in flight.
   * The **15 s transaction watchdog** (`TxnSteps::releaseAbandoned`, armed in `start()`) did not prevent it either. It releases a `HomesService` save that has stalled, and after three browser runs the pool was still pinned at ten.

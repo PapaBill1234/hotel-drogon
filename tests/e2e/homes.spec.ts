@@ -30,6 +30,18 @@ const BASE_NEW = envOr('BASE_NEW', 'http://localhost:3000');
 const OWNER_USER = envOr('PLAIN_USER', 'testuser');
 const OWNER_PASS = envOr('PLAIN_PASS', 'password123');
 
+/**
+ * The stack this suite is allowed to reset, named explicitly.
+ *
+ * The fixture writes and deletes rows, so it must never assume which database it
+ * is pointed at. These are overridable so the suite can run against a disposable
+ * project — the leak diagnostics do exactly that — and the guard below refuses
+ * to reset anything that is not the configured website database.
+ */
+const DB_CONTAINER = envOr('HOMES_DB_CONTAINER', 'hotel_mariadb');
+const REDIS_CONTAINER = envOr('HOMES_REDIS_CONTAINER', 'hotel_redis');
+const DB_NAME = envOr('HOMES_DB_NAME', 'polaris');
+
 /** The seeded `testuser` id from `src/main.cpp`. */
 const OWNER_ID = 2;
 
@@ -102,6 +114,38 @@ test.describe('MyHabbo home page', () => {
   test.skip(process.env.PLAYWRIGHT_HOMES !== '1', 'set PLAYWRIGHT_HOMES=1 to run');
 
   /**
+   * Prove which database is about to be reset, before resetting it.
+   *
+   * The fixture deletes rows, so "which stack am I pointed at" has to be
+   * answered by the database itself rather than by the container name in a
+   * constant: the reset is scoped to one user id, but a wrong container would
+   * still be a wrong database. The legacy stack is refused outright — it is a
+   * read-only behavioural reference (plan rule 8) and nothing in this suite may
+   * write to it.
+   */
+  test.beforeAll(async () => {
+    if (/legacy/i.test(DB_CONTAINER)) {
+      throw new Error(
+        `refusing to run: HOMES_DB_CONTAINER is "${DB_CONTAINER}", which looks like the ` +
+          `read-only legacy reference stack. Point it at the website database instead.`,
+      );
+    }
+    const answered = (await sqlOutput('SELECT DATABASE();')).trim();
+    if (answered !== DB_NAME) {
+      throw new Error(
+        `refusing to reset: ${DB_CONTAINER} answered database "${answered}" but the suite is ` +
+          `configured for "${DB_NAME}".`,
+      );
+    }
+    const users = Number((await sqlOutput('SELECT COUNT(*) FROM users;')).trim());
+    if (!Number.isFinite(users) || users < 1) {
+      throw new Error(`refusing to reset: ${DB_NAME} on ${DB_CONTAINER} has no users table rows.`);
+    }
+    // eslint-disable-next-line no-console
+    console.log(`[homes fixture] resetting user ${OWNER_ID} in ${DB_NAME} on ${DB_CONTAINER}`);
+  });
+
+  /**
    * Every case starts from the same home.
    *
    * The suite used to share one fixture across five serial cases, and one of them
@@ -113,8 +157,9 @@ test.describe('MyHabbo home page', () => {
    *
    * The state written here is exactly what the application itself writes — one
    * profile widget in column 1, the home's version row at 1 — not a shortcut the
-   * product could not produce. `id` is fixed so a rerun replaces its own row
-   * rather than accumulating widgets.
+   * product could not produce. Every statement is scoped to `user_id = OWNER_ID`,
+   * so no other account's page is touched. `id` is fixed so a rerun replaces its
+   * own row rather than accumulating widgets.
    */
   test.beforeEach(async () => {
     await sql(
@@ -347,15 +392,23 @@ async function csrfToken(page: Page): Promise<string> {
  */
 async function sql(statement: string): Promise<void> {
   const { execFileSync } = await import('node:child_process');
-  execFileSync(
+  execFileSync('docker', ['exec', DB_CONTAINER, 'mysql', '-uhotel', '-photel_secret', DB_NAME, '-e', statement], {
+    stdio: 'pipe',
+  });
+}
+
+/** The same, returning what the database said — used by the isolation guard. */
+async function sqlOutput(statement: string): Promise<string> {
+  const { execFileSync } = await import('node:child_process');
+  return execFileSync(
     'docker',
-    ['exec', 'hotel_mariadb', 'mysql', '-uhotel', '-photel_secret', 'polaris', '-e', statement],
-    { stdio: 'pipe' },
+    ['exec', DB_CONTAINER, 'mysql', '-uhotel', '-photel_secret', DB_NAME, '-N', '-B', '-e', statement],
+    { encoding: 'utf8' },
   );
 }
 
 /** One `redis-cli` command against the stack's Redis, for the edit lease. */
 async function redis(command: string): Promise<void> {
   const { execFileSync } = await import('node:child_process');
-  execFileSync('docker', ['exec', 'hotel_redis', 'redis-cli', command], { stdio: 'pipe' });
+  execFileSync('docker', ['exec', REDIS_CONTAINER, 'redis-cli', command], { stdio: 'pipe' });
 }
