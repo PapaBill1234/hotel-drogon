@@ -35,7 +35,25 @@ Answered from evidence while capturing: the reference bundles are an **AngularJS
 
 So a statement that blocks on a row lock hangs forever, its transaction keeps its pooled connection, and once ten of those accumulate **every** route that needs a connection waits — the login route included, which is why the failure looked like a flaky sign-in rather than a connection leak. `src/main.cpp` now sets a **10 s statement timeout** on the default client: a blocked statement errors to the caller, the transaction rolls back, and the connection returns. Verified after the change: the hung routes answer again in milliseconds, and after three more browser runs the routes still answer — the pool is no longer the failure mode.
 
-**The pool diagnosis was wrong, and the measurement that disproved it came first (2026-09-27).** The earlier entry said abandoned transactions were exhausting the connection pool, and two defensive fixes were built on that. A disposable stack with **`DB_MAX_CONNECTIONS=2`** says otherwise:
+**The stall is now reproduced in a controlled environment, with the signature pinned down (2026-09-27, latest).**
+
+`tools/ci-repro/compose-browser.yaml` serves the real SPA on its own project and port, so the browser suite no longer has to run against the primary stack; `tests/e2e/homes.spec.ts` now verifies that the frontend, MariaDB and Redis containers all carry the stated `com.docker.compose.project` label before it resets anything (`HOMES_COMPOSE_PROJECT`, no default — a database named `polaris` proves nothing, because the primary one is too). Running the real suite there: **5/5 three times**, then one failure in six, then **every test timing out at 60 s**.
+
+Measured in the hung state:
+
+| probe | result |
+| --- | --- |
+| `GET /health` | **200 in 0.04 s** |
+| `GET /api/homes/2/layout`, `/api/public/settings`, `/api/public/maintenance` | **hang** |
+| `POST /api/auth/login` | **hang** |
+| MariaDB | `conns=10 sleeping=10 running=0 trx=0` — every connection open and idle |
+
+So: the process keeps serving routes that need no database and stops serving every route that does, while all ten physical connections are open and idle with no transaction on them. That is a **logical** leak — Drogon holds a connection checked out and never returns it, so its pool has nothing available — and it is invisible to a `processlist` occupancy reading, which is precisely why the earlier "the pool sat at its full ten" diagnosis was wrong in its reasoning even though the symptom was real.
+
+**Why the earlier abandonment probe found nothing, and what replaces it.** The probe sent `curl --max-time 0.02`, which almost certainly never transmitted the request, so it tested nothing. The effective trigger is what Playwright does when a test times out: abort a request that is already in flight. The next diagnostic is therefore an abandonment probe that guarantees the request was sent — a short `--max-time` on a route with real work behind it, or a Playwright-driven abort — repeated until the pool stops serving, with the leak count matched against the number of aborts. **No application code was changed on the strength of this**, per the instruction to fix only a demonstrated cause.
+
+**Fixed in the same pass, and demonstrated rather than assumed:** the drag helper now scrolls the handle into view and clamps the destination to the viewport. Edit mode adds a toolbar, a version line and a widget palette above the playground, which can push a box below the fold; `page.mouse.move` outside the viewport is a no-op, so no pointerdown reached the handle and *no save was attempted at all* — which is exactly what the failure showed ("no save message" rather than a wrong message), on a stack whose API was answering in 3–20 ms throughout the failing run.
+
 
 | step (cap = 2) | occupancy | read |
 | --- | --- | --- |

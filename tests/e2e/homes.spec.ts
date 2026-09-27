@@ -41,6 +41,19 @@ const OWNER_PASS = envOr('PLAIN_PASS', 'password123');
 const DB_CONTAINER = envOr('HOMES_DB_CONTAINER', 'hotel_mariadb');
 const REDIS_CONTAINER = envOr('HOMES_REDIS_CONTAINER', 'hotel_redis');
 const DB_NAME = envOr('HOMES_DB_NAME', 'polaris');
+/**
+ * The Compose project this suite is allowed to reset — **no default**.
+ *
+ * The database-name check below cannot establish isolation on its own: the
+ * disposable stacks and the primary site both call their database `polaris`. A
+ * container name is no better, since the primary pins `hotel_mariadb`. The one
+ * fact that does distinguish them is the `com.docker.compose.project` label
+ * Compose stamps on every container it creates, so the suite requires it to be
+ * stated and verifies all three containers carry it.
+ */
+const COMPOSE_PROJECT = process.env.HOMES_COMPOSE_PROJECT ?? '';
+/** The container serving the SPA — the third member of the same project. */
+const FRONTEND_CONTAINER = envOr('HOMES_FRONTEND_CONTAINER', 'hotel_proxy');
 
 /** The seeded `testuser` id from `src/main.cpp`. */
 const OWNER_ID = 2;
@@ -96,17 +109,29 @@ async function readLayout(page: Page) {
 /** Drag a widget's title-bar handle by a pixel delta, as a user would. */
 async function dragWidget(page: Page, widgetId: number, dx: number, dy: number): Promise<void> {
   const handle = page.locator(`#widget-${widgetId}-handle`);
+  // Scroll it into view FIRST. Edit mode adds a toolbar, a version line and a
+  // widget palette above the playground, which can push a box below the fold;
+  // `page.mouse.move` to a coordinate outside the viewport is a no-op, so no
+  // pointerdown ever reaches the handle, no drag is recorded and no save is
+  // attempted — which surfaced as "no save message at all" roughly one run in
+  // six, on a stack whose API was answering in 3-20 ms the whole time.
+  await handle.scrollIntoViewIfNeeded();
   const box = await handle.boundingBox();
   expect(box, `widget ${widgetId} has a handle to drag`).not.toBeNull();
   if (!box) return;
   const startX = box.x + box.width / 2;
   const startY = box.y + box.height / 2;
+  // The destination must be inside the viewport too, or the final moves are
+  // dropped and the recorded delta is short.
+  const viewport = page.viewportSize() ?? { width: 1280, height: 720 };
+  const endX = Math.min(Math.max(startX + dx, 1), viewport.width - 2);
+  const endY = Math.min(Math.max(startY + dy, 1), viewport.height - 2);
   await page.mouse.move(startX, startY);
   await page.mouse.down();
-  // Several small moves rather than one jump: dnd-kit's PointerSensor needs the
-  // activation distance to be exceeded by a move it observes.
-  await page.mouse.move(startX + dx / 2, startY + dy / 2, { steps: 5 });
-  await page.mouse.move(startX + dx, startY + dy, { steps: 5 });
+  // Several small moves rather than one jump, so a handler that needs to see
+  // movement between down and up sees it.
+  await page.mouse.move((startX + endX) / 2, (startY + endY) / 2, { steps: 5 });
+  await page.mouse.move(endX, endY, { steps: 5 });
   await page.mouse.up();
 }
 
@@ -124,12 +149,33 @@ test.describe('MyHabbo home page', () => {
    * write to it.
    */
   test.beforeAll(async () => {
+    if (!COMPOSE_PROJECT) {
+      throw new Error(
+        'refusing to run: set HOMES_COMPOSE_PROJECT to the Compose project this suite may ' +
+          'reset (for example ci-browser-20260927 for the disposable stack, or hotel-drogon ' +
+          'for the primary one). There is no default on purpose — a name check cannot tell ' +
+          'the two apart, because both databases are called polaris.',
+      );
+    }
     if (/legacy/i.test(DB_CONTAINER)) {
       throw new Error(
         `refusing to run: HOMES_DB_CONTAINER is "${DB_CONTAINER}", which looks like the ` +
           `read-only legacy reference stack. Point it at the website database instead.`,
       );
     }
+
+    // All three containers must belong to the stated project. This is the check
+    // the database name cannot make.
+    for (const container of [DB_CONTAINER, REDIS_CONTAINER, FRONTEND_CONTAINER]) {
+      const project = (await containerLabel(container, 'com.docker.compose.project')).trim();
+      if (project !== COMPOSE_PROJECT) {
+        throw new Error(
+          `refusing to reset: container "${container}" belongs to Compose project ` +
+            `"${project || '<none>'}", not to "${COMPOSE_PROJECT}".`,
+        );
+      }
+    }
+
     const answered = (await sqlOutput('SELECT DATABASE();')).trim();
     if (answered !== DB_NAME) {
       throw new Error(
@@ -142,7 +188,10 @@ test.describe('MyHabbo home page', () => {
       throw new Error(`refusing to reset: ${DB_NAME} on ${DB_CONTAINER} has no users table rows.`);
     }
     // eslint-disable-next-line no-console
-    console.log(`[homes fixture] resetting user ${OWNER_ID} in ${DB_NAME} on ${DB_CONTAINER}`);
+    console.log(
+      `[homes fixture] project=${COMPOSE_PROJECT} db=${DB_NAME}@${DB_CONTAINER} ` +
+        `redis=${REDIS_CONTAINER} frontend=${FRONTEND_CONTAINER}; resetting user ${OWNER_ID} only`,
+    );
   });
 
   /**
@@ -411,4 +460,21 @@ async function sqlOutput(statement: string): Promise<string> {
 async function redis(command: string): Promise<void> {
   const { execFileSync } = await import('node:child_process');
   execFileSync('docker', ['exec', REDIS_CONTAINER, 'redis-cli', command], { stdio: 'pipe' });
+}
+
+/** Read one label off a container, for the project-identity guard. */
+async function containerLabel(container: string, label: string): Promise<string> {
+  const { execFileSync } = await import('node:child_process');
+  try {
+    return execFileSync(
+      'docker',
+      ['inspect', container, '--format', `{{ index .Config.Labels "${label}" }}`],
+      { encoding: 'utf8' },
+    );
+  } catch {
+    throw new Error(
+      `refusing to reset: container "${container}" could not be inspected — is it running, ` +
+        `and is the docker CLI available?`,
+    );
+  }
 }

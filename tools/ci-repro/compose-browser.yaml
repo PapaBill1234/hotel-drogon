@@ -1,0 +1,141 @@
+# Disposable browser-test stack.
+#
+# Purpose: serve the React SPA so the real Playwright suite can run against a
+# stack that is NOT the primary one, while its behaviour is sampled. The existing
+# `compose.yaml` in this directory deliberately omits the bundle and the legacy
+# assets to reproduce a historical CI failure; this file is the opposite: a
+# complete stack, under its own project name, on its own port, with its own
+# volumes.
+#
+# Isolation:
+#   * `name: ci-browser` — pass `-p <project>` to give a run its own namespace.
+#     Every container carries the `com.docker.compose.project` label with that
+#     value, which is what `tests/e2e/homes.spec.ts` verifies before it resets
+#     anything. A database named `polaris` is NOT evidence of the right stack:
+#     the primary database has that name too.
+#   * no `container_name:` — the primary stack pins names like `hotel_mariadb`,
+#     and reusing one would collide with the running site.
+#   * the proxy publishes 3130, not 3000 (primary) or 8081 (legacy).
+#
+# Usage:
+#   docker compose -p ci-browser-20260927 -f tools/ci-repro/compose-browser.yaml up -d --build
+#   docker compose -p ci-browser-20260927 -f tools/ci-repro/compose-browser.yaml down -v
+#
+# The teardown is scoped to that project: it destroys only this stack's volumes.
+
+name: ci-browser
+
+services:
+  backend:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: "no"
+    environment:
+      APP_ENV: development
+      APP_PORT: 8080
+      LOG_LEVEL: debug
+      LOG_JSON: "false"
+      DB_HOST: mariadb
+      DB_PORT: 3306
+      DB_DATABASE: polaris
+      DB_USERNAME: hotel
+      DB_PASSWORD: hotel_secret
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      ci-browser-net:
+        # `app` is the name `proxy/cutover.map` and `proxy/nginx.conf` route the
+        # new stack by. Without the alias nginx has no upstream and every request
+        # through the proxy fails — the same trap recorded for this directory's
+        # other harness.
+        aliases:
+          - app
+
+  mariadb:
+    image: mariadb:10.11
+    restart: "no"
+    environment:
+      MYSQL_ROOT_PASSWORD: root_secret
+      MYSQL_DATABASE: polaris
+      MYSQL_USER: hotel
+      MYSQL_PASSWORD: hotel_secret
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    networks:
+      - ci-browser-net
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: "no"
+    volumes:
+      - redis_data:/data
+    networks:
+      - ci-browser-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Builds the React bundle from the locked Node image and publishes it to the
+  # volume nginx serves, so no host build is involved.
+  frontend-build:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    restart: "no"
+    volumes:
+      - frontend_dist:/out
+
+  proxy:
+    image: nginx:alpine
+    restart: "no"
+    ports:
+      - "3130:80"
+    volumes:
+      # TWO mounts, and both are needed — the primary compose.yaml does the same.
+      # This one is nginx's own config path; without it nginx starts with its
+      # stock configuration, serves the default welcome page and 404s /health,
+      # while the directory below sits unused.
+      - ../../proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      # The rest of the proxy configuration — including the cutover map — as a
+      # DIRECTORY, not as a single file: nginx.conf includes
+      # /etc/nginx/config/cutover.map, and a single-file mount pins the inode, so
+      # an atomic replacement (mv, an editor's save) leaves nginx reading the old
+      # one. That is why this directory is mounted as well.
+      - ../../proxy:/etc/nginx/config:ro
+      # The React bundle, published by the one-shot service above.
+      - frontend_dist:/usr/share/nginx/html:ro
+      # Legacy web-gallery CSS and imagery, read-only: the converted pages reuse
+      # the legacy stylesheets verbatim, and without them the suite's visibility
+      # assertions fail on unstyled markup.
+      - ../../legacy/phpretro-pdo/web-gallery:/var/www/web-gallery:ro
+      - ../../legacy/phpretro-pdo/housekeeping/images:/var/www/housekeeping-images:ro
+    depends_on:
+      backend:
+        condition: service_started
+      frontend-build:
+        condition: service_completed_successfully
+    networks:
+      - ci-browser-net
+
+networks:
+  ci-browser-net:
+    driver: bridge
+
+volumes:
+  mariadb_data:
+  redis_data:
+  frontend_dist:
