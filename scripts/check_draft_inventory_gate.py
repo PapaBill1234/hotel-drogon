@@ -9,8 +9,8 @@ main = (root / "src/main.cpp").read_text()
 row = next((line for line in inventory.splitlines() if line.startswith("| Modular website controls and second theme |")), "")
 checks = [
     ("inventory says persistence remains disabled", "persistence remains disabled" in row),
-    ("inventory distinguishes prior database evidence", "prior 6/6 evidence" in row),
-    ("inventory keeps production persistence gate ahead", "Do not enable a table or route" in row),
+    ("inventory keeps live database evidence ahead", "Add live DB service transaction tests" in row),
+    ("inventory keeps production persistence disabled", "No production draft table, read/save route" in row),
     ("contract requires transaction and API tests", "duplicate revision race" in contract and "Playwright staff flow" in contract),
     ("startup has no draft table reference", "phpretro_presentation_drafts" not in main),
 ]

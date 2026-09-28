@@ -13,6 +13,8 @@ draft_transaction = (ROOT / "src/services/PresentationDraftTransaction.cpp").rea
 draft_access = (ROOT / "src/services/PresentationDraftAccess.cpp").read_text()
 draft_admission = (ROOT / "src/services/PresentationDraftAdmission.cpp").read_text()
 draft_audit = (ROOT / "src/services/PresentationDraftAudit.cpp").read_text()
+draft_service_header = (ROOT / "include/services/PresentationDraftService.h").read_text()
+draft_service = (ROOT / "src/services/PresentationDraftService.cpp").read_text()
 
 checks = [
     ('validation route is registered', '"/api/admin/presentation/validate"' in controller_header),
@@ -33,6 +35,10 @@ checks = [
     ('draft admission composes all save preconditions', 'PresentationDraftContract::validateRequest' in draft_admission and 'validAuditDetail' in draft_admission),
     ('draft audit detail is bounded and named', 'PresentationDraftPolicy::validAuditDetail' in draft_audit and 'revision' in draft_audit),
     ('draft policy, access, admission, audit and transaction seams are pure', all(token not in draft_policy + draft_access + draft_admission + draft_audit + draft_transaction for token in ('DbClient', 'drogon::app', 'INSERT ', 'UPDATE '))),
+    ('named service exposes only draft operations', 'readDraft' in draft_service_header and 'saveDraft' in draft_service_header and 'saveDocument' not in draft_service_header),
+    ('service uses website-owned named SQL', 'phpretro_presentation_drafts' in draft_service and 'phpretro_admin_action_log' in draft_service and 'UPDATE phpretro_presentation_drafts' in draft_service),
+    ('service performs conflict read before rollback', 'Draft conflict could not be read.' in draft_service and 'current.revision' in draft_service),
+    ('service routes rollback through guarded completion', 'auto finish' in draft_service and 'rollback' in draft_service and 'finish);' in draft_service),
 ]
 failed = [name for name, ok in checks if not ok]
 if failed:
