@@ -41,6 +41,13 @@ PresentationValidationResult PresentationDraftContract::validateRequest(const Js
         auto result = PresentationValidationService::validatePage(request["payload"]);
         if (!result.ok) { result.field = "payload." + result.field; return result; }
     }
+    // The client must submit the revision it actually edited. Keeping the
+    // envelope's compare-and-swap value and the typed document revision equal
+    // prevents a stale payload from being paired with a fresh base by mistake.
+    if (!request["payload"].isMember("revision") ||
+        !request["payload"]["revision"].isUInt() ||
+        request["payload"]["revision"].asUInt() != request["based_on"].asUInt())
+        return fail(PresentationValidationCode::invalid_field, "payload.revision", "payload revision must equal based_on");
     return PresentationValidationResult::success();
 }
 

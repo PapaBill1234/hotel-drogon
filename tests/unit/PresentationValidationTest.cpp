@@ -99,9 +99,16 @@ TEST_CASE("Draft contract accepts typed navigation envelope", "[presentation][dr
     auto request = Json::Value(Json::objectValue);
     request["document_kind"] = "navigation";
     request["document_key"] = "navigation";
-    request["based_on"] = 0U;
+    request["based_on"] = 4U;
     request["payload"] = validNavigation();
+    request["payload"]["revision"] = 4U;
     REQUIRE(PresentationDraftContract::validateRequest(request).ok);
+
+    request["payload"]["revision"] = 3U;
+    auto mismatch = PresentationDraftContract::validateRequest(request);
+    REQUIRE_FALSE(mismatch.ok);
+    REQUIRE(mismatch.field == "payload.revision");
+    request["payload"]["revision"] = 4U;
 
     request["document_key"] = "/housekeeping/settings";
     const auto result = PresentationDraftContract::validateRequest(request);
