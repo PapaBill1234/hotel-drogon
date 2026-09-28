@@ -7,6 +7,7 @@
 #include "services/PresentationDraftOutcome.h"
 #include "services/PresentationDraftAccess.h"
 #include "services/PresentationDraftAdmission.h"
+#include "services/PresentationDraftAudit.h"
 #include "services/PresentationDraftPolicy.h"
 #include "services/PresentationDraftTransaction.h"
 #include "services/PresentationValidationService.h"
@@ -16,6 +17,7 @@ using hotel::services::PresentationDraftError;
 using hotel::services::PresentationDraftOutcome;
 using hotel::services::PresentationDraftAccess;
 using hotel::services::PresentationDraftAdmission;
+using hotel::services::PresentationDraftAudit;
 using hotel::services::PresentationDraftPolicy;
 using hotel::services::PresentationDraftTransaction;
 using hotel::services::PresentationValidationCode;
@@ -104,6 +106,13 @@ TEST_CASE("Presentation validation rejects unknown properties and blocks", "[pre
     result = PresentationValidationService::validatePage(document);
     REQUIRE_FALSE(result.ok);
     REQUIRE(result.code == PresentationValidationCode::invalid_block);
+}
+
+TEST_CASE("Draft audit detail contains only bounded document identity", "[presentation][draft]") {
+    const auto detail = PresentationDraftAudit::detail("page", "/community", 4);
+    REQUIRE(detail == "draft page /community revision 4");
+    REQUIRE(PresentationDraftPolicy::validAuditDetail(detail));
+    REQUIRE(PresentationDraftAudit::detail("page", std::string(600, 'x'), 4).empty());
 }
 
 TEST_CASE("Draft admission composes access contract payload and audit checks", "[presentation][draft]") {
