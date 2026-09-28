@@ -156,10 +156,13 @@ become a generic table write.
   legacy `phpretro_site_settings` path is unchanged and no HTTP endpoint or
   React editor/preview is wired. Its pure validate-and-order methods return a
   validated copy sorted by ascending numeric `order`, then case-sensitive
-  lexical `key`; stored draft array order is preserved. Unit 2 exit is not met:
-  pure media/link URL syntax is now verified: local media is limited to safe
-  `/web-gallery/...` paths, and external URLs are restricted to valid HTTPS
-  URI syntax. Named banner/campaign row existence, active status and safe
-  stored render fields still precede the read-only validation/preview boundary,
-  followed by the housekeeping draft, real React preview, publish/rollback and
-  browser gates.
+  lexical `key`; stored draft array order is preserved. Pure media/link URL
+  syntax and named website-owned banner/campaign reference resolution are now
+  verified: public queries require the legacy active flag, advanced raw-HTML
+  banners are rejected, and stored media/destination values must pass the safe
+  URL policy. File existence and asset rights remain unknown. Unit 2 exit is
+  not met: expose the read-only validation/preview boundary behind rank and
+  CSRF checks, then add housekeeping draft editing, a real React preview,
+  atomic publish/rollback and browser coverage. The OpenSSL/libmariadb 904-byte
+  LeakSanitizer failure in DB-enabled ASan runs is recorded in
+  `docs/ai-run-state.md` and remains unresolved.

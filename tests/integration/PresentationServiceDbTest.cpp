@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -17,6 +18,14 @@ using hotel::services::PresentationServiceCode;
 using hotel::services::PresentationServiceResult;
 
 constexpr auto kCallbackTimeout = std::chrono::seconds(15);
+
+std::vector<drogon::orm::DbClientPtr>& retainedTestDbClients() {
+    // Async service callbacks can release their final DbClient reference from
+    // Drogon's own loop thread. Keep the integration client until process exit
+    // so its pool joins from the test runner thread instead of itself.
+    static std::vector<drogon::orm::DbClientPtr> clients;
+    return clients;
+}
 
 PresentationServiceResult waitForResult(
     std::future<PresentationServiceResult>& future) {
@@ -104,6 +113,7 @@ TEST_CASE("Presentation drafts persist with CAS and atomic audit",
         " dbname=" + database + " user=" + dbUser + " password=" + dbPassword;
     const auto db = drogon::orm::DbClient::newMysqlClient(connectionInfo, 4);
     REQUIRE(db != nullptr);
+    retainedTestDbClients().push_back(db);
     db->setTimeout(5.0);
 
     db->execSqlSync(

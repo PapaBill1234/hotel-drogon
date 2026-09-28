@@ -578,17 +578,20 @@ void PresentationService::ensureSchema(
     };
 
     auto step = std::make_shared<std::function<void(std::size_t)>>();
-    *step = [db, step, onComplete](std::size_t index) {
+    const std::weak_ptr<std::function<void(std::size_t)>> weakStep = step;
+    *step = [db, weakStep, onComplete](std::size_t index) {
         if (index >= kStatements.size()) {
             if (onComplete) onComplete();
             return;
         }
 
+        const auto keepAlive = weakStep.lock();
+        if (!keepAlive) return;
         *db << kStatements[index]
-            >> [step, index](const drogon::orm::Result&) {
-                   (*step)(index + 1);
+            >> [keepAlive, index](const drogon::orm::Result&) {
+                   (*keepAlive)(index + 1);
                }
-            >> [step, index](const drogon::orm::DrogonDbException& e) {
+            >> [index](const drogon::orm::DrogonDbException& e) {
                    HOTEL_LOG_ERROR("PresentationService schema statement {}: {}",
                                    index, e.base().what());
                    // Do not signal bootstrap completion after a failed DDL.
