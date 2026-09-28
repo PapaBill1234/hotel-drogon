@@ -151,5 +151,6 @@ become a generic table write.
   block registry. `POST /api/admin/presentation/validate` is a staff-gated,
   CSRF-protected, read-only seam that returns structured validation errors and
   never writes content or audit state. It performs no draft, publish, rollback,
-  audit or schema mutation. The unit 2 exit is not met; those persistence and
-  browser gates remain ahead.
+  audit or schema mutation. The next design boundary is recorded in
+  [`v4-unit2-draft-persistence-contract.md`](v4-unit2-draft-persistence-contract.md);
+  the unit 2 exit is not met and its persistence/browser gates remain ahead.
