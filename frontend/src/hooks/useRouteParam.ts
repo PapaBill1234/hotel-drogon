@@ -23,9 +23,12 @@
 import { useLocation, useParams } from 'react-router-dom';
 
 export function useRouteParam(name: string, pattern: RegExp): string | undefined {
+  // Hooks stay unconditional even if the router starts returning a string
+  // after the URL fallback has handled earlier renders.
+  const { pathname } = useLocation();
   const params = useParams() as Record<string, unknown>;
   const fromRouter = params[name];
   if (typeof fromRouter === 'string' && fromRouter !== '') return fromRouter;
-  const captured = pattern.exec(useLocation().pathname);
+  const captured = pattern.exec(pathname);
   return captured?.[1];
 }
