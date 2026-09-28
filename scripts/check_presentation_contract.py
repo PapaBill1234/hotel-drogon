@@ -10,6 +10,7 @@ draft_contract = (ROOT / "src/services/PresentationDraftContract.cpp").read_text
 draft_outcome = (ROOT / "src/services/PresentationDraftOutcome.cpp").read_text()
 draft_policy = (ROOT / "src/services/PresentationDraftPolicy.cpp").read_text()
 draft_transaction = (ROOT / "src/services/PresentationDraftTransaction.cpp").read_text()
+draft_access = (ROOT / "src/services/PresentationDraftAccess.cpp").read_text()
 
 checks = [
     ('validation route is registered', '"/api/admin/presentation/validate"' in controller_header),
@@ -26,7 +27,8 @@ checks = [
     ('audit text rejects controls and is bounded', 'validAuditDetail' in draft_policy and 'c < 0x20' in draft_policy),
     ('conflict outcome preserves current revision', 'currentRevision' in draft_transaction and 'currentRevision' in draft_outcome),
     ('audit and transaction failure map unavailable', 'auditSucceeded' in draft_transaction and 'committed' in draft_transaction),
-    ('draft policy and transaction classifiers are pure', all(token not in draft_policy + draft_transaction for token in ('DbClient', 'drogon::app', 'INSERT ', 'UPDATE '))),
+    ('draft access requires actor rank and 2FA', 'kMinimumStaffRank' in draft_access and 'twoFactorVerified' in draft_access),
+    ('draft policy, access and transaction seams are pure', all(token not in draft_policy + draft_access + draft_transaction for token in ('DbClient', 'drogon::app', 'INSERT ', 'UPDATE '))),
 ]
 failed = [name for name, ok in checks if not ok]
 if failed:

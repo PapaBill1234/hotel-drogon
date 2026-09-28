@@ -5,6 +5,7 @@
 
 #include "services/PresentationDraftContract.h"
 #include "services/PresentationDraftOutcome.h"
+#include "services/PresentationDraftAccess.h"
 #include "services/PresentationDraftPolicy.h"
 #include "services/PresentationDraftTransaction.h"
 #include "services/PresentationValidationService.h"
@@ -12,6 +13,7 @@
 using hotel::services::PresentationDraftContract;
 using hotel::services::PresentationDraftError;
 using hotel::services::PresentationDraftOutcome;
+using hotel::services::PresentationDraftAccess;
 using hotel::services::PresentationDraftPolicy;
 using hotel::services::PresentationDraftTransaction;
 using hotel::services::PresentationValidationCode;
@@ -100,6 +102,13 @@ TEST_CASE("Presentation validation rejects unknown properties and blocks", "[pre
     result = PresentationValidationService::validatePage(document);
     REQUIRE_FALSE(result.ok);
     REQUIRE(result.code == PresentationValidationCode::invalid_block);
+}
+
+TEST_CASE("Draft access requires actor rank and 2FA", "[presentation][draft]") {
+    REQUIRE(PresentationDraftAccess::authorize(7, 5, true).ok);
+    REQUIRE(PresentationDraftAccess::authorize(0, 7, true).statusCode() == 401);
+    REQUIRE(PresentationDraftAccess::authorize(7, 4, true).statusCode() == 403);
+    REQUIRE(PresentationDraftAccess::authorize(7, 7, false).statusCode() == 403);
 }
 
 TEST_CASE("Draft transaction outcomes classify read conflict audit and rollback", "[presentation][draft]") {
