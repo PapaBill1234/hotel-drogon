@@ -3,8 +3,10 @@
 #include <string>
 #include <vector>
 
+#include "services/PresentationDraftContract.h"
 #include "services/PresentationValidationService.h"
 
+using hotel::services::PresentationDraftContract;
 using hotel::services::PresentationValidationCode;
 using hotel::services::PresentationValidationService;
 
@@ -91,6 +93,20 @@ TEST_CASE("Presentation validation rejects unknown properties and blocks", "[pre
     result = PresentationValidationService::validatePage(document);
     REQUIRE_FALSE(result.ok);
     REQUIRE(result.code == PresentationValidationCode::invalid_block);
+}
+
+TEST_CASE("Draft contract accepts typed navigation envelope", "[presentation][draft]") {
+    auto request = Json::Value(Json::objectValue);
+    request["document_kind"] = "navigation";
+    request["document_key"] = "navigation";
+    request["based_on"] = 0U;
+    request["payload"] = validNavigation();
+    REQUIRE(PresentationDraftContract::validateRequest(request).ok);
+
+    request["document_key"] = "/housekeeping/settings";
+    const auto result = PresentationDraftContract::validateRequest(request);
+    REQUIRE_FALSE(result.ok);
+    REQUIRE(result.code == PresentationValidationCode::unknown_route);
 }
 
 TEST_CASE("Presentation validation accepts each typed block and safe HTTPS target", "[presentation]") {
