@@ -8,9 +8,9 @@ contract = (root / "docs/v4-unit2-draft-persistence-contract.md").read_text()
 main = (root / "src/main.cpp").read_text()
 row = next((line for line in inventory.splitlines() if line.startswith("| Modular website controls and second theme |")), "")
 checks = [
-    ("inventory says persistence is not implemented", "persistence and theme controls not implemented" in row),
-    ("inventory distinguishes fake evidence", "none provide database evidence" in row),
-    ("inventory keeps database/API gate ahead", "before any draft table or route" in row),
+    ("inventory says persistence remains disabled", "persistence remains disabled" in row),
+    ("inventory distinguishes prior database evidence", "prior 6/6 evidence" in row),
+    ("inventory keeps production persistence gate ahead", "Do not enable a table or route" in row),
     ("contract requires transaction and API tests", "duplicate revision race" in contract and "Playwright staff flow" in contract),
     ("startup has no draft table reference", "phpretro_presentation_drafts" not in main),
 ]
