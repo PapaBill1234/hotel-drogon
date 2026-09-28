@@ -102,6 +102,7 @@ jobs:
           python3 scripts/check_csrf_rules.py
           python3 scripts/check_polaris_access.py
           python3 scripts/check_admin_ui_coverage.py
+          python3 scripts/check_presentation_contract.py
           python3 scripts/check_dependency_pins.py
 
       # The deployment ordering a SPA needs from its volume: new bundles first,
