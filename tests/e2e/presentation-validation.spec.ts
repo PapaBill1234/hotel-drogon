@@ -5,8 +5,12 @@ const ADMIN_USER = process.env.ADMIN_USER ?? 'admin';
 const ADMIN_PASS = process.env.ADMIN_PASS ?? 'password123';
 
 function parseCookies(header: string | undefined): string {
+  // Playwright exposes repeated Set-Cookie headers newline-separated in this
+  // environment, while some clients combine them with commas. Keep every
+  // cookie pair; dropping `hotel_session` makes CsrfFilter fall back to the
+  // staff cookie, which cannot validate the user's CSRF token.
   return (header ?? '')
-    .split(/,(?=[^;]+?=)/)
+    .split(/\r?\n|,(?=[^;\s]+?=)/)
     .map((part) => part.trim().split(';', 1)[0])
     .filter(Boolean)
     .join('; ');
