@@ -375,6 +375,15 @@ jobs:
           BASE_NEW: http://localhost:3000
         run: npx playwright test admin.spec.ts
 
+      # Read-only staff presentation validation API contract. It establishes user
+      # CSRF and staff cookies, checks anonymous/CSRF denial, then submits one
+      # typed document; it creates no CMS content or database rows.
+      - name: Presentation validation API browser contract
+        working-directory: tests/e2e
+        env:
+          BASE_NEW: http://localhost:3000
+        run: npx playwright test presentation-validation.spec.ts
+
       # The Phase 5 existing-user journey through React. It runs here, before the
       # parity comparison, for two reasons: it needs the same live stack, and it
       # leaves `testuser` restored (the password restore is in a `finally`) with
