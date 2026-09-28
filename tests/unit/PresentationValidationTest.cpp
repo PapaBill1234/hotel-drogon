@@ -4,9 +4,12 @@
 #include <vector>
 
 #include "services/PresentationDraftContract.h"
+#include "services/PresentationDraftOutcome.h"
 #include "services/PresentationValidationService.h"
 
 using hotel::services::PresentationDraftContract;
+using hotel::services::PresentationDraftError;
+using hotel::services::PresentationDraftOutcome;
 using hotel::services::PresentationValidationCode;
 using hotel::services::PresentationValidationService;
 
@@ -93,6 +96,15 @@ TEST_CASE("Presentation validation rejects unknown properties and blocks", "[pre
     result = PresentationValidationService::validatePage(document);
     REQUIRE_FALSE(result.ok);
     REQUIRE(result.code == PresentationValidationCode::invalid_block);
+}
+
+TEST_CASE("Draft outcomes map failures without implying persistence", "[presentation][draft]") {
+    const auto conflict = PresentationDraftOutcome::failure(PresentationDraftError::conflict, "stale", 7);
+    REQUIRE_FALSE(conflict.ok);
+    REQUIRE(conflict.statusCode() == 409);
+    REQUIRE(conflict.current_revision == 7);
+    REQUIRE(PresentationDraftOutcome::failure(PresentationDraftError::unavailable).statusCode() == 503);
+    REQUIRE(PresentationDraftOutcome::success().statusCode() == 200);
 }
 
 TEST_CASE("Draft contract accepts typed navigation envelope", "[presentation][draft]") {
