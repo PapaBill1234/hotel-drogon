@@ -2,6 +2,7 @@
 
 #include <drogon/HttpResponse.h>
 #include <json/value.h>
+#include <optional>
 #include <string>
 
 namespace hotel::services {
@@ -44,6 +45,11 @@ public:
         const Json::Value& document);
     /** Validate and return a sorted copy by `(order, key)` for deterministic output. */
     static PresentationOrderedResult validateAndOrderPage(const Json::Value& document);
+    /** Return a canonical safe image URL, or nullopt for an unsafe value. */
+    static std::optional<std::string> normalizePresentationMediaUrl(
+        const std::string& url);
+    /** Empty means no link; otherwise allow only HTTPS URLs or known public routes. */
+    static bool isSafePresentationLinkUrl(const std::string& url);
     static bool isKnownPublicRoute(const std::string& path);
     static bool isSafeKey(const std::string& key);
 };

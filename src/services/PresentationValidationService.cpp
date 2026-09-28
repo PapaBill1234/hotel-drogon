@@ -133,9 +133,6 @@ bool validGroupSegment(std::string_view segment) {
 
 bool validExternalUrl(const std::string& url) {
     if (url.size() > 2048 || url.rfind("https://", 0) != 0) return false;
-    if (std::any_of(url.begin(), url.end(), [](unsigned char c) {
-            return c <= 0x20 || c == 0x7f || c == '\\';
-        })) return false;
     const std::string_view rest(url.data() + 8, url.size() - 8);
     if (rest.empty() || rest.find_first_of("/?#@\\\r\n\t ") == 0 ||
         rest.find('#') != std::string_view::npos ||
@@ -147,20 +144,69 @@ bool validExternalUrl(const std::string& url) {
     const auto host = rest.substr(0, end);
     if (host.empty() || host.size() > 253 || host.front() == '.' || host.back() == '.') return false;
     bool hasDot = false;
-    bool labelStart = true;
-    for (const unsigned char c : host) {
-        if (c == '.') {
-            if (labelStart) return false;
-            hasDot = true;
-            labelStart = true;
-        } else if (std::isalnum(c) || c == '-') {
-            if (labelStart && c == '-') return false;
-            labelStart = false;
-        } else {
-            return false;
+    std::size_t labelStart = 0;
+    for (std::size_t i = 0; i <= host.size(); ++i) {
+        if (i < host.size() && host[i] != '.') {
+            const auto c = static_cast<unsigned char>(host[i]);
+            if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                  (c >= '0' && c <= '9') || c == '-')) return false;
+            continue;
         }
+        if (i == labelStart || i - labelStart > 63 || host[labelStart] == '-' ||
+            host[i - 1] == '-') return false;
+        if (i < host.size()) hasDot = true;
+        labelStart = i + 1;
     }
-    return !labelStart && hasDot;
+    if (!hasDot) return false;
+
+    // Keep external URLs safe for either React attribute rendering or a future
+    // HTML serializer: accept RFC 3986 URI characters, require valid percent
+    // escapes, and reject quotes, angle brackets, backslashes and controls.
+    for (std::size_t i = 0; i < url.size(); ++i) {
+        const auto c = static_cast<unsigned char>(url[i]);
+        const bool alphanumeric =
+            (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9');
+        if (alphanumeric || c == '-' || c == '.' || c == '_' || c == '~' ||
+            c == ':' || c == '/' || c == '?' || c == '[' || c == ']' ||
+            c == '!' || c == '$' || c == '&' || c == '(' || c == ')' ||
+            c == '*' || c == '+' || c == ',' || c == ';' || c == '=') continue;
+        if (c != '%' || i + 2 >= url.size()) return false;
+        const auto isHex = [](unsigned char value) {
+            return (value >= '0' && value <= '9') ||
+                   (value >= 'a' && value <= 'f') ||
+                   (value >= 'A' && value <= 'F');
+        };
+        if (!isHex(static_cast<unsigned char>(url[i + 1])) ||
+            !isHex(static_cast<unsigned char>(url[i + 2]))) return false;
+        i += 2;
+    }
+    return true;
+}
+
+bool safeLocalMediaPath(const std::string& url) {
+    if (url.size() > 2048) return false;
+    std::string_view path(url);
+    if (!path.empty() && path.front() == '/') path.remove_prefix(1);
+    if (path.size() <= 12 || path.substr(0, 12) != "web-gallery/" ||
+        path.front() == '/') return false;
+    std::size_t segmentStart = 0;
+    for (std::size_t i = 0; i <= path.size(); ++i) {
+        if (i < path.size()) {
+            const auto c = static_cast<unsigned char>(path[i]);
+            const bool alphanumeric =
+                (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                (c >= '0' && c <= '9');
+            if (!(alphanumeric || c == '/' || c == '-' || c == '_' ||
+                  c == '.' || c == '~')) return false;
+            if (c != '/') continue;
+        }
+
+        const auto segment = path.substr(segmentStart, i - segmentStart);
+        if (segment.empty() || segment == "." || segment == "..") return false;
+        segmentStart = i + 1;
+    }
+    return true;
 }
 
 PresentationValidationResult validateTarget(const Json::Value& target, const std::string& field) {
@@ -270,6 +316,17 @@ bool PresentationValidationService::isKnownPublicRoute(const std::string& path) 
     if (path.rfind(kStartSessionPrefix, 0) == 0)
         return validIdSegment(std::string_view(path).substr(kStartSessionPrefix.size()));
     return false;
+}
+
+std::optional<std::string> PresentationValidationService::normalizePresentationMediaUrl(
+    const std::string& url) {
+    if (validExternalUrl(url)) return url;
+    if (!safeLocalMediaPath(url)) return std::nullopt;
+    return url.front() == '/' ? url : "/" + url;
+}
+
+bool PresentationValidationService::isSafePresentationLinkUrl(const std::string& url) {
+    return url.empty() || validExternalUrl(url) || isKnownPublicRoute(url);
 }
 
 PresentationValidationResult PresentationValidationService::validateNavigation(const Json::Value& document) {

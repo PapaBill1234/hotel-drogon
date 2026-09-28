@@ -274,3 +274,75 @@ TEST_CASE("Presentation ordering rejects invalid documents without mutating them
     REQUIRE_FALSE(invalidPage.validation.ok);
     REQUIRE(page == originalPage);
 }
+
+TEST_CASE("Presentation media and link URLs fail closed",
+          "[presentation]") {
+    const auto localMedia =
+        PresentationValidationService::normalizePresentationMediaUrl(
+            "web-gallery/images/banner.png");
+    REQUIRE(localMedia.has_value());
+    REQUIRE(*localMedia == "/web-gallery/images/banner.png");
+    const auto rootedMedia =
+        PresentationValidationService::normalizePresentationMediaUrl(
+            "/web-gallery/images/campaign.webp");
+    REQUIRE(rootedMedia.has_value());
+    REQUIRE(*rootedMedia == "/web-gallery/images/campaign.webp");
+    const auto externalMedia =
+        PresentationValidationService::normalizePresentationMediaUrl(
+            "https://cdn.example.com/banners/summer.png?size=640");
+    REQUIRE(externalMedia.has_value());
+    REQUIRE(*externalMedia == "https://cdn.example.com/banners/summer.png?size=640");
+
+    const std::vector<std::string> unsafeMedia = {
+        "",
+        "http://cdn.example.com/banner.png",
+        "//cdn.example.com/banner.png",
+        "javascript:alert(1)",
+        "data:image/png;base64,AAAA",
+        "b.png",
+        "/account/logout",
+        "/housekeeping/images/admin.gif",
+        "/assets/logo.svg",
+        "web-gallery",
+        "/web-gallery/../secret.png",
+        "/web-gallery//secret.png",
+        "web-gallery/%2e%2e/secret.png",
+        "web-gallery\\secret.png",
+        "web-gallery/images/banner image.png",
+        "https://user@cdn.example.com/banner.png",
+        "https://cdn.example.com/\"><svg/onload=alert(1)>",
+        "https://cdn.example.com/banner.png' onclick='alert(1)",
+        "https://cdn.example.com/banner%GG.png",
+        "https://cdn-.example.com/banner.png",
+        std::string("https://") + std::string(64, 'a') + ".example.com/banner.png",
+    };
+    for (const auto& url : unsafeMedia) {
+        INFO("unexpectedly accepted media URL: " << url);
+        REQUIRE_FALSE(
+            PresentationValidationService::normalizePresentationMediaUrl(url).has_value());
+    }
+
+    REQUIRE(PresentationValidationService::isSafePresentationLinkUrl(""));
+    REQUIRE(PresentationValidationService::isSafePresentationLinkUrl("/community"));
+    REQUIRE(PresentationValidationService::isSafePresentationLinkUrl(
+        "/articles/12-safe-title"));
+    REQUIRE(PresentationValidationService::isSafePresentationLinkUrl(
+        "https://example.com/campaign?source=banner"));
+    const std::vector<std::string> unsafeLinks = {
+        "http://example.com/campaign",
+        "//example.com/campaign",
+        "javascript:alert(1)",
+        "data:text/html,unsafe",
+        "https://example.com/\"><svg/onload=alert(1)>",
+        "https://example.com/path' onclick='alert(1)",
+        "https://example.com/banner%GG.png",
+        std::string("https://") + std::string(64, 'a') + ".example.com/path",
+        "/housekeeping/settings",
+        "/community?next=https://attacker.example",
+        "/community/../housekeeping",
+    };
+    for (const auto& url : unsafeLinks) {
+        INFO("unexpectedly accepted link URL: " << url);
+        REQUIRE_FALSE(PresentationValidationService::isSafePresentationLinkUrl(url));
+    }
+}

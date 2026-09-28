@@ -157,6 +157,9 @@ become a generic table write.
   React editor/preview is wired. Its pure validate-and-order methods return a
   validated copy sorted by ascending numeric `order`, then case-sensitive
   lexical `key`; stored draft array order is preserved. Unit 2 exit is not met:
-  media-reference validation precedes the read-only validation/preview boundary,
+  pure media/link URL syntax is now verified: local media is limited to safe
+  `/web-gallery/...` paths, and external URLs are restricted to valid HTTPS
+  URI syntax. Named banner/campaign row existence, active status and safe
+  stored render fields still precede the read-only validation/preview boundary,
   followed by the housekeeping draft, real React preview, publish/rollback and
   browser gates.
