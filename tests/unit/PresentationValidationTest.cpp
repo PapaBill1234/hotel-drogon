@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <json/value.h>
 
+#include <utility>
 #include <vector>
 
 #include "services/PresentationValidationService.h"
@@ -195,4 +196,81 @@ TEST_CASE("Presentation validation fails closed on invalid scalar ranges", "[pre
     result = PresentationValidationService::validatePage(document);
     REQUIRE_FALSE(result.ok);
     REQUIRE(result.code == PresentationValidationCode::invalid_field);
+}
+
+TEST_CASE("Presentation output orders navigation and page slots by order then key",
+          "[presentation]") {
+    auto navigation = validNavigation();
+    navigation["items"][0]["key"] = "z";
+    navigation["items"][0]["order"] = 1;
+    auto navItem = navigation["items"][0];
+    navItem["key"] = "B";
+    navItem["order"] = 0;
+    navigation["items"].append(navItem);
+    navItem["key"] = "a";
+    navigation["items"].append(navItem);
+
+    const auto orderedNavigation =
+        PresentationValidationService::validateAndOrderNavigation(navigation);
+    REQUIRE(orderedNavigation.validation.ok);
+    REQUIRE(orderedNavigation.document["items"][0]["key"].asString() == "B");
+    REQUIRE(orderedNavigation.document["items"][1]["key"].asString() == "a");
+    REQUIRE(orderedNavigation.document["items"][2]["key"].asString() == "z");
+    REQUIRE(navigation["items"][0]["key"].asString() == "z");
+
+    Json::Value reversedNavItems(Json::arrayValue);
+    reversedNavItems.append(navigation["items"][2]);
+    reversedNavItems.append(navigation["items"][1]);
+    reversedNavItems.append(navigation["items"][0]);
+    auto permutedNavigation = navigation;
+    permutedNavigation["items"] = std::move(reversedNavItems);
+    const auto reorderedNavigation =
+        PresentationValidationService::validateAndOrderNavigation(permutedNavigation);
+    REQUIRE(reorderedNavigation.validation.ok);
+    REQUIRE(reorderedNavigation.document == orderedNavigation.document);
+
+    auto page = validPage();
+    page["slots"][0]["key"] = "z";
+    page["slots"][0]["order"] = 1;
+    auto pageSlot = page["slots"][0];
+    pageSlot["key"] = "b";
+    pageSlot["order"] = 0;
+    page["slots"].append(pageSlot);
+    pageSlot["key"] = "A";
+    page["slots"].append(pageSlot);
+
+    const auto orderedPage = PresentationValidationService::validateAndOrderPage(page);
+    REQUIRE(orderedPage.validation.ok);
+    REQUIRE(orderedPage.document["slots"][0]["key"].asString() == "A");
+    REQUIRE(orderedPage.document["slots"][1]["key"].asString() == "b");
+    REQUIRE(orderedPage.document["slots"][2]["key"].asString() == "z");
+    REQUIRE(page["slots"][0]["key"].asString() == "z");
+
+    Json::Value reversedPageSlots(Json::arrayValue);
+    reversedPageSlots.append(page["slots"][2]);
+    reversedPageSlots.append(page["slots"][1]);
+    reversedPageSlots.append(page["slots"][0]);
+    auto permutedPage = page;
+    permutedPage["slots"] = std::move(reversedPageSlots);
+    const auto reorderedPage = PresentationValidationService::validateAndOrderPage(permutedPage);
+    REQUIRE(reorderedPage.validation.ok);
+    REQUIRE(reorderedPage.document == orderedPage.document);
+}
+
+TEST_CASE("Presentation ordering rejects invalid documents without mutating them",
+          "[presentation]") {
+    auto navigation = validNavigation();
+    navigation["items"][0]["order"] = -1;
+    const auto originalNavigation = navigation;
+    const auto invalidNavigation =
+        PresentationValidationService::validateAndOrderNavigation(navigation);
+    REQUIRE_FALSE(invalidNavigation.validation.ok);
+    REQUIRE(navigation == originalNavigation);
+
+    auto page = validPage();
+    page["slots"][0]["order"] = 100001;
+    const auto originalPage = page;
+    const auto invalidPage = PresentationValidationService::validateAndOrderPage(page);
+    REQUIRE_FALSE(invalidPage.validation.ok);
+    REQUIRE(page == originalPage);
 }

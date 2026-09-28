@@ -154,7 +154,9 @@ become a generic table write.
   revision allocation, expected-revision conflicts and an audit insert in the
   same transaction. Schema failure does not advance startup readiness. The
   legacy `phpretro_site_settings` path is unchanged and no HTTP endpoint or
-  React editor/preview is wired. Unit 2 exit is not met: media-reference
-  validation and deterministic `(order, key)` output precede the read-only
-  validation/preview boundary, followed by the housekeeping draft, real React
-  preview, publish/rollback and browser gates.
+  React editor/preview is wired. Its pure validate-and-order methods return a
+  validated copy sorted by ascending numeric `order`, then case-sensitive
+  lexical `key`; stored draft array order is preserved. Unit 2 exit is not met:
+  media-reference validation precedes the read-only validation/preview boundary,
+  followed by the housekeeping draft, real React preview, publish/rollback and
+  browser gates.

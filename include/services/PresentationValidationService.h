@@ -29,11 +29,21 @@ struct PresentationValidationResult {
                                                 std::string message);
 };
 
+struct PresentationOrderedResult {
+    PresentationValidationResult validation;
+    Json::Value document;
+};
+
 /** Pure, database-free validation for the v4 presentation contracts. */
 class PresentationValidationService {
 public:
     static PresentationValidationResult validateNavigation(const Json::Value& document);
     static PresentationValidationResult validatePage(const Json::Value& document);
+    /** Validate and return a sorted copy by `(order, key)` for deterministic output. */
+    static PresentationOrderedResult validateAndOrderNavigation(
+        const Json::Value& document);
+    /** Validate and return a sorted copy by `(order, key)` for deterministic output. */
+    static PresentationOrderedResult validateAndOrderPage(const Json::Value& document);
     static bool isKnownPublicRoute(const std::string& path);
     static bool isSafeKey(const std::string& key);
 };

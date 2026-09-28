@@ -5,6 +5,8 @@
 #include <initializer_list>
 #include <string_view>
 #include <unordered_set>
+#include <utility>
+#include <vector>
 
 namespace hotel::services {
 namespace {
@@ -84,6 +86,23 @@ bool validIdSegment(std::string_view segment) {
         value = value * 10U + digit;
     }
     return value > 0;
+}
+
+void orderByOrderThenKey(Json::Value& entries) {
+    std::vector<Json::Value> ordered;
+    ordered.reserve(entries.size());
+    for (const auto& entry : entries) ordered.push_back(entry);
+    std::sort(ordered.begin(), ordered.end(), [](const Json::Value& left,
+                                                  const Json::Value& right) {
+        const int leftOrder = left["order"].asInt();
+        const int rightOrder = right["order"].asInt();
+        if (leftOrder != rightOrder) return leftOrder < rightOrder;
+        return left["key"].asString() < right["key"].asString();
+    });
+
+    Json::Value sorted(Json::arrayValue);
+    for (const auto& entry : ordered) sorted.append(entry);
+    entries = std::move(sorted);
 }
 
 bool validArticleSegment(std::string_view segment) {
@@ -293,6 +312,26 @@ PresentationValidationResult PresentationValidationService::validatePage(const J
         if (!block.ok) return block;
     }
     return PresentationValidationResult::success();
+}
+
+PresentationOrderedResult PresentationValidationService::validateAndOrderNavigation(
+    const Json::Value& document) {
+    PresentationOrderedResult result;
+    result.validation = validateNavigation(document);
+    if (!result.validation.ok) return result;
+    result.document = document;
+    orderByOrderThenKey(result.document["items"]);
+    return result;
+}
+
+PresentationOrderedResult PresentationValidationService::validateAndOrderPage(
+    const Json::Value& document) {
+    PresentationOrderedResult result;
+    result.validation = validatePage(document);
+    if (!result.validation.ok) return result;
+    result.document = document;
+    orderByOrderThenKey(result.document["slots"]);
+    return result;
 }
 
 }  // namespace hotel::services
