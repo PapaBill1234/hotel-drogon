@@ -73,15 +73,50 @@ bool validVisibility(const Json::Value& value) {
            visibility == "user" || visibility == "staff";
 }
 
-bool validPathSegment(std::string_view segment) {
-    return !segment.empty() && segment.size() <= 128 &&
-           std::all_of(segment.begin(), segment.end(), [](unsigned char c) {
-               return std::isalnum(c) || c == '-' || c == '_' || c == '.';
+bool validIdSegment(std::string_view segment) {
+    if (segment.empty() || segment.size() > 10) return false;
+    unsigned int value = 0;
+    for (const unsigned char c : segment) {
+        if (c < '0' || c > '9') return false;
+        const auto digit = static_cast<unsigned int>(c - '0');
+        const auto max = static_cast<unsigned int>(kMaxId);
+        if (value > (max - digit) / 10U) return false;
+        value = value * 10U + digit;
+    }
+    return value > 0;
+}
+
+bool validArticleSegment(std::string_view segment) {
+    const auto separator = segment.find('-');
+    if (!validIdSegment(segment.substr(0, separator))) return false;
+    if (separator == std::string_view::npos) return true;
+    const auto slug = segment.substr(separator + 1);
+    return slug.size() <= 128 &&
+           std::all_of(slug.begin(), slug.end(), [](unsigned char c) {
+               return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';
            });
+}
+
+bool validGroupSegment(std::string_view segment) {
+    if (validIdSegment(segment)) return true;
+    if (segment.empty() || segment.size() > 30 ||
+        !((segment.front() >= 'A' && segment.front() <= 'Z') ||
+          (segment.front() >= 'a' && segment.front() <= 'z'))) return false;
+    if (!std::all_of(segment.begin() + 1, segment.end(), [](unsigned char c) {
+            return std::isalnum(c) || c == '-';
+        })) return false;
+
+    std::string lower;
+    lower.reserve(segment.size());
+    for (const unsigned char c : segment) lower += static_cast<char>(std::tolower(c));
+    return lower != "actions" && lower != "id" && lower != "discussions" && lower != "home";
 }
 
 bool validExternalUrl(const std::string& url) {
     if (url.size() > 2048 || url.rfind("https://", 0) != 0) return false;
+    if (std::any_of(url.begin(), url.end(), [](unsigned char c) {
+            return c <= 0x20 || c == 0x7f || c == '\\';
+        })) return false;
     const std::string_view rest(url.data() + 8, url.size() - 8);
     if (rest.empty() || rest.find_first_of("/?#@\\\r\n\t ") == 0 ||
         rest.find('#') != std::string_view::npos ||
@@ -162,7 +197,7 @@ PresentationValidationResult validateBlock(const Json::Value& block, const std::
     } else if (type == "collectables") {
         if (!hasOnly(block, {"type"})) return fail(PresentationValidationCode::invalid_block, field, "invalid collectables block");
     } else {
-        return fail(PresentationValidationCode.unknown_block, field + ".type", "unknown block type");
+        return fail(PresentationValidationCode::unknown_block, field + ".type", "unknown block type");
     }
     return PresentationValidationResult::success();
 }
@@ -196,18 +231,25 @@ bool PresentationValidationService::isKnownPublicRoute(const std::string& path) 
         "/habblet/proxy.php"
     };
     if (routes.count(path) != 0) return true;
-    if (path.rfind("/articles/", 0) == 0 || path.rfind("/help/", 0) == 0 ||
-        path.rfind("/groups/", 0) == 0) {
-        return validPathSegment(path.substr(path.find('/', 1) + 1));
+    if (path.rfind("/articles/", 0) == 0) {
+        return validArticleSegment(std::string_view(path).substr(10));
+    }
+    if (path.rfind("/help/", 0) == 0) {
+        return validIdSegment(std::string_view(path).substr(6));
+    }
+    if (path.rfind("/groups/", 0) == 0) {
+        return validGroupSegment(std::string_view(path).substr(8));
     }
     if (path.rfind("/home/", 0) == 0) {
-        const auto rest = path.substr(6);
-        const auto edit = rest.rfind("/edit");
-        return edit == std::string::npos ? validPathSegment(rest)
-                                         : edit > 0 && edit + 5 == rest.size() && validPathSegment(rest.substr(0, edit));
+        const std::string_view rest(path.data() + 6, path.size() - 6);
+        const auto edit = rest.find("/edit");
+        return edit == std::string_view::npos ? validIdSegment(rest)
+                                               : edit > 0 && edit + 5 == rest.size() &&
+                                                     validIdSegment(rest.substr(0, edit));
     }
-    if (path.rfind("/myhabbo/startSession/", 0) == 0)
-        return validPathSegment(path.substr(23));
+    constexpr std::string_view kStartSessionPrefix = "/myhabbo/startSession/";
+    if (path.rfind(kStartSessionPrefix, 0) == 0)
+        return validIdSegment(std::string_view(path).substr(kStartSessionPrefix.size()));
     return false;
 }
 
