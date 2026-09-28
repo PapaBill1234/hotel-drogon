@@ -11,6 +11,7 @@ draft_outcome = (ROOT / "src/services/PresentationDraftOutcome.cpp").read_text()
 draft_policy = (ROOT / "src/services/PresentationDraftPolicy.cpp").read_text()
 draft_transaction = (ROOT / "src/services/PresentationDraftTransaction.cpp").read_text()
 draft_access = (ROOT / "src/services/PresentationDraftAccess.cpp").read_text()
+draft_admission = (ROOT / "src/services/PresentationDraftAdmission.cpp").read_text()
 
 checks = [
     ('validation route is registered', '"/api/admin/presentation/validate"' in controller_header),
@@ -28,7 +29,8 @@ checks = [
     ('conflict outcome preserves current revision', 'currentRevision' in draft_transaction and 'currentRevision' in draft_outcome),
     ('audit and transaction failure map unavailable', 'auditSucceeded' in draft_transaction and 'committed' in draft_transaction),
     ('draft access requires actor rank and 2FA', 'kMinimumStaffRank' in draft_access and 'twoFactorVerified' in draft_access),
-    ('draft policy, access and transaction seams are pure', all(token not in draft_policy + draft_access + draft_transaction for token in ('DbClient', 'drogon::app', 'INSERT ', 'UPDATE '))),
+    ('draft admission composes all save preconditions', 'PresentationDraftContract::validateRequest' in draft_admission and 'validAuditDetail' in draft_admission),
+    ('draft policy, access, admission and transaction seams are pure', all(token not in draft_policy + draft_access + draft_admission + draft_transaction for token in ('DbClient', 'drogon::app', 'INSERT ', 'UPDATE '))),
 ]
 failed = [name for name, ok in checks if not ok]
 if failed:

@@ -6,6 +6,7 @@
 #include "services/PresentationDraftContract.h"
 #include "services/PresentationDraftOutcome.h"
 #include "services/PresentationDraftAccess.h"
+#include "services/PresentationDraftAdmission.h"
 #include "services/PresentationDraftPolicy.h"
 #include "services/PresentationDraftTransaction.h"
 #include "services/PresentationValidationService.h"
@@ -14,6 +15,7 @@ using hotel::services::PresentationDraftContract;
 using hotel::services::PresentationDraftError;
 using hotel::services::PresentationDraftOutcome;
 using hotel::services::PresentationDraftAccess;
+using hotel::services::PresentationDraftAdmission;
 using hotel::services::PresentationDraftPolicy;
 using hotel::services::PresentationDraftTransaction;
 using hotel::services::PresentationValidationCode;
@@ -102,6 +104,21 @@ TEST_CASE("Presentation validation rejects unknown properties and blocks", "[pre
     result = PresentationValidationService::validatePage(document);
     REQUIRE_FALSE(result.ok);
     REQUIRE(result.code == PresentationValidationCode::invalid_block);
+}
+
+TEST_CASE("Draft admission composes access contract payload and audit checks", "[presentation][draft]") {
+    auto request = Json::Value(Json::objectValue);
+    request["document_kind"] = "navigation";
+    request["document_key"] = "navigation";
+    request["based_on"] = 4U;
+    request["payload"] = validNavigation();
+    request["payload"]["revision"] = 4U;
+    REQUIRE(PresentationDraftAdmission::validateSave(7, 5, true, request,
+                                                     "save navigation revision 4").ok);
+    REQUIRE(PresentationDraftAdmission::validateSave(0, 7, true, request,
+                                                     "save navigation revision 4").statusCode() == 401);
+    REQUIRE(PresentationDraftAdmission::validateSave(7, 5, true, request,
+                                                     "contains\nnewline").statusCode() == 400);
 }
 
 TEST_CASE("Draft access requires actor rank and 2FA", "[presentation][draft]") {
