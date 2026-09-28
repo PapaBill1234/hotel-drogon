@@ -551,6 +551,21 @@ void HomesService::ensureSchema(
         "REFERENCES users (id) ON DELETE CASCADE"
         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
+        // `migrations/003_web_minimail.sql` creates this website-owned outbox in
+        // PHPRetro. Homes ratings still record their legacy `homes.rated` event;
+        // `notifyLiveGame()` is a no-op until a separately verified consumer is
+        // approved, so this does not write to PolarIS.
+        "CREATE TABLE IF NOT EXISTS phpretro_emulator_outbox ("
+        "id INT NOT NULL AUTO_INCREMENT,"
+        "event_type VARCHAR(64) NOT NULL,"
+        "payload_json JSON NOT NULL,"
+        "status ENUM('pending','processing','done','failed') NOT NULL DEFAULT 'pending',"
+        "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "processed_at DATETIME NULL,"
+        "PRIMARY KEY (id),"
+        "INDEX idx_status_created (status, created_at)"
+        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
         "CREATE TABLE IF NOT EXISTS phpretro_homes_catalogue ("
         "id INT NOT NULL AUTO_INCREMENT,"
         "name VARCHAR(255) NOT NULL,"

@@ -1,6 +1,7 @@
 #include "controllers/HomesController.h"
 #include "utils/ClientAddress.h"
 #include "filters/AuthPolicy.h"
+#include "services/HomeRatingService.h"
 #include "services/HomesService.h"
 #include "utils/Logger.h"
 #include <json/json.h>
@@ -57,6 +58,42 @@ drogon::HttpResponsePtr jsonError(HomeError error, const std::string& message) {
     auto resp = drogon::HttpResponse::newHttpJsonResponse(body);
     resp->setStatusCode(static_cast<drogon::HttpStatusCode>(hotel::services::homeErrorStatus(error)));
     return resp;
+}
+
+int homeRatingStatus(services::HomeRatingCode code) {
+    switch (code) {
+        case services::HomeRatingCode::InvalidInput: return 400;
+        case services::HomeRatingCode::NotFound: return 404;
+        case services::HomeRatingCode::Unavailable: return 503;
+        case services::HomeRatingCode::None: return 200;
+    }
+    return 503;
+}
+
+drogon::HttpResponsePtr homeRatingResponse(const services::HomeRatingResult& result) {
+    Value body;
+    if (!result.ok()) {
+        switch (result.code) {
+            case services::HomeRatingCode::InvalidInput: body["error"] = "Bad Request"; break;
+            case services::HomeRatingCode::NotFound: body["error"] = "Not Found"; break;
+            case services::HomeRatingCode::Unavailable: body["error"] = "Service Unavailable"; break;
+            case services::HomeRatingCode::None: body["error"] = "OK"; break;
+        }
+        body["message"] = result.message;
+        body["status"] = homeRatingStatus(result.code);
+    } else {
+        body["status"] = "ok";
+        body["total"] = static_cast<Json::UInt64>(result.summary.total);
+        body["high"] = static_cast<Json::UInt64>(result.summary.high);
+        body["average"] = result.summary.average;
+        body["px"] = result.summary.px;
+        body["mine"] = result.summary.mine;
+        body["owner"] = result.summary.owner;
+    }
+    auto response = drogon::HttpResponse::newHttpJsonResponse(body);
+    response->setStatusCode(
+        static_cast<drogon::HttpStatusCode>(homeRatingStatus(result.code)));
+    return response;
 }
 
 Value widgetJson(const HomeWidgetRecord& widget) {
@@ -517,6 +554,52 @@ void HomesController::removeWidget(
                             root["removed"] = true;
                             callback(drogon::HttpResponse::newHttpJsonResponse(root));
                         });
+                });
+        },
+        [callback](const drogon::HttpResponsePtr& denied) { callback(denied); });
+}
+
+void HomesController::ratingSummary(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+    uint32_t userId) {
+    withOptionalUser(req, [callback, userId](std::optional<services::UserSessionData> session) {
+        const uint32_t viewerId = session.has_value() ? session->user_id : 0;
+        services::HomeRatingService::getSummary(
+            drogon::app().getDbClient("default"),
+            userId,
+            viewerId,
+            [callback](services::HomeRatingResult result) {
+                callback(homeRatingResponse(result));
+            });
+    });
+}
+
+void HomesController::rate(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+    uint32_t userId,
+    uint32_t widgetId) {
+    withRequiredUser(
+        req,
+        [req, callback, userId, widgetId](const services::UserSessionData& session) {
+            const auto body = req->getJsonObject();
+            if (!body || !body->isObject() || !body->isMember("rating") ||
+                !(*body)["rating"].isInt()) {
+                callback(jsonError(HomeError::InvalidInput,
+                                   "rating must be an integer from 1 to 5."));
+                return;
+            }
+
+            services::HomeRatingService::castVote(
+                drogon::app().getDbClient("default"),
+                userId,
+                widgetId,
+                session.user_id,
+                (*body)["rating"].asInt(),
+                utils::ClientAddress::of(req),
+                [callback](services::HomeRatingResult result) {
+                    callback(homeRatingResponse(result));
                 });
         },
         [callback](const drogon::HttpResponsePtr& denied) { callback(denied); });

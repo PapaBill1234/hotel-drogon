@@ -40,10 +40,10 @@ namespace hotel::controllers {
  *
  * ## Deliberately absent
  *
- * Group homes (`guild_id != 0`) and the guestbook, ratings, notes and store
- * routes. Each is a separate work unit with its own legacy permission rule
- * (`canEditGroup`, guestbook privacy, one-vote-per-rater, `purchase()`'s credit
- * write); none of them is stubbed here.
+ * Group homes (`guild_id != 0`), the guestbook, notes and store routes. Ratings
+ * now have a separate first-vote API slice with the legacy one-vote-per-rater
+ * rule; no rating reset or widget UI is wired into the page yet. Each remaining
+ * feature is a separate work unit with its own permission or credit-write rule.
  */
 class HomesController : public drogon::HttpController<HomesController> {
 public:
@@ -58,6 +58,9 @@ public:
     ADD_METHOD_TO(HomesController::addWidget, "/api/homes/{1}/widgets", drogon::Post,
                   "hotel::filters::CsrfFilter");
     ADD_METHOD_TO(HomesController::removeWidget, "/api/homes/{1}/widgets/{2}", drogon::Delete,
+                  "hotel::filters::CsrfFilter");
+    ADD_METHOD_TO(HomesController::ratingSummary, "/api/homes/{1}/rating", drogon::Get);
+    ADD_METHOD_TO(HomesController::rate, "/api/homes/{1}/rating/{2}", drogon::Post,
                   "hotel::filters::CsrfFilter");
     METHOD_LIST_END
 
@@ -98,6 +101,21 @@ public:
 
     /** `DELETE /api/homes/{id}/widgets/{widgetId}` — remove a widget box. */
     void removeWidget(
+        const drogon::HttpRequestPtr& req,
+        std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+        uint32_t userId,
+        uint32_t widgetId
+    );
+
+    /** `GET /api/homes/{id}/rating` — public summary, personalized to the viewer. */
+    void ratingSummary(
+        const drogon::HttpRequestPtr& req,
+        std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+        uint32_t userId
+    );
+
+    /** `POST /api/homes/{id}/rating/{widgetId}` — cast one first vote. */
+    void rate(
         const drogon::HttpRequestPtr& req,
         std::function<void(const drogon::HttpResponsePtr&)>&& callback,
         uint32_t userId,
