@@ -2,6 +2,7 @@
 #include "utils/ClientAddress.h"
 #include "filters/AuthPolicy.h"
 #include "services/HomeGuestbookService.h"
+#include "services/HomeInventoryService.h"
 #include "services/HomeRatingService.h"
 #include "services/HomeStoreService.h"
 #include "services/HomesService.h"
@@ -79,6 +80,42 @@ drogon::HttpResponsePtr homeStoreResponse(
     auto response = drogon::HttpResponse::newHttpJsonResponse(body);
     response->setStatusCode(
         static_cast<drogon::HttpStatusCode>(homeStoreStatus(result.code)));
+    return response;
+}
+
+drogon::HttpResponsePtr homeInventoryResponse(
+    const hotel::services::HomeInventoryResult& result) {
+    using hotel::services::HomeInventoryCode;
+    Value body;
+    if (!result.ok()) {
+        body["error"] = result.code == HomeInventoryCode::InvalidInput ? "Bad Request" :
+                         result.code == HomeInventoryCode::NotFound ? "Not Found" : "Service Unavailable";
+        body["message"] = result.message;
+        body["status"] = result.code == HomeInventoryCode::InvalidInput ? 400 :
+                          result.code == HomeInventoryCode::NotFound ? 404 : 503;
+    } else {
+        body["status"] = "ok";
+        Value items(Json::arrayValue);
+        for (const auto& item : result.items) {
+            Value row;
+            row["id"] = item.id;
+            row["catalogue_id"] = item.catalogue_id;
+            row["item_type"] = item.item_type;
+            row["skin"] = item.skin;
+            row["data"] = item.data;
+            row["name"] = item.name;
+            row["description"] = item.description;
+            row["category"] = item.category;
+            row["category_id"] = item.category_id;
+            row["amount"] = item.amount;
+            row["quantity"] = item.quantity;
+            items.append(std::move(row));
+        }
+        body["items"] = std::move(items);
+    }
+    const int status = result.ok() ? 200 : (result.code == HomeInventoryCode::InvalidInput ? 400 : result.code == HomeInventoryCode::NotFound ? 404 : 503);
+    auto response = drogon::HttpResponse::newHttpJsonResponse(body);
+    response->setStatusCode(static_cast<drogon::HttpStatusCode>(status));
     return response;
 }
 
@@ -745,6 +782,21 @@ void HomesController::storeItems(
                 categoryId,
                 [callback](services::HomeStoreResult result) {
                     callback(homeStoreResponse(result, false));
+                });
+        },
+        [callback](const drogon::HttpResponsePtr& denied) { callback(denied); });
+}
+
+void HomesController::inventory(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+    withRequiredUser(
+        req,
+        [callback](const services::UserSessionData& session) {
+            services::HomeInventoryService::getPersonalItems(
+                drogon::app().getDbClient("default"), session.user_id,
+                [callback](services::HomeInventoryResult result) {
+                    callback(homeInventoryResponse(result));
                 });
         },
         [callback](const drogon::HttpResponsePtr& denied) { callback(denied); });

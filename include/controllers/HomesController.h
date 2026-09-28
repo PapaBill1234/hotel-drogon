@@ -69,6 +69,8 @@ public:
                   "/api/homes/store/categories", drogon::Get);
     ADD_METHOD_TO(HomesController::storeItems,
                   "/api/homes/store/items", drogon::Get);
+    ADD_METHOD_TO(HomesController::inventory,
+                  "/api/homes/inventory", drogon::Get);
     ADD_METHOD_TO(HomesController::guestbookEntries,
                   "/api/homes/{1}/guestbook", drogon::Get);
     METHOD_LIST_END
@@ -139,6 +141,12 @@ public:
 
     /** `GET /api/homes/store/items?type=sticker&category_id=...` — item metadata. */
     void storeItems(
+        const drogon::HttpRequestPtr& req,
+        std::function<void(const drogon::HttpResponsePtr&)>&& callback
+    );
+
+    /** `GET /api/homes/inventory` — signed-in personal inventory metadata. */
+    void inventory(
         const drogon::HttpRequestPtr& req,
         std::function<void(const drogon::HttpResponsePtr&)>&& callback
     );
