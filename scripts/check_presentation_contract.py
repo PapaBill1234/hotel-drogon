@@ -16,6 +16,7 @@ checks = [
     ('staff gate is explicit', 'requireStaff' in controller),
     ('CSRF filter is present', 'hotel::filters::CsrfFilter' in controller_header),
     ('validator is used', 'PresentationValidationService::validate' in controller),
+    ('API enforces payload size policy', 'PresentationDraftPolicy::validatePayloadSize' in controller),
     ('validation is read-only', 'read_only' in controller and 'ContentService' not in controller and 'AuditService' not in controller),
     ('validator has no database client', 'DbClient' not in validator and 'drogon::app' not in validator),
     ('draft kinds and keys are closed', 'kind == "navigation"' in draft_contract and 'isKnownPublicRoute' in draft_contract),
