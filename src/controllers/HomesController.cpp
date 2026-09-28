@@ -1,6 +1,7 @@
 #include "controllers/HomesController.h"
 #include "utils/ClientAddress.h"
 #include "filters/AuthPolicy.h"
+#include "services/HomeGuestbookService.h"
 #include "services/HomeRatingService.h"
 #include "services/HomeStoreService.h"
 #include "services/HomesService.h"
@@ -79,6 +80,42 @@ drogon::HttpResponsePtr homeStoreResponse(
     response->setStatusCode(
         static_cast<drogon::HttpStatusCode>(homeStoreStatus(result.code)));
     return response;
+}
+
+drogon::HttpResponsePtr homeGuestbookResponse(
+    const hotel::services::HomeGuestbookResult& result) {
+    using hotel::services::HomeGuestbookCode;
+    if (result.code == HomeGuestbookCode::InvalidInput) {
+        auto response = drogon::HttpResponse::newHttpResponse();
+        response->setStatusCode(drogon::k422UnprocessableEntity);
+        response->setContentTypeString("text/plain; charset=utf-8");
+        response->setBody(result.message);
+        return response;
+    }
+    if (!result.ok()) {
+        Value body;
+        body["error"] = "Service Unavailable";
+        body["message"] = result.message;
+        body["status"] = 503;
+        auto response = drogon::HttpResponse::newHttpJsonResponse(body);
+        response->setStatusCode(drogon::k503ServiceUnavailable);
+        return response;
+    }
+
+    Value entries(Json::arrayValue);
+    for (const auto& entry : result.entries) {
+        Value row;
+        row["id"] = entry.id;
+        row["profile_user_id"] = entry.profile_user_id;
+        row["author_user_id"] = entry.author_user_id;
+        row["message"] = entry.message;
+        row["created_at"] = entry.created_at;
+        row["username"] = entry.username;
+        row["look"] = entry.look;
+        row["online"] = entry.online;
+        entries.append(std::move(row));
+    }
+    return drogon::HttpResponse::newHttpJsonResponse(entries);
 }
 
 }  // namespace
@@ -711,6 +748,17 @@ void HomesController::storeItems(
                 });
         },
         [callback](const drogon::HttpResponsePtr& denied) { callback(denied); });
+}
+
+void HomesController::guestbookEntries(
+    const drogon::HttpRequestPtr&,
+    std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+    const std::string& profileId) {
+    services::HomeGuestbookService::getEntries(
+        drogon::app().getDbClient("default"), profileId,
+        [callback](services::HomeGuestbookResult result) {
+            callback(homeGuestbookResponse(result));
+        });
 }
 
 } // namespace hotel::controllers

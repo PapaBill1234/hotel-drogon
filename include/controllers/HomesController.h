@@ -40,11 +40,13 @@ namespace hotel::controllers {
  *
  * ## Deliberately absent
  *
- * Group homes (`guild_id != 0`), the guestbook, store purchases, inventory and
- * placement routes. Ratings and read-only store catalogue browsing have
- * separate API slices; no rating widget UI, purchase, asset preview, inventory
- * mutation or placement route is wired into the page. Each remaining feature is
- * a separate work unit with its own permission or credit-write rule.
+ * Group homes (`guild_id != 0`), guestbook writes or rendering, store purchases,
+ * inventory and placement routes. The public guestbook route returns raw message
+ * strings as JSON; it does not render BBCode. Ratings and read-only store
+ * catalogue browsing have separate API slices; no rating widget UI, purchase,
+ * asset preview, inventory mutation or placement route is wired into the page.
+ * Each remaining feature is a separate work unit with its own permission or
+ * credit-write rule.
  */
 class HomesController : public drogon::HttpController<HomesController> {
 public:
@@ -67,6 +69,8 @@ public:
                   "/api/homes/store/categories", drogon::Get);
     ADD_METHOD_TO(HomesController::storeItems,
                   "/api/homes/store/items", drogon::Get);
+    ADD_METHOD_TO(HomesController::guestbookEntries,
+                  "/api/homes/{1}/guestbook", drogon::Get);
     METHOD_LIST_END
 
     /** `GET /api/homes/{id}/layout` — the page as the converted `home.php` reads it. */
@@ -137,6 +141,13 @@ public:
     void storeItems(
         const drogon::HttpRequestPtr& req,
         std::function<void(const drogon::HttpResponsePtr&)>&& callback
+    );
+
+    /** `GET /api/homes/{id}/guestbook` — public raw JSON rows, newest first. */
+    void guestbookEntries(
+        const drogon::HttpRequestPtr& req,
+        std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+        const std::string& profileId
     );
 };
 
