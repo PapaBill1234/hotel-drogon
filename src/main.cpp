@@ -7,6 +7,7 @@
 #include "utils/Readiness.h"
 #include "services/ContentService.h"
 #include "services/HomesService.h"
+#include "services/PresentationService.h"
 #include "services/TransactionService.h"
 #include "services/UserAccountService.h"
 #include <functional>
@@ -348,7 +349,9 @@ int main(int argc, char* argv[]) {
                         // errno 150, and `CREATE TABLE IF NOT EXISTS` would leave
                         // the table permanently missing.
                         hotel::services::HomesService::ensureSchema(db, [db, seedUsers]() {
-                            hotel::services::TransactionService::ensureSchema(db, seedUsers);
+                            hotel::services::TransactionService::ensureSchema(db, [db, seedUsers]() {
+                                hotel::services::PresentationService::ensureSchema(db, seedUsers);
+                            });
                         });
                     };
                     (*step)(0);
