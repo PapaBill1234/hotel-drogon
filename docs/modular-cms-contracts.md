@@ -144,10 +144,17 @@ become a generic table write.
   states plus evidence and scope notes. The join is reproducible with
   `node scripts/join_legacy_surface_status.mjs`; it does not rewrite the
   generated source map or infer behavior from filenames.
-* **Unit 2 has started with a read-only validation slice.**
-  `PresentationValidationService` defines a database-free, fail-closed boundary
+* **Unit 2 has verified its validation and draft-persistence foundations.**
+  `PresentationValidationService` is the database-free, fail-closed boundary
   for navigation and page documents: known public routes, HTTPS-only external
   targets, safe keys, role visibility, bounded ordering and the closed typed
-  block registry. It performs no draft, publish, rollback, audit or schema
-  mutation. The unit 2 exit is not met; those persistence and browser gates
-  remain ahead.
+  block registry. `PresentationService` owns contract-versioned
+  `phpretro_presentation_documents` heads and append-only revision snapshots;
+  its named `loadDraft`/`saveDraft` operations enforce the typed key, server-side
+  revision allocation, expected-revision conflicts and an audit insert in the
+  same transaction. Schema failure does not advance startup readiness. The
+  legacy `phpretro_site_settings` path is unchanged and no HTTP endpoint or
+  React editor/preview is wired. Unit 2 exit is not met: media-reference
+  validation and deterministic `(order, key)` output precede the read-only
+  validation/preview boundary, followed by the housekeeping draft, real React
+  preview, publish/rollback and browser gates.
