@@ -88,6 +88,10 @@ later work units and cannot be implied by a successful draft save.
 
 ## Verification gate before implementation
 
+The candidate schema and ownership review are recorded in
+[`v4-unit2-draft-schema-review.md`](v4-unit2-draft-schema-review.md). It is a
+proposal only and has not been added to startup or any database.
+
 Before adding a table or route, verify in the pinned environment:
 
 1. schema/table name and column limits are website-owned and do not collide with
