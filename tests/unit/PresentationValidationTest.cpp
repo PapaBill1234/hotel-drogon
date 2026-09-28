@@ -6,12 +6,14 @@
 #include "services/PresentationDraftContract.h"
 #include "services/PresentationDraftOutcome.h"
 #include "services/PresentationDraftPolicy.h"
+#include "services/PresentationDraftTransaction.h"
 #include "services/PresentationValidationService.h"
 
 using hotel::services::PresentationDraftContract;
 using hotel::services::PresentationDraftError;
 using hotel::services::PresentationDraftOutcome;
 using hotel::services::PresentationDraftPolicy;
+using hotel::services::PresentationDraftTransaction;
 using hotel::services::PresentationValidationCode;
 using hotel::services::PresentationValidationService;
 
@@ -98,6 +100,17 @@ TEST_CASE("Presentation validation rejects unknown properties and blocks", "[pre
     result = PresentationValidationService::validatePage(document);
     REQUIRE_FALSE(result.ok);
     REQUIRE(result.code == PresentationValidationCode::invalid_block);
+}
+
+TEST_CASE("Draft transaction outcomes classify read conflict audit and rollback", "[presentation][draft]") {
+    REQUIRE(PresentationDraftTransaction::classifyRead(true).ok);
+    REQUIRE(PresentationDraftTransaction::classifyRead(false).statusCode() == 404);
+    const auto stale = PresentationDraftTransaction::classifyCompareAndSwap(false, 9);
+    REQUIRE(stale.statusCode() == 409);
+    REQUIRE(stale.current_revision == 9);
+    REQUIRE(PresentationDraftTransaction::classifyAudit(false).statusCode() == 503);
+    REQUIRE(PresentationDraftTransaction::classifyTransaction(false).statusCode() == 503);
+    REQUIRE(PresentationDraftTransaction::classifyTransaction(true).ok);
 }
 
 TEST_CASE("Draft policy bounds payloads and audit details", "[presentation][draft]") {
