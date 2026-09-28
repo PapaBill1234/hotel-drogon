@@ -40,10 +40,11 @@ namespace hotel::controllers {
  *
  * ## Deliberately absent
  *
- * Group homes (`guild_id != 0`), the guestbook, notes and store routes. Ratings
- * now have a separate first-vote API slice with the legacy one-vote-per-rater
- * rule; no rating reset or widget UI is wired into the page yet. Each remaining
- * feature is a separate work unit with its own permission or credit-write rule.
+ * Group homes (`guild_id != 0`), the guestbook, store purchases, inventory and
+ * placement routes. Ratings and read-only store catalogue browsing have
+ * separate API slices; no rating widget UI, purchase, asset preview, inventory
+ * mutation or placement route is wired into the page. Each remaining feature is
+ * a separate work unit with its own permission or credit-write rule.
  */
 class HomesController : public drogon::HttpController<HomesController> {
 public:
@@ -62,6 +63,10 @@ public:
     ADD_METHOD_TO(HomesController::ratingSummary, "/api/homes/{1}/rating", drogon::Get);
     ADD_METHOD_TO(HomesController::rate, "/api/homes/{1}/rating/{2}", drogon::Post,
                   "hotel::filters::CsrfFilter");
+    ADD_METHOD_TO(HomesController::storeCategories,
+                  "/api/homes/store/categories", drogon::Get);
+    ADD_METHOD_TO(HomesController::storeItems,
+                  "/api/homes/store/items", drogon::Get);
     METHOD_LIST_END
 
     /** `GET /api/homes/{id}/layout` — the page as the converted `home.php` reads it. */
@@ -120,6 +125,18 @@ public:
         std::function<void(const drogon::HttpResponsePtr&)>&& callback,
         uint32_t userId,
         uint32_t widgetId
+    );
+
+    /** `GET /api/homes/store/categories?type=sticker` — eligible categories. */
+    void storeCategories(
+        const drogon::HttpRequestPtr& req,
+        std::function<void(const drogon::HttpResponsePtr&)>&& callback
+    );
+
+    /** `GET /api/homes/store/items?type=sticker&category_id=...` — item metadata. */
+    void storeItems(
+        const drogon::HttpRequestPtr& req,
+        std::function<void(const drogon::HttpResponsePtr&)>&& callback
     );
 };
 

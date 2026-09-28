@@ -2,6 +2,7 @@
 #include "utils/ClientAddress.h"
 #include "filters/AuthPolicy.h"
 #include "services/HomeRatingService.h"
+#include "services/HomeStoreService.h"
 #include "services/HomesService.h"
 #include "utils/Logger.h"
 #include <json/json.h>
@@ -17,6 +18,70 @@ using hotel::services::HomeItemRecord;
 using hotel::services::HomeLayout;
 using hotel::services::HomePlacement;
 using hotel::services::HomeWidgetRecord;
+
+namespace {
+
+int homeStoreStatus(hotel::services::HomeStoreCode code) {
+    switch (code) {
+        case hotel::services::HomeStoreCode::InvalidInput: return 400;
+        case hotel::services::HomeStoreCode::NotFound: return 404;
+        case hotel::services::HomeStoreCode::Unavailable: return 503;
+        case hotel::services::HomeStoreCode::None: return 200;
+    }
+    return 503;
+}
+
+drogon::HttpResponsePtr homeStoreResponse(
+    const hotel::services::HomeStoreResult& result,
+    bool categoriesOnly) {
+    Value body;
+    if (!result.ok()) {
+        body["error"] = result.code == hotel::services::HomeStoreCode::InvalidInput
+                             ? "Bad Request"
+                             : result.code == hotel::services::HomeStoreCode::NotFound
+                                   ? "Not Found"
+                                   : "Service Unavailable";
+        body["message"] = result.message;
+        body["status"] = homeStoreStatus(result.code);
+    } else {
+        body["status"] = "ok";
+        if (categoriesOnly) {
+            Value categories(Json::arrayValue);
+            for (const auto& category : result.categories) {
+                Value row;
+                row["category_id"] = category.category_id;
+                row["category"] = category.category;
+                categories.append(std::move(row));
+            }
+            body["categories"] = std::move(categories);
+        } else {
+            Value items(Json::arrayValue);
+            for (const auto& item : result.items) {
+                Value row;
+                row["id"] = item.id;
+                row["name"] = item.name;
+                row["description"] = item.description;
+                row["type"] = item.type;
+                if (item.data_key.has_value())
+                    row["data_key"] = *item.data_key;
+                row["price"] = item.price;
+                row["amount"] = item.amount;
+                row["category"] = item.category;
+                row["category_id"] = item.category_id;
+                row["min_rank"] = item.min_rank;
+                row["placement"] = item.placement;
+                items.append(std::move(row));
+            }
+            body["items"] = std::move(items);
+        }
+    }
+    auto response = drogon::HttpResponse::newHttpJsonResponse(body);
+    response->setStatusCode(
+        static_cast<drogon::HttpStatusCode>(homeStoreStatus(result.code)));
+    return response;
+}
+
+}  // namespace
 
 namespace hotel::controllers {
 
@@ -600,6 +665,49 @@ void HomesController::rate(
                 utils::ClientAddress::of(req),
                 [callback](services::HomeRatingResult result) {
                     callback(homeRatingResponse(result));
+                });
+        },
+        [callback](const drogon::HttpResponsePtr& denied) { callback(denied); });
+}
+
+void HomesController::storeCategories(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+    withRequiredUser(
+        req,
+        [req, callback](const services::UserSessionData& session) {
+            const auto type = req->getParameter("type");
+            services::HomeStoreService::getCategories(
+                drogon::app().getDbClient("default"), session.user_id, type,
+                [callback](services::HomeStoreResult result) {
+                    callback(homeStoreResponse(result, true));
+                });
+        },
+        [callback](const drogon::HttpResponsePtr& denied) { callback(denied); });
+}
+
+void HomesController::storeItems(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+    withRequiredUser(
+        req,
+        [req, callback](const services::UserSessionData& session) {
+            const auto type = req->getParameter("type");
+            const auto categoryText = req->getParameter("category_id");
+            uint32_t categoryId = 0;
+            if (!services::HomeStoreService::parseCategoryId(categoryText,
+                                                             categoryId)) {
+                services::HomeStoreResult invalid;
+                invalid.code = services::HomeStoreCode::InvalidInput;
+                invalid.message = "category_id must be an unsigned integer.";
+                callback(homeStoreResponse(invalid, false));
+                return;
+            }
+            services::HomeStoreService::getItems(
+                drogon::app().getDbClient("default"), session.user_id, type,
+                categoryId,
+                [callback](services::HomeStoreResult result) {
+                    callback(homeStoreResponse(result, false));
                 });
         },
         [callback](const drogon::HttpResponsePtr& denied) { callback(denied); });
