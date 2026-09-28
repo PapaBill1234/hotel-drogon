@@ -1,6 +1,7 @@
 #include "controllers/PresentationValidationController.h"
 
 #include "filters/AuthPolicy.h"
+#include "services/PresentationDraftPolicy.h"
 #include "services/PresentationValidationService.h"
 #include <json/json.h>
 
@@ -43,7 +44,10 @@ void PresentationValidationController::validate(
 
             const auto kind = (*json)["kind"].asString();
             services::PresentationValidationResult result;
-            if (kind == "navigation") {
+            const auto sizeResult = services::PresentationDraftPolicy::validatePayloadSize((*json)["document"]);
+            if (!sizeResult.ok) {
+                result = sizeResult;
+            } else if (kind == "navigation") {
                 result = services::PresentationValidationService::validateNavigation((*json)["document"]);
             } else if (kind == "page") {
                 result = services::PresentationValidationService::validatePage((*json)["document"]);
