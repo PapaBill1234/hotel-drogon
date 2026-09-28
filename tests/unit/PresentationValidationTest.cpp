@@ -5,11 +5,13 @@
 
 #include "services/PresentationDraftContract.h"
 #include "services/PresentationDraftOutcome.h"
+#include "services/PresentationDraftPolicy.h"
 #include "services/PresentationValidationService.h"
 
 using hotel::services::PresentationDraftContract;
 using hotel::services::PresentationDraftError;
 using hotel::services::PresentationDraftOutcome;
+using hotel::services::PresentationDraftPolicy;
 using hotel::services::PresentationValidationCode;
 using hotel::services::PresentationValidationService;
 
@@ -96,6 +98,18 @@ TEST_CASE("Presentation validation rejects unknown properties and blocks", "[pre
     result = PresentationValidationService::validatePage(document);
     REQUIRE_FALSE(result.ok);
     REQUIRE(result.code == PresentationValidationCode::invalid_block);
+}
+
+TEST_CASE("Draft policy bounds payloads and audit details", "[presentation][draft]") {
+    REQUIRE(PresentationDraftPolicy::validatePayloadSize(validNavigation()).ok);
+    REQUIRE(PresentationDraftPolicy::validAuditDetail("draft navigation revision 4"));
+    REQUIRE_FALSE(PresentationDraftPolicy::validAuditDetail("contains\nnewline"));
+
+    Json::Value oversized(Json::objectValue);
+    oversized["text"] = std::string(PresentationDraftPolicy::kMaxPayloadBytes, 'x');
+    const auto result = PresentationDraftPolicy::validatePayloadSize(oversized);
+    REQUIRE_FALSE(result.ok);
+    REQUIRE(result.field == "payload");
 }
 
 TEST_CASE("Draft outcomes map failures without implying persistence", "[presentation][draft]") {
