@@ -95,7 +95,7 @@ TEST_CASE("Presentation validation rejects unknown properties and blocks", "[pre
 
 TEST_CASE("Presentation validation accepts each typed block and safe HTTPS target", "[presentation]") {
     auto document = validPage();
-    const std::vector<Json::Value> blocks = {
+    std::vector<Json::Value> blocks = {
         Json::Value(Json::objectValue), Json::Value(Json::objectValue),
         Json::Value(Json::objectValue), Json::Value(Json::objectValue),
         Json::Value(Json::objectValue), Json::Value(Json::objectValue),

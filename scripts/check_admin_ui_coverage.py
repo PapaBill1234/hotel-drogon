@@ -73,6 +73,10 @@ ALLOWED_UNWIRED = {
         "Phase 9 (housekeeping replacement) surface. No bans UI is built yet, so no "
         "bans coverage is claimed."
     ),
+    "/api/admin/presentation/validate": (
+        "Read-only v4 editor contract validation seam; exercised by future editor "
+        "tests rather than the current content panel."
+    ),
 }
 
 MUTATING = {"Post", "Put", "Patch", "Delete"}

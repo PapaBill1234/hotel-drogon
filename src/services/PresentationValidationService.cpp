@@ -177,7 +177,7 @@ PresentationValidationResult validateBlock(const Json::Value& block, const std::
     } else if (type == "collectables") {
         if (!hasOnly(block, {"type"})) return fail(PresentationValidationCode::invalid_block, field, "invalid collectables block");
     } else {
-        return fail(PresentationValidationCode.unknown_block, field + ".type", "unknown block type");
+        return fail(PresentationValidationCode::unknown_block, field + ".type", "unknown block type");
     }
     return PresentationValidationResult::success();
 }
