@@ -5,6 +5,7 @@
 #include <initializer_list>
 #include <string_view>
 #include <unordered_set>
+#include <utility>
 
 namespace hotel::services {
 namespace {
@@ -74,10 +75,10 @@ bool validVisibility(const Json::Value& value) {
 }
 
 bool validPathSegment(std::string_view segment) {
-    return !segment.empty() && segment.size() <= 128 &&
-           std::all_of(segment.begin(), segment.end(), [](unsigned char c) {
-               return std::isalnum(c) || c == '-' || c == '_' || c == '.';
-           });
+    if (segment.empty() || segment == "." || segment == ".." || segment.size() > 128) return false;
+    return std::all_of(segment.begin(), segment.end(), [](unsigned char c) {
+        return std::isalnum(c) || c == '-' || c == '_' || c == '.';
+    });
 }
 
 bool validExternalUrl(const std::string& url) {
@@ -90,23 +91,37 @@ bool validExternalUrl(const std::string& url) {
     const auto query = rest.find('?');
     const auto end = std::min(slash == std::string_view::npos ? rest.size() : slash,
                               query == std::string_view::npos ? rest.size() : query);
-    const auto host = rest.substr(0, end);
+    const auto authority = rest.substr(0, end);
+    if (authority.empty()) return false;
+    const auto colon = authority.find(':');
+    const auto host = authority.substr(0, colon);
     if (host.empty() || host.size() > 253 || host.front() == '.' || host.back() == '.') return false;
+    if (colon != std::string_view::npos) {
+        const auto port = authority.substr(colon + 1);
+        if (port.empty() || port.size() > 5 ||
+            !std::all_of(port.begin(), port.end(), [](unsigned char c) { return std::isdigit(c); })) return false;
+        unsigned long value = 0;
+        for (const unsigned char c : port) value = value * 10 + (c - '0');
+        if (value == 0 || value > 65535) return false;
+    }
     bool hasDot = false;
     bool labelStart = true;
+    std::size_t labelLength = 0;
     for (const unsigned char c : host) {
         if (c == '.') {
-            if (labelStart) return false;
+            if (labelStart || labelLength > 63) return false;
             hasDot = true;
             labelStart = true;
+            labelLength = 0;
         } else if (std::isalnum(c) || c == '-') {
             if (labelStart && c == '-') return false;
             labelStart = false;
+            ++labelLength;
         } else {
             return false;
         }
     }
-    return !labelStart && hasDot;
+    return !labelStart && labelLength <= 63 && hasDot;
 }
 
 PresentationValidationResult validateTarget(const Json::Value& target, const std::string& field) {
@@ -189,10 +204,9 @@ bool PresentationValidationService::isSafeKey(const std::string& key) {
 bool PresentationValidationService::isKnownPublicRoute(const std::string& path) {
     static const std::unordered_set<std::string> routes = {
         "/", "/community", "/articles", "/help", "/credits/collectables", "/maintenance",
-        "/credits", "/credits/history", "/client", "/forgot", "/account", "/logout",
-        "/account/logout", "/me", "/account/profile", "/account/password/forgot",
+        "/credits", "/credits/history", "/client", "/forgot", "/account", "/account/logout", "/me", "/account/profile", "/account/password/forgot",
         "/account/password/reset", "/account/reauthenticate", "/papers/disclaimer",
-        "/papers/privacy", "/tag", "/register", "/credits/club", "/credits/pixels",
+        "/papers/privacy", "/tag", "/tag/search", "/register", "/credits/club", "/credits/pixels",
         "/habblet/proxy.php"
     };
     if (routes.count(path) != 0) return true;

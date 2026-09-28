@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <json/value.h>
+#include <string>
+#include <vector>
 
 #include "services/PresentationValidationService.h"
 
@@ -42,6 +44,9 @@ TEST_CASE("Presentation validation accepts valid navigation and page documents",
     REQUIRE(PresentationValidationService::validatePage(validPage()).ok);
     REQUIRE(PresentationValidationService::isKnownPublicRoute("/articles/12-safe-title"));
     REQUIRE(PresentationValidationService::isKnownPublicRoute("/home/42/edit"));
+    REQUIRE(PresentationValidationService::isKnownPublicRoute("/tag/search"));
+    REQUIRE_FALSE(PresentationValidationService::isKnownPublicRoute("/articles/.."));
+    REQUIRE_FALSE(PresentationValidationService::isKnownPublicRoute("/logout"));
     REQUIRE(PresentationValidationService::isSafeKey("community.title"));
 }
 
@@ -88,10 +93,53 @@ TEST_CASE("Presentation validation rejects unknown properties and blocks", "[pre
     REQUIRE(result.code == PresentationValidationCode::invalid_block);
 }
 
-TEST_CASE("Presentation validation fails closed on invalid scalar ranges", "[presentation]") {
+TEST_CASE("Presentation validation accepts each typed block and safe HTTPS target", "[presentation]") {
     auto document = validPage();
-    document["revision"] = -1;
+    const std::vector<Json::Value> blocks = {
+        Json::Value(Json::objectValue), Json::Value(Json::objectValue),
+        Json::Value(Json::objectValue), Json::Value(Json::objectValue),
+        Json::Value(Json::objectValue), Json::Value(Json::objectValue),
+        Json::Value(Json::objectValue)};
+    blocks[0]["type"] = "heading"; blocks[0]["textKey"] = "x"; blocks[0]["level"] = 3;
+    blocks[1]["type"] = "paragraph"; blocks[1]["textKey"] = "x";
+    blocks[2]["type"] = "newsList"; blocks[2]["limit"] = 5; blocks[2]["source"] = "articles";
+    blocks[3]["type"] = "bannerSlot"; blocks[3]["bannerId"] = 1;
+    blocks[4]["type"] = "campaignSlot"; blocks[4]["campaignId"] = 1;
+    blocks[5]["type"] = "faqList"; blocks[5]["category"] = "general";
+    blocks[6]["type"] = "collectables";
+    document["slots"] = Json::Value(Json::arrayValue);
+    for (Json::ArrayIndex i = 0; i < blocks.size(); ++i) {
+        Json::Value slot(Json::objectValue);
+        slot["key"] = "slot-" + std::to_string(i);
+        slot["visibility"] = "everyone";
+        slot["order"] = static_cast<int>(i);
+        slot["block"] = blocks[i];
+        document["slots"].append(slot);
+    }
+    REQUIRE(PresentationValidationService::validatePage(document).ok);
+
+    auto navigation = validNavigation();
+    navigation["items"][0]["target"]["kind"] = "external";
+    navigation["items"][0]["target"].removeMember("path");
+    navigation["items"][0]["target"]["url"] = "https://example.com/landing?source=cms";
+    REQUIRE(PresentationValidationService::validateNavigation(navigation).ok);
+
+    navigation["items"][0]["target"]["url"] = "https://example.com:443/landing";
+    REQUIRE(PresentationValidationService::validateNavigation(navigation).ok);
+    navigation["items"][0]["target"]["url"] = "https://example.com:bad/landing";
+    REQUIRE_FALSE(PresentationValidationService::validateNavigation(navigation).ok);
+}
+
+TEST_CASE("Presentation validation rejects markup and invalid scalar ranges", "[presentation]") {
+    auto document = validPage();
+    document["slots"][0]["block"]["textKey"] = "<script>bad</script>";
     auto result = PresentationValidationService::validatePage(document);
+    REQUIRE_FALSE(result.ok);
+    REQUIRE(result.code == PresentationValidationCode::invalid_block);
+
+    document = validPage();
+    document["revision"] = -1;
+    result = PresentationValidationService::validatePage(document);
     REQUIRE_FALSE(result.ok);
     REQUIRE(result.code == PresentationValidationCode::invalid_document);
 
