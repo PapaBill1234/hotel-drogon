@@ -148,6 +148,8 @@ become a generic table write.
   `PresentationValidationService` defines a database-free, fail-closed boundary
   for navigation and page documents: known public routes, HTTPS-only external
   targets, safe keys, role visibility, bounded ordering and the closed typed
-  block registry. It performs no draft, publish, rollback, audit or schema
-  mutation. The unit 2 exit is not met; those persistence and browser gates
-  remain ahead.
+  block registry. `POST /api/admin/presentation/validate` is a staff-gated,
+  CSRF-protected, read-only seam that returns structured validation errors and
+  never writes content or audit state. It performs no draft, publish, rollback,
+  audit or schema mutation. The unit 2 exit is not met; those persistence and
+  browser gates remain ahead.
