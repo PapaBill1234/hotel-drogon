@@ -206,3 +206,5 @@ hotel-drogon/
     ├── integration/     # Service layer and API integration tests
     └── e2e/             # Playwright browser end-to-end flows
 ```
+
+<!-- Gate 3 out-of-scope probe; disposable branch only. -->
