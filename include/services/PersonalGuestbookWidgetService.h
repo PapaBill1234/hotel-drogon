@@ -10,6 +10,10 @@ struct PersonalGuestbookWidgetResult { PersonalGuestbookWidgetCode code = Person
 class PersonalGuestbookWidgetService {
 public:
     static bool isPersonalOwner(uint32_t actorId, uint32_t ownerId, uint32_t guildId);
-    static void findOwnedWidget(const drogon::orm::DbClientPtr& db, uint32_t actorId, uint32_t widgetId, std::function<void(PersonalGuestbookWidgetResult)> callback);
+    static void findOwnedWidget(const drogon::orm::DbClientPtr& db,
+                                uint32_t ownerId,
+                                uint32_t actorId,
+                                uint32_t widgetId,
+                                std::function<void(PersonalGuestbookWidgetResult)> callback);
 };
 }  // namespace hotel::services

@@ -23,10 +23,14 @@ PersonalGuestbookWidgetResult wait(std::future<PersonalGuestbookWidgetResult>& f
     REQUIRE(future.wait_for(std::chrono::seconds(15)) == std::future_status::ready);
     return future.get();
 }
-PersonalGuestbookWidgetResult find(const drogon::orm::DbClientPtr& db, uint32_t actor, uint32_t widget) {
+PersonalGuestbookWidgetResult find(const drogon::orm::DbClientPtr& db,
+                                    uint32_t owner,
+                                    uint32_t actor,
+                                    uint32_t widget) {
     auto promise = std::make_shared<std::promise<PersonalGuestbookWidgetResult>>();
     auto future = promise->get_future();
-    PersonalGuestbookWidgetService::findOwnedWidget(db, actor, widget, [promise](auto result) { promise->set_value(std::move(result)); });
+    PersonalGuestbookWidgetService::findOwnedWidget(
+        db, owner, actor, widget, [promise](auto result) { promise->set_value(std::move(result)); });
     return wait(future);
 }
 }
@@ -55,14 +59,17 @@ TEST_CASE("personal guestbook widget read boundary excludes groups and foreign o
                     kPersonalWidget, kOwner, 0, "guestbookwidget", 1, "private",
                     kGroupWidget, kOwner, 44, "guestbookwidget", 1, "private",
                     kForeignWidget, kOther, 0, "guestbookwidget", 1, "public");
-    const auto found = find(db, kOwner, kPersonalWidget);
+    const auto found = find(db, kOwner, kOther, kPersonalWidget);
     REQUIRE(found.code == PersonalGuestbookWidgetCode::Found);
     CHECK(found.widget.user_id == kOwner);
     CHECK(found.widget.guild_id == 0);
     CHECK(found.widget.privacy == "private");
-    CHECK(find(db, kOwner, kGroupWidget).code == PersonalGuestbookWidgetCode::NotFound);
-    CHECK(find(db, kOwner, kForeignWidget).code == PersonalGuestbookWidgetCode::NotFound);
-    CHECK(find(db, 0, kPersonalWidget).code == PersonalGuestbookWidgetCode::InvalidInput);
+    CHECK(find(db, kOwner, kOther, kGroupWidget).code == PersonalGuestbookWidgetCode::NotFound);
+    CHECK(find(db, kOwner, kOther, kForeignWidget).code == PersonalGuestbookWidgetCode::NotFound);
+    CHECK(find(db, 0, kOther, kPersonalWidget).code == PersonalGuestbookWidgetCode::InvalidInput);
+    CHECK(find(db, kOwner, 0, kPersonalWidget).code == PersonalGuestbookWidgetCode::InvalidInput);
+    CHECK(find(db, 932101, kOther, kPersonalWidget).code == PersonalGuestbookWidgetCode::NotFound);
+    CHECK(find(db, kOwner, kOther, 932102).code == PersonalGuestbookWidgetCode::NotFound);
     db->execSqlSync("DELETE FROM phpretro_myhabbo_layouts WHERE id IN (?,?,?)", kPersonalWidget, kGroupWidget, kForeignWidget);
     const auto remaining = db->execSqlSync("SELECT COUNT(*) AS total FROM phpretro_myhabbo_layouts WHERE id IN (?,?,?)", kPersonalWidget, kGroupWidget, kForeignWidget);
     CHECK(remaining[0]["total"].as<uint64_t>() == 0);
