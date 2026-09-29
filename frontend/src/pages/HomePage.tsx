@@ -142,7 +142,7 @@ function RatingBody({ widgetId, summary, vote }: { widgetId: number; summary?: H
   if (!summary) return <p data-testid="rating-loading">Loading rating…</p>;
   const canVote = !summary.owner && !summary.mine;
   return (
-    <div id="rating-main" data-testid="home-rating">
+    <div id="rating-main" data-testid="home-rating" aria-live="polite" aria-busy={vote.isPending}>
       <div className="rating-average">
         <b>{canVote ? 'Click on the stars to cast your vote!' : `Average rating: ${summary.average}`}</b>
         <div className="rating-stars">
