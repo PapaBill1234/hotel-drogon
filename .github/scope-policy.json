@@ -12,6 +12,26 @@
     "codex/gate3-probe-delete": {
       "base_sha": "c7d5aaa6678abc8f481e7edb544cfa4fa9e1308f",
       "allowed_paths": ["docs/phase1-parity-inventory.md"]
+    },
+    "codex/sol-ci-split": {
+      "base_sha": "c7d5aaa6678abc8f481e7edb544cfa4fa9e1308f",
+      "allowed_paths": [".github/workflows/ci.yml", "docs/phase1-parity-inventory.md", "docs/ai-run-state.md", "scripts/test_unit_scope.py", "tools/ci-repro/"]
+    },
+    "codex/sol-seeded-admin": {
+      "base_sha": "c7d5aaa6678abc8f481e7edb544cfa4fa9e1308f",
+      "allowed_paths": ["src/main.cpp", "docs/phase1-parity-inventory.md", "docs/ai-run-state.md", "scripts/", "tests/"]
+    },
+    "codex/sol-audit-atomic": {
+      "base_sha": "c7d5aaa6678abc8f481e7edb544cfa4fa9e1308f",
+      "allowed_paths": ["src/services/", "include/services/", "src/controllers/", "include/controllers/", "tests/", "scripts/", "docs/phase1-parity-inventory.md", "docs/ai-run-state.md"]
+    },
+    "codex/sol-guestbook-privacy": {
+      "base_sha": "c7d5aaa6678abc8f481e7edb544cfa4fa9e1308f",
+      "allowed_paths": ["src/services/HomeGuestbookService.cpp", "src/controllers/HomesController.cpp", "include/services/HomeGuestbookService.h", "include/controllers/HomesController.h", "tests/", "scripts/", "docs/phase1-parity-inventory.md", "docs/ai-run-state.md"]
+    },
+    "codex/sol-staff-totp": {
+      "base_sha": "c7d5aaa6678abc8f481e7edb544cfa4fa9e1308f",
+      "allowed_paths": ["src/controllers/AuthController.cpp", "include/controllers/AuthController.h", "src/services/", "include/services/", "src/utils/Crypto.cpp", "include/utils/Crypto.h", "tests/", "scripts/", "docs/phase1-parity-inventory.md", "docs/ai-run-state.md"]
     }
   }
 }

@@ -59,6 +59,9 @@ def main() -> int:
         or ".." in path.split("/") or "\\" in path for path in paths
     ):
         raise ValueError("policy allowed_paths must contain safe repository paths")
+    if any(path == protected or (protected.endswith("/") and path.startswith(protected))
+           for path in paths for protected in PROTECTED):
+        raise ValueError("policy cannot grant coordinator-owned guard/policy paths")
 
     tip = git("rev-parse", f"refs/remotes/origin/{args.branch}").decode().strip()
     if tip != args.sha:
@@ -78,7 +81,8 @@ def main() -> int:
         path = entries[index + 1].decode("utf-8", errors="surrogateescape")
         if status not in ("A", "M"):
             failures.append(f"{status} {path}: deletion or unsupported change")
-        elif any(path == item or path.startswith(item) for item in PROTECTED):
+        elif any(path == item or (item.endswith("/") and path.startswith(item))
+                 for item in PROTECTED):
             failures.append(f"{status} {path}: coordinator-owned guard/policy path")
         elif not allowed_path(path, paths):
             failures.append(f"{status} {path}: outside allowed scope")
