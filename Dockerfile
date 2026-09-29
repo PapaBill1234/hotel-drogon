@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git=1:2.43.0-1ubuntu7.3 \
     ninja-build=1.11.1-2 \
     pkg-config=1.8.1-2build1 \
-    libssl-dev=3.0.13-0ubuntu3.15 \
+    libssl-dev=3.0.13-0ubuntu3.16 \
     zlib1g-dev=1:1.3.dfsg-3.1ubuntu2.2 \
     libbrotli-dev=1.1.0-2build2 \
     libc-ares-dev=1.27.0-1.0ubuntu1 \
