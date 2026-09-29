@@ -87,6 +87,40 @@ export interface HomeGuestbookEntry {
   online: string;
 }
 
+/** One signed-in, read-only Homes Store category. */
+export interface HomeStoreCategory {
+  category_id: number;
+  category: string;
+}
+
+/** Catalogue metadata exposed by the signed-in Homes Store browse API. */
+export interface HomeStoreItem {
+  id: number;
+  name: string;
+  description: string;
+  type: 'sticker' | 'background' | 'note';
+  /** Opaque catalogue data key; media is intentionally not fetched. */
+  data_key?: string;
+  price: number;
+  amount: number;
+  category: string;
+  category_id: number;
+  min_rank: number;
+  placement: 'homes' | 'anywhere';
+}
+
+export type HomeStoreType = HomeStoreItem['type'];
+
+export interface HomeStoreCategoriesResponse {
+  status: 'ok';
+  categories: HomeStoreCategory[];
+}
+
+export interface HomeStoreItemsResponse {
+  status: 'ok';
+  items: HomeStoreItem[];
+}
+
 /**
  * What one widget box renders inside itself.
  *
