@@ -13,6 +13,7 @@
 
 import { ApiRequestError, requestJson } from './api';
 import type {
+  HomeGuestbookEntry,
   HomeLayout,
   HomePlacement,
   HomeWidget,
@@ -28,6 +29,19 @@ export function fetchHomeLayout(userId: number, signal?: AbortSignal): Promise<H
   return requestJson<HomeLayout>({
     method: 'GET',
     path: `${HOMES_BASE}/${userId}/layout`,
+    csrf: false,
+    signal,
+  });
+}
+
+/** `GET /api/homes/{id}/guestbook` — public, read-only personal entries. */
+export function fetchHomeGuestbook(
+  userId: number,
+  signal?: AbortSignal,
+): Promise<HomeGuestbookEntry[]> {
+  return requestJson<HomeGuestbookEntry[]>({
+    method: 'GET',
+    path: `${HOMES_BASE}/${userId}/guestbook`,
     csrf: false,
     signal,
   });

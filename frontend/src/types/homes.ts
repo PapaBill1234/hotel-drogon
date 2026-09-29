@@ -74,6 +74,19 @@ export interface HomeOwner {
   settings_available: boolean;
 }
 
+/** One public, read-only personal Homes guestbook entry. */
+export interface HomeGuestbookEntry {
+  id: number;
+  profile_user_id: number;
+  author_user_id: number;
+  message: string;
+  created_at: number;
+  username: string;
+  look: string;
+  /** PolarIS enum('0','1','2'), intentionally retained as a string. */
+  online: string;
+}
+
 /**
  * What one widget box renders inside itself.
  *

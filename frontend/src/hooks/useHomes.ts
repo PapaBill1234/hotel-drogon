@@ -20,6 +20,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   addHomeWidget,
   closeHomeEditSession,
+  fetchHomeGuestbook,
   fetchHomeLayout,
   openHomeEditSession,
   removeHomeWidget,
@@ -32,7 +33,19 @@ import { geometryForSlot } from '../services/apiHomes';
 
 export const homeKeys = {
   layout: (userId: number) => ['home', userId] as const,
+  guestbook: (userId: number) => ['home-guestbook', userId] as const,
 };
+
+/** `GET /api/homes/{id}/guestbook` — public, read-only personal entries. */
+export function useHomeGuestbook(userId: number, enabled = true) {
+  return useQuery({
+    queryKey: homeKeys.guestbook(userId),
+    queryFn: ({ signal }) => fetchHomeGuestbook(userId, signal),
+    enabled: enabled && Number.isFinite(userId) && userId > 0,
+    retry: false,
+    staleTime: 0,
+  });
+}
 
 /** `GET /api/homes/{id}/layout` — the page, its version and its lock. */
 export function useHomeLayout(userId: number, enabled = true) {

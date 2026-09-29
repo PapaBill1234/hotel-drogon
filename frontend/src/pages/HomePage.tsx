@@ -43,6 +43,7 @@ import {
   placementsForMove,
   useAddHomeWidget,
   useCloseHomeEditSession,
+  useHomeGuestbook,
   useHomeLayout,
   useOpenHomeEditSession,
   useRemoveHomeWidget,
@@ -50,7 +51,7 @@ import {
 } from '../hooks/useHomes';
 import { placementForPixels } from '../services/apiHomes';
 import { ApiRequestError } from '../services/api';
-import type { HomeLayout, HomeOwner, HomeWidget, UserWidgetKey } from '../types/homes';
+import type { HomeGuestbookEntry, HomeLayout, HomeOwner, HomeWidget, UserWidgetKey } from '../types/homes';
 import {
   REQUIRED_WIDGET_KEY,
   USER_WIDGET_KEYS,
@@ -93,10 +94,10 @@ interface WidgetDrag {
  * the external Habbo imaging service the legacy site used, exactly as on `/me`:
  * it is a plain URL rather than a data dependency, and the image is decorative.
  */
-function avatarUrl(look: string): string {
+function avatarUrl(look: string, size: 'b' | 's' = 'b'): string {
   return (
     'https://www.habbo.com/habbo-imaging/avatarimage' +
-    `?figure=${encodeURIComponent(look)}&size=b&direction=4&head_direction=4&crr=0&gesture=&frame=1`
+    `?figure=${encodeURIComponent(look)}&size=${size}&direction=4&head_direction=4&crr=0&gesture=&frame=1`
   );
 }
 
@@ -114,6 +115,16 @@ function legacyDate(epochSeconds: number): string {
   const day = String(date.getUTCDate()).padStart(2, '0');
   const month = String(date.getUTCMonth() + 1).padStart(2, '0');
   return `${day}-${month}-${date.getUTCFullYear()}`;
+}
+
+/** Legacy guestbook `date('M j, Y g:i:s A')`, using the documented UTC server timezone. */
+function legacyGuestbookDate(epochSeconds: number): string {
+  if (!epochSeconds) return '';
+  const date = new Date(epochSeconds * 1000);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const hour = date.getUTCHours();
+  const hour12 = hour % 12 || 12;
+  return `${months[date.getUTCMonth()]} ${date.getUTCDate()}, ${date.getUTCFullYear()} ${hour12}:${String(date.getUTCMinutes()).padStart(2, '0')}:${String(date.getUTCSeconds()).padStart(2, '0')} ${hour < 12 ? 'AM' : 'PM'}`;
 }
 
 /** A box whose data could not be read — the reason, not an empty list. */
@@ -146,10 +157,12 @@ function WidgetBody({
   widget,
   owner,
   settings,
+  guestbook,
 }: {
   widget: HomeWidget;
   owner: HomeOwner;
   settings: Record<string, string>;
+  guestbook?: { entries: HomeGuestbookEntry[]; loading: boolean; error?: string };
 }) {
   const data = widget.data;
   const shortname = settings['site_shortname'] ?? '';
@@ -286,14 +299,40 @@ function WidgetBody({
     );
   }
 
-  // guestbookwidget and ratingwidget: real slices of this phase, each with its
-  // own privacy, rate-limit and audit rules. The box says which, rather than
-  // rendering an empty frame that would look like a widget that failed to load.
+  if (widget.widget_key === 'guestbookwidget') {
+    if (!guestbook || guestbook.loading) return <p data-testid="guestbook-loading">Loading guestbook…</p>;
+    if (guestbook.error) return <Unavailable reason={guestbook.error} />;
+    if (guestbook.entries.length === 0) return <p data-testid="guestbook-empty">This guestbook has no entries.</p>;
+    return (
+      <ul className="guestbook-entries" data-testid="guestbook-entries">
+        {guestbook.entries.map((entry) => {
+          const online = entry.online === '1';
+          return (
+            <li className="guestbook-entry" id={`guestbook-entry-${entry.id}`} key={entry.id}>
+              <div className="guestbook-author">
+                <img alt={entry.username} src={avatarUrl(entry.look, 's')} />
+              </div>
+              <div className="guestbook-message">
+                <div className={online ? 'online' : 'offline'}>
+                  <a href={`/home/${entry.author_user_id}`}>{entry.username}</a>
+                </div>
+                {/* Legacy applies BBCode here; this read-only slice deliberately preserves raw text. */}
+                <p>{entry.message}</p>
+              </div>
+              <div className="guestbook-cleaner">&nbsp;</div>
+              <div className="guestbook-entry-footer metadata">
+                {legacyGuestbookDate(entry.created_at)}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
+
   return (
     <p className="home-widget-pending" data-testid="widget-content-pending">
-      This widget&rsquo;s contents are not converted yet: the legacy body was rendered
-      by <code>includes/habblet-templates/home-widget.php</code>, which is the next
-      slice of this phase. The box itself is real, and so is its position.
+      This widget’s contents are not converted yet.
     </p>
   );
 }
@@ -310,6 +349,7 @@ function WidgetBox({
   widget,
   owner,
   settings,
+  guestbook,
   editing,
   drag,
   onDragStart,
@@ -320,6 +360,7 @@ function WidgetBox({
   widget: HomeWidget;
   owner: HomeOwner;
   settings: Record<string, string>;
+  guestbook?: { entries: HomeGuestbookEntry[]; loading: boolean; error?: string };
   editing: boolean;
   drag: WidgetDrag | null;
   onDragStart: (event: React.PointerEvent<HTMLElement>, widget: HomeWidget) => void;
@@ -382,7 +423,7 @@ function WidgetBox({
         </div>
         <div className="widget-body">
           <div className="widget-content">
-            <WidgetBody widget={widget} owner={owner} settings={settings} />
+            <WidgetBody widget={widget} owner={owner} settings={settings} guestbook={guestbook} />
             {removable ? (
               <button
                 type="button"
@@ -473,6 +514,7 @@ export default function HomePage({ mode }: { mode: 'view' | 'edit' }) {
   const me = useMe();
   const layoutQuery = useHomeLayout(userId);
   const layout = layoutQuery.data;
+  const guestbookQuery = useHomeGuestbook(userId, Boolean(layout));
   // `SHORTNAME` and the badge sprite paths come from the same settings the
   // legacy templates read through `$settings->find()` — one page, one source.
   const settings = usePageSettings();
@@ -794,6 +836,7 @@ export default function HomePage({ mode }: { mode: 'view' | 'edit' }) {
                             widgets={widgetList}
                             owner={layout.home.owner}
                             settings={settings}
+                            guestbook={{ entries: guestbookQuery.data ?? [], loading: guestbookQuery.isLoading, error: guestbookQuery.error instanceof ApiRequestError ? guestbookQuery.error.message : guestbookQuery.error ? 'The guestbook could not be loaded.' : undefined }}
                             editing
                             drag={drag}
                             onDragStart={handleDragStart}
@@ -816,6 +859,7 @@ export default function HomePage({ mode }: { mode: 'view' | 'edit' }) {
                           widgets={widgetList}
                           owner={layout.home.owner}
                           settings={settings}
+                          guestbook={{ entries: guestbookQuery.data ?? [], loading: guestbookQuery.isLoading, error: guestbookQuery.error instanceof ApiRequestError ? guestbookQuery.error.message : guestbookQuery.error ? 'The guestbook could not be loaded.' : undefined }}
                           editing={false}
                           drag={null}
                           onDragStart={handleDragStart}
@@ -874,6 +918,7 @@ function Playground({
   widgets,
   owner,
   settings,
+  guestbook,
   editing,
   drag,
   onDragStart,
@@ -884,6 +929,7 @@ function Playground({
   widgets: HomeWidget[];
   owner: HomeOwner;
   settings: Record<string, string>;
+  guestbook?: { entries: HomeGuestbookEntry[]; loading: boolean; error?: string };
   editing: boolean;
   drag: WidgetDrag | null;
   onDragStart: (event: React.PointerEvent<HTMLElement>, widget: HomeWidget) => void;
@@ -899,6 +945,7 @@ function Playground({
           widget={widget}
           owner={owner}
           settings={settings}
+          guestbook={guestbook}
           editing={editing}
           drag={drag}
           onDragStart={onDragStart}

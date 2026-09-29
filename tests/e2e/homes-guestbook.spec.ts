@@ -80,6 +80,13 @@ if (process.env.PLAYWRIGHT_HOMES_GUESTBOOK !== '1') {
         look: expect.any(String),
         online: '0',
       });
+
+      // The personal Home renderer consumes the same read-only route and keeps
+      // the raw message as text rather than rendering BBCode/HTML.
+      await page.goto(`${BASE_NEW}/home/${SEEDED_PROFILE_ID}`);
+      await expect(page.getByTestId('home-widget-guestbook')).toBeVisible();
+      await expect(page.getByTestId('guestbook-entries')).toContainText(EXPECTED_MESSAGE);
+      await expect(page.locator('[data-testid="guestbook-entries"] p').first()).toHaveText(EXPECTED_MESSAGE);
     }
   });
 }
