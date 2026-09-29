@@ -10,4 +10,5 @@ TEST_CASE("personal guestbook widget ownership excludes group and foreign widget
     REQUIRE_FALSE(PersonalGuestbookWidgetService::isPersonalOwner(2, 2, 9));
     REQUIRE_FALSE(PersonalGuestbookWidgetService::isPersonalOwner(2, 3, 0));
     REQUIRE_FALSE(PersonalGuestbookWidgetService::isPersonalOwner(0, 2, 0));
+    REQUIRE_FALSE(PersonalGuestbookWidgetService::isPersonalOwner(2, 0, 0));
 }

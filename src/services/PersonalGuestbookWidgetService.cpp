@@ -23,11 +23,12 @@ bool PersonalGuestbookWidgetService::isPersonalOwner(uint32_t actorId,
 
 void PersonalGuestbookWidgetService::findOwnedWidget(
     const drogon::orm::DbClientPtr& db,
+    uint32_t ownerId,
     uint32_t actorId,
     uint32_t widgetId,
     std::function<void(PersonalGuestbookWidgetResult)> callback) {
     if (!callback) return;
-    if (actorId == 0 || widgetId == 0) {
+    if (ownerId == 0 || actorId == 0 || widgetId == 0) {
         callback(failure(PersonalGuestbookWidgetCode::InvalidInput,
                          "A personal guestbook widget is required."));
         return;
@@ -48,7 +49,7 @@ void PersonalGuestbookWidgetService::findOwnedWidget(
         *db << "SELECT id, user_id, guild_id, privacy FROM phpretro_myhabbo_layouts "
                "WHERE id = ? AND user_id = ? AND guild_id = 0 "
                "AND widget_key = 'guestbookwidget' AND visible = 1 LIMIT 1"
-            << widgetId << actorId
+            << widgetId << ownerId
             >> [deliver](const drogon::orm::Result& rows) {
                    if (rows.empty()) {
                        deliver(failure(PersonalGuestbookWidgetCode::NotFound,

@@ -20,7 +20,10 @@ The read-only PHPRetro-PDO checkout is the behavioral source of truth:
   created_at)` and emits `homes.guestbook_added`.
 - `PhpretroHomes::widget()`/`requireOwner()` and the verified read boundary
   establish that a personal widget has `guild_id = 0`; group widgets are
-  identified by `guild_id` and are not accepted by this contract.
+  identified by `guild_id` and are not accepted by this contract. The route
+  owner (`userId`) is a separate value from the posting actor: the widget
+  lookup binds `user_id = userId`, never `user_id = actorId`, so a visitor may
+  post to another owner's personal Home when the privacy boundary allows it.
 - `PhpretroHomes::areFriends()` uses the directed prepared lookup
   `messenger_friendships(user_one_id = owner, user_two_id = actor)` and allows
   self-posts before querying.
@@ -81,10 +84,11 @@ implementation rather than guessed here.
    named method with fixed predicates: `widget_key = 'guestbookwidget'`,
    `user_id = owner`, `guild_id = 0`. Never resolve or write a group widget.
 4. Read widget privacy. For `public`, allow the authenticated actor. For
-   `private`, allow only owner/self or the named friendship boundary's symmetric
+   `private`, allow only owner/self or the named friendship boundary's directed
    owner→actor friendship result. A friendship-read failure is a refusal, not an
    allow. The actor remains `author_user_id`; the route owner remains
-   `profile_user_id`.
+   `profile_user_id`; neither may be substituted for the other in the widget
+   predicate.
 5. In one website-DB transaction, insert only into
    `phpretro_myhabbo_guestbook`, create the named website audit event, and create
    the `homes.guestbook_added` outbox/sync event if that event mechanism is
