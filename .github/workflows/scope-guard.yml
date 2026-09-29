@@ -1,0 +1,79 @@
+name: Hotel Scope Guard
+
+on:
+  workflow_run:
+    workflows: ["CI Build & Verify"]
+    types: [completed]
+    branches: [codex/v4-luna-continuation]
+  workflow_dispatch:
+    inputs:
+      candidate_branch:
+        description: Existing candidate branch named in the protected scope policy
+        required: true
+        type: string
+      candidate_sha:
+        description: Exact candidate commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  scope:
+    name: Protected scope and deletion check
+    runs-on: ubuntu-24.04
+    env:
+      CANDIDATE_BRANCH: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.candidate_branch }}
+      CANDIDATE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.candidate_sha }}
+      HEAD_REPOSITORY: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_repository.full_name || github.repository }}
+    steps:
+      - name: Check out trusted policy and guard from default branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact candidate branch and scope
+        id: verify
+        continue-on-error: true
+        env:
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$HEAD_REPOSITORY" = "$EXPECTED_REPOSITORY"
+          git check-ref-format --branch "$CANDIDATE_BRANCH"
+          git fetch --no-tags origin "refs/heads/$CANDIDATE_BRANCH:refs/remotes/origin/$CANDIDATE_BRANCH"
+          python3 scripts/check_unit_scope.py \
+            --policy .github/scope-policy.json \
+            --branch "$CANDIDATE_BRANCH" --sha "$CANDIDATE_SHA"
+
+      - name: Publish exact-SHA commit status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          VERDICT: ${{ steps.verify.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$VERDICT" = success ]; then state=success; else state=failure; fi
+          python3 - "$state" <<'PY' > /tmp/scope-status.json
+          import json, os, sys
+          print(json.dumps({"state": sys.argv[1], "context": "hotel/scope",
+                            "description": "Protected unit scope and deletion guard",
+                            "target_url": os.environ["RUN_URL"]}))
+          PY
+          curl --fail-with-body --silent --show-error \
+            -X POST -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/scope-status.json \
+            "https://api.github.com/repos/$REPOSITORY/statuses/$CANDIDATE_SHA" \
+            > /dev/null
+
+      - name: Fail CI when scope check rejects the commit
+        if: steps.verify.outcome != 'success'
+        run: exit 1

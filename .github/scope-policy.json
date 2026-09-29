@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "units": {
+    "codex/gate3-probe-allowed": {
+      "base_sha": "c7d5aaa6678abc8f481e7edb544cfa4fa9e1308f",
+      "allowed_paths": ["docs/phase1-parity-inventory.md"]
+    },
+    "codex/gate3-probe-outside": {
+      "base_sha": "c7d5aaa6678abc8f481e7edb544cfa4fa9e1308f",
+      "allowed_paths": ["docs/phase1-parity-inventory.md"]
+    },
+    "codex/gate3-probe-delete": {
+      "base_sha": "c7d5aaa6678abc8f481e7edb544cfa4fa9e1308f",
+      "allowed_paths": ["docs/phase1-parity-inventory.md"]
+    }
+  }
+}
