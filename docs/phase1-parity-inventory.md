@@ -142,3 +142,5 @@ ALTER TABLE users ADD COLUMN last_online BIGINT DEFAULT 0 AFTER last_login;
 ```
 
 `users_settings` is also created now (columns `guild_id`, `hide_online`, `tags`, `club_expire_timestamp`, typed as CleanDB types them). A stack that predates it needs the `CREATE TABLE` from `HomesService::ensureSchema` run once; `last_online` was added directly to `src/main.cpp`'s `users` DDL and to both development stacks used for verification, which are disposable or local development data. Neither statement touches PolarIS-owned data on a real hotel database: the first adds a column PolarIS already defines, the second is skipped entirely where the table exists.
+
+<!-- Gate 3 allowed-scope probe; disposable branch only. -->
