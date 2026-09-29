@@ -16,6 +16,7 @@ import type {
   HomeGuestbookEntry,
   HomeLayout,
   HomePlacement,
+  HomeRatingSummary,
   HomeWidget,
   UserWidgetKey,
 } from '../types/homes';
@@ -44,6 +45,26 @@ export function fetchHomeGuestbook(
     path: `${HOMES_BASE}/${userId}/guestbook`,
     csrf: false,
     signal,
+  });
+}
+
+/** `GET /api/homes/{id}/rating` — public summary with optional viewer state. */
+export function fetchHomeRating(userId: number, signal?: AbortSignal): Promise<HomeRatingSummary> {
+  return requestJson<HomeRatingSummary>({
+    method: 'GET',
+    path: `${HOMES_BASE}/${userId}/rating`,
+    csrf: false,
+    signal,
+  });
+}
+
+/** `POST /api/homes/{id}/rating/{widgetId}` — submit one first vote. */
+export function rateHome(userId: number, widgetId: number, rating: number): Promise<HomeRatingSummary> {
+  return requestJson<HomeRatingSummary>({
+    method: 'POST',
+    path: `${HOMES_BASE}/${userId}/rating/${widgetId}`,
+    body: { rating },
+    csrf: true,
   });
 }
 

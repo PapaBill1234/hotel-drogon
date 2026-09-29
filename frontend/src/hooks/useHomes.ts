@@ -22,7 +22,9 @@ import {
   closeHomeEditSession,
   fetchHomeGuestbook,
   fetchHomeLayout,
+  fetchHomeRating,
   openHomeEditSession,
+  rateHome,
   removeHomeWidget,
   saveHomeLayout,
 } from '../services/apiHomes';
@@ -34,6 +36,7 @@ import { geometryForSlot } from '../services/apiHomes';
 export const homeKeys = {
   layout: (userId: number) => ['home', userId] as const,
   guestbook: (userId: number) => ['home-guestbook', userId] as const,
+  rating: (userId: number) => ['home-rating', userId] as const,
 };
 
 /** `GET /api/homes/{id}/guestbook` — public, read-only personal entries. */
@@ -44,6 +47,30 @@ export function useHomeGuestbook(userId: number, enabled = true) {
     enabled: enabled && Number.isFinite(userId) && userId > 0,
     retry: false,
     staleTime: 0,
+  });
+}
+
+/** `GET /api/homes/{id}/rating` — public summary and viewer personalization. */
+export function useHomeRating(userId: number) {
+  return useQuery({
+    queryKey: homeKeys.rating(userId),
+    queryFn: ({ signal }) => fetchHomeRating(userId, signal),
+    enabled: Number.isFinite(userId) && userId > 0,
+    retry: false,
+    staleTime: 0,
+  });
+}
+
+/** `POST /api/homes/{id}/rating/{widgetId}` — one first vote. */
+export function useRateHome(userId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ widgetId, rating }: { widgetId: number; rating: number }) =>
+      rateHome(userId, widgetId, rating),
+    retry: false,
+    onSuccess: (summary) => {
+      queryClient.setQueryData(homeKeys.rating(userId), summary);
+    },
   });
 }
 

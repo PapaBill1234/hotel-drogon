@@ -45,13 +45,15 @@ import {
   useCloseHomeEditSession,
   useHomeGuestbook,
   useHomeLayout,
+  useHomeRating,
   useOpenHomeEditSession,
+  useRateHome,
   useRemoveHomeWidget,
   useSaveHomeLayout,
 } from '../hooks/useHomes';
 import { placementForPixels } from '../services/apiHomes';
 import { ApiRequestError } from '../services/api';
-import type { HomeGuestbookEntry, HomeLayout, HomeOwner, HomeWidget, UserWidgetKey } from '../types/homes';
+import type { HomeGuestbookEntry, HomeLayout, HomeOwner, HomeRatingSummary, HomeWidget, UserWidgetKey } from '../types/homes';
 import {
   REQUIRED_WIDGET_KEY,
   USER_WIDGET_KEYS,
@@ -136,6 +138,33 @@ function Unavailable({ reason }: { reason: string }) {
   );
 }
 
+function RatingBody({ widgetId, summary, vote }: { widgetId: number; summary?: HomeRatingSummary; vote: ReturnType<typeof useRateHome> }) {
+  if (!summary) return <p data-testid="rating-loading">Loading rating…</p>;
+  const canVote = !summary.owner && !summary.mine;
+  return (
+    <div id="rating-main" data-testid="home-rating">
+      <div className="rating-average">
+        <b>{canVote ? 'Click on the stars to cast your vote!' : `Average rating: ${summary.average}`}</b>
+        <div className="rating-stars">
+          <ul className="rating-unit-rating" aria-label="Rate this home">
+            <li className="rating-current-rating" style={{ width: `${summary.px}px` }} />
+            {canVote ? [1, 2, 3, 4, 5].map((rating) => (
+              <li key={rating}>
+                <button type="button" className={`r${rating}-unit rater`} aria-label={`${rating} star${rating === 1 ? '' : 's'}`} disabled={vote.isPending} onClick={() => vote.mutate({ widgetId, rating })} data-testid={`home-rating-${rating}`}>{rating}</button>
+              </li>
+            )) : null}
+          </ul>
+        </div>
+        <span data-testid="home-rating-total">{summary.total} votes total</span><br />
+        ({summary.high} users voted 4 or better)
+        {summary.mine ? <p data-testid="home-rating-voted">You have already voted.</p> : null}
+        {summary.owner ? <p data-testid="home-rating-owner">You cannot vote for yourself.</p> : null}
+        {vote.isError ? <p role="alert" data-testid="home-rating-error">{vote.error instanceof ApiRequestError ? vote.error.message : 'The vote could not be saved.'}</p> : null}
+      </div>
+    </div>
+  );
+}
+
 /**
  * The contents of one widget box — `includes/habblet-templates/home-widget.php`.
  *
@@ -158,11 +187,15 @@ function WidgetBody({
   owner,
   settings,
   guestbook,
+  rating,
+  vote,
 }: {
   widget: HomeWidget;
   owner: HomeOwner;
   settings: Record<string, string>;
   guestbook?: { entries: HomeGuestbookEntry[]; loading: boolean; error?: string };
+  rating?: HomeRatingSummary;
+  vote: ReturnType<typeof useRateHome>;
 }) {
   const data = widget.data;
   const shortname = settings['site_shortname'] ?? '';
@@ -289,6 +322,10 @@ function WidgetBody({
     );
   }
 
+  if (widget.widget_key === 'ratingwidget') {
+    return <RatingBody widgetId={widget.id} summary={rating} vote={vote} />;
+  }
+
   if (widget.widget_key === 'friendswidget') {
     return (
       <p data-testid="widget-body-friends">
@@ -356,6 +393,8 @@ function WidgetBox({
   onDragMove,
   onDragEnd,
   onRemove,
+  rating,
+  vote,
 }: {
   widget: HomeWidget;
   owner: HomeOwner;
@@ -367,6 +406,8 @@ function WidgetBox({
   onDragMove: (event: React.PointerEvent<HTMLElement>) => void;
   onDragEnd: (event: React.PointerEvent<HTMLElement>) => void;
   onRemove: (widget: HomeWidget) => void;
+  rating?: HomeRatingSummary;
+  vote: ReturnType<typeof useRateHome>;
 }) {
   const active = drag?.id === widget.id;
 
@@ -423,7 +464,7 @@ function WidgetBox({
         </div>
         <div className="widget-body">
           <div className="widget-content">
-            <WidgetBody widget={widget} owner={owner} settings={settings} guestbook={guestbook} />
+            <WidgetBody widget={widget} owner={owner} settings={settings} guestbook={guestbook} rating={rating} vote={vote} />
             {removable ? (
               <button
                 type="button"
@@ -513,6 +554,8 @@ export default function HomePage({ mode }: { mode: 'view' | 'edit' }) {
   const navigate = useNavigate();
   const me = useMe();
   const layoutQuery = useHomeLayout(userId);
+  const ratingQuery = useHomeRating(userId);
+  const voteRating = useRateHome(userId);
   const layout = layoutQuery.data;
   const guestbookQuery = useHomeGuestbook(userId, Boolean(layout));
   // `SHORTNAME` and the badge sprite paths come from the same settings the
@@ -842,6 +885,8 @@ export default function HomePage({ mode }: { mode: 'view' | 'edit' }) {
                             onDragStart={handleDragStart}
                             onDragMove={handleDragMove}
                             onDragEnd={handleDragEnd}
+                            rating={ratingQuery.data}
+                            vote={voteRating}
                             onRemove={(widget) =>
                               removeWidget.mutate(widget.id, {
                                 onError: (error) =>
@@ -865,6 +910,8 @@ export default function HomePage({ mode }: { mode: 'view' | 'edit' }) {
                           onDragStart={handleDragStart}
                           onDragMove={handleDragMove}
                           onDragEnd={handleDragEnd}
+                           rating={ratingQuery.data}
+                           vote={voteRating}
                           onRemove={() => {}}
                         />
                       )}
@@ -925,6 +972,8 @@ function Playground({
   onDragMove,
   onDragEnd,
   onRemove,
+  rating,
+  vote,
 }: {
   widgets: HomeWidget[];
   owner: HomeOwner;
@@ -936,6 +985,8 @@ function Playground({
   onDragMove: (event: React.PointerEvent<HTMLElement>) => void;
   onDragEnd: (event: React.PointerEvent<HTMLElement>) => void;
   onRemove: (widget: HomeWidget) => void;
+  rating?: HomeRatingSummary;
+  vote: ReturnType<typeof useRateHome>;
 }) {
   return (
     <div id="playground" data-testid="home-playground">
@@ -952,6 +1003,8 @@ function Playground({
           onDragMove={onDragMove}
           onDragEnd={onDragEnd}
           onRemove={onRemove}
+          rating={rating}
+          vote={vote}
         />
       ))}
     </div>

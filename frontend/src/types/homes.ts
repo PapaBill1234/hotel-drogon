@@ -118,6 +118,16 @@ export interface HomeLock {
   token?: string;
 }
 
+export interface HomeRatingSummary {
+  status: 'ok';
+  total: number;
+  high: number;
+  average: number;
+  px: number;
+  mine: boolean;
+  owner: boolean;
+}
+
 export interface HomeSummary {
   user_id: number;
   username: string;
