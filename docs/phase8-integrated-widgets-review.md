@@ -4,7 +4,7 @@
 
 ## Recommendation
 
-Do not start another Homes product slice from this worktree. The smallest independently authorized follow-up is **read-only verification of the already integrated guestbook/rating widgets**, followed by maintainer-created PR/CI review. No backend, schema, layout, group, purchase, guestbook-mutation, or sanitizer-gated work is authorized by the current run state.
+**From this reviewed integrated-widgets slice**, do not start another Homes product change. The smallest independently authorized follow-up within this slice is **read-only verification of the already integrated guestbook/rating widgets**, followed by maintainer-created PR/CI review. This does not globally cancel other plan-authorized work: the Phase 8 read-only Store/catalogue or notes-evidence units, and the v4 unit 2 pure validation/evidence work, remain separately selectable when their own gates and source evidence are reviewed. The exclusions below apply to this integrated-widgets follow-up: no backend, schema, layout, group, purchase, guestbook-mutation, or sanitizer-gated work.
 
 The existing focused browser checks are the correct evidence units:
 
