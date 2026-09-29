@@ -274,6 +274,9 @@ jobs:
       - name: MyHabbo Homes layout API smoke (Phase 8 layout slice)
         env:
           HOMES_RESET: '1'
+          # Capture processlist and InnoDB transaction/lock state during the
+          # concurrent PUTs if they stall, before nginx's 60-second timeout.
+          HOMES_DIAG: '1'
         run: sh scripts/smoke_phase8_homes.sh http://localhost:3000
 
       # The other half of "concurrent edits don't silently overwrite each other".
@@ -293,6 +296,13 @@ jobs:
       # for the suites below.
       - name: Login throttling (repeated, concurrent, and step-up)
         run: sh scripts/check_login_throttle.sh http://localhost:3000 hotel_redis
+
+      # Both public recovery forms share one email budget before lookup or
+      # token issuance. The test also checks the visitor budget, a concurrent
+      # burst, CSRF ordering and that a refused request creates no reset token.
+      # Its project-label guard runs before any fixture write.
+      - name: Recovery throttling (shared target and visitor budgets)
+        run: sh scripts/check_recovery_throttle.sh http://localhost:3000 hotel-drogon hotel_proxy hotel_mariadb hotel_redis
 
       - name: Seed rank-5 staff account (high-trust boundary test)
         run: |
@@ -451,6 +461,7 @@ jobs:
         env:
           PLAYWRIGHT_HOMES: '1'
           BASE_NEW: http://localhost:3000
+          HOMES_COMPOSE_PROJECT: hotel-drogon
         run: npx playwright test homes.spec.ts
 
       # The comparison runs in the PINNED Playwright container, not on the

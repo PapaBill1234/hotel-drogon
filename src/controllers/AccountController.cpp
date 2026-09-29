@@ -2,6 +2,7 @@
 #include "utils/ClientAddress.h"
 #include "services/UserAccountService.h"
 #include "services/MailService.h"
+#include "services/RecoveryThrottle.h"
 #include "filters/AuthPolicy.h"
 #include "utils/Logger.h"
 #include <json/json.h>
@@ -376,6 +377,25 @@ std::string resetBody(const std::string& username, const std::string& resetUrl, 
            "has not changed.\n";
 }
 
+void replyRecoveryRefusal(
+    const services::RecoveryThrottleState& state,
+    const std::function<void(const drogon::HttpResponsePtr&)>& callback
+) {
+    Value root;
+    root["error"] = state.available ? "Too Many Requests" : "Service Unavailable";
+    root["message"] = state.available
+                          ? "Too many recovery requests. Try again later."
+                          : "Recovery is temporarily unavailable. Try again later.";
+    root["status"] = state.available ? 429 : 503;
+    auto resp = drogon::HttpResponse::newHttpJsonResponse(root);
+    resp->setStatusCode(state.available ? drogon::k429TooManyRequests
+                                        : drogon::k503ServiceUnavailable);
+    if (state.available) {
+        resp->addHeader("Retry-After", std::to_string(state.retryAfterSeconds));
+    }
+    callback(resp);
+}
+
 } // namespace
 
 void AccountController::forgotPassword(
@@ -422,54 +442,61 @@ void AccountController::forgotPassword(
         return;
     }
 
-    services::UserAccountService::findByUsernameAndVerifiedMail(
-        username,
-        mail,
-        [req, username, mail, callback, respondNeutral](
-            std::optional<services::UserRecord> user
-        ) {
-            if (!user.has_value()) {
-                respondNeutral();
+    services::RecoveryThrottle::reserve(mail, utils::ClientAddress::of(req),
+        [req, username, mail, callback, respondNeutral](services::RecoveryThrottleState throttle) {
+            if (!throttle.allowed) {
+                replyRecoveryRefusal(throttle, callback);
                 return;
             }
-
-            services::UserAccountService::issuePasswordResetToken(
-                user->id,
-                [req, username, mail, callback, respondNeutral, record = *user](
-                    bool issued, const std::string& token, uint32_t ttl
+            services::UserAccountService::findByUsernameAndVerifiedMail(
+                username,
+                mail,
+                [req, username, mail, callback, respondNeutral](
+                    std::optional<services::UserRecord> user
                 ) {
-                    if (!issued) {
-                        HOTEL_LOG_ERROR(
-                            "forgotPassword: could not issue a reset token for user id {}",
-                            record.id);
+                    if (!user.has_value()) {
                         respondNeutral();
                         return;
                     }
 
-                    // The link is built from the request's own host so a
-                    // multi-host deployment does not mail links to the wrong one.
-                    const std::string scheme = req->isOnSecureConnection() ? "https" : "http";
-                    const std::string host = req->getHeader("host");
-                    const std::string resetUrl = scheme + "://" +
-                                                 (host.empty() ? "localhost" : host) +
-                                                 "/account/password/reset?token=" + token;
-
-                    services::MailService::send(
-                        services::MailMessage{mail, resetSubject(),
-                                              resetBody(username, resetUrl, ttl / 60)},
-                        [respondNeutral, record](services::MailResult result) {
-                            // The result is logged, never surfaced: telling the
-                            // caller that delivery failed would confirm the
-                            // account exists. An operator sees the `logged`
-                            // outcome in the log.
-                            if (result != services::MailResult::Delivered) {
-                                HOTEL_LOG_WARN(
-                                    "forgotPassword: reset mail for user id {} was not delivered "
-                                    "(transport={})",
-                                    record.id,
-                                    result == services::MailResult::Logged ? "log-only" : "failed");
+                    services::UserAccountService::issuePasswordResetToken(
+                        user->id,
+                        [req, username, mail, callback, respondNeutral, record = *user](
+                            bool issued, const std::string& token, uint32_t ttl
+                        ) {
+                            if (!issued) {
+                                HOTEL_LOG_ERROR(
+                                    "forgotPassword: could not issue a reset token for user id {}",
+                                    record.id);
+                                respondNeutral();
+                                return;
                             }
-                            respondNeutral();
+
+                            // The link is built from the request's own host so a
+                            // multi-host deployment does not mail links to the wrong one.
+                            const std::string scheme = req->isOnSecureConnection() ? "https" : "http";
+                            const std::string host = req->getHeader("host");
+                            const std::string resetUrl = scheme + "://" +
+                                                         (host.empty() ? "localhost" : host) +
+                                                         "/account/password/reset?token=" + token;
+
+                            services::MailService::send(
+                                services::MailMessage{mail, resetSubject(),
+                                                      resetBody(username, resetUrl, ttl / 60)},
+                                [respondNeutral, record](services::MailResult result) {
+                                    // The result is logged, never surfaced: telling the
+                                    // caller that delivery failed would confirm the
+                                    // account exists. An operator sees the `logged`
+                                    // outcome in the log.
+                                    if (result != services::MailResult::Delivered) {
+                                        HOTEL_LOG_WARN(
+                                            "forgotPassword: reset mail for user id {} was not delivered "
+                                            "(transport={})",
+                                            record.id,
+                                            result == services::MailResult::Logged ? "log-only" : "failed");
+                                    }
+                                    respondNeutral();
+                                });
                         });
                 });
         });
@@ -540,24 +567,31 @@ void AccountController::listAccounts(
     // returned instead Ã¢â‚¬â€ the same information, delivered the only way this stack
     // currently can. It is not a disclosure beyond what legacy already did: the
     // caller must supply the address, and learns only the account names on it.
-    services::UserAccountService::listUsernamesForMail(
-        mail,
-        [callback, mail](std::vector<std::string> names) {
-            Value list(Json::arrayValue);
-            for (const auto& name : names) {
-                list.append(name);
+    services::RecoveryThrottle::reserve(mail, utils::ClientAddress::of(req),
+        [mail, callback](services::RecoveryThrottleState throttle) {
+            if (!throttle.allowed) {
+                replyRecoveryRefusal(throttle, callback);
+                return;
             }
-            Value root;
-            root["status"] = "ok";
-            root["usernames"] = list;
-            root["count"] = static_cast<Json::UInt>(names.size());
-            root["mail_transport"] =
-                services::MailService::transport() == services::MailTransport::Log
-                    ? "log-only"
-                    : "smtp";
-            auto resp = drogon::HttpResponse::newHttpJsonResponse(root);
-            resp->setStatusCode(drogon::k200OK);
-            callback(resp);
+            services::UserAccountService::listUsernamesForMail(
+                mail,
+                [callback, mail](std::vector<std::string> names) {
+                    Value list(Json::arrayValue);
+                    for (const auto& name : names) {
+                        list.append(name);
+                    }
+                    Value root;
+                    root["status"] = "ok";
+                    root["usernames"] = list;
+                    root["count"] = static_cast<Json::UInt>(names.size());
+                    root["mail_transport"] =
+                        services::MailService::transport() == services::MailTransport::Log
+                            ? "log-only"
+                            : "smtp";
+                    auto resp = drogon::HttpResponse::newHttpJsonResponse(root);
+                    resp->setStatusCode(drogon::k200OK);
+                    callback(resp);
+                });
         });
 }
 
