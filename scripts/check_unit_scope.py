@@ -14,11 +14,18 @@ from pathlib import Path
 
 
 SHA = re.compile(r"[0-9a-f]{40}\Z")
-PROTECTED = (
-    ".github/workflows/",
+PROTECTED_PREFIXES = (".github/workflows/",)
+PROTECTED_EXACT = (
     ".github/scope-policy.json",
     "scripts/check_unit_scope.py",
 )
+COORDINATOR_WORKFLOW = ".github/workflows/ci.yml"
+
+
+def is_coordinator_owned(path: str) -> bool:
+    return path in PROTECTED_EXACT or (
+        path.startswith(PROTECTED_PREFIXES) and path != COORDINATOR_WORKFLOW
+    )
 
 
 def git(*args: str) -> bytes:
@@ -59,8 +66,7 @@ def main() -> int:
         or ".." in path.split("/") or "\\" in path for path in paths
     ):
         raise ValueError("policy allowed_paths must contain safe repository paths")
-    if any(path == protected or (protected.endswith("/") and path.startswith(protected))
-           for path in paths for protected in PROTECTED):
+    if any(is_coordinator_owned(path) for path in paths):
         raise ValueError("policy cannot grant coordinator-owned guard/policy paths")
 
     tip = git("rev-parse", f"refs/remotes/origin/{args.branch}").decode().strip()
@@ -81,8 +87,7 @@ def main() -> int:
         path = entries[index + 1].decode("utf-8", errors="surrogateescape")
         if status not in ("A", "M"):
             failures.append(f"{status} {path}: deletion or unsupported change")
-        elif any(path == item or (item.endswith("/") and path.startswith(item))
-                 for item in PROTECTED):
+        elif is_coordinator_owned(path):
             failures.append(f"{status} {path}: coordinator-owned guard/policy path")
         elif not allowed_path(path, paths):
             failures.append(f"{status} {path}: outside allowed scope")

@@ -15,23 +15,23 @@
     },
     "codex/sol-ci-split": {
       "base_sha": "c7d5aaa6678abc8f481e7edb544cfa4fa9e1308f",
-      "allowed_paths": [".github/workflows/ci.yml", "docs/phase1-parity-inventory.md", "docs/ai-run-state.md", "scripts/test_unit_scope.py", "tools/ci-repro/"]
+      "allowed_paths": [".github/workflows/ci.yml", "docs/phase1-parity-inventory.md", "docs/ai-run-state.md", "scripts/test_unit_scope.py", "tools/ci-repro/compose-browser.yaml", "tools/ci-repro/check-publish-during-deploy.sh"]
     },
     "codex/sol-seeded-admin": {
       "base_sha": "c7d5aaa6678abc8f481e7edb544cfa4fa9e1308f",
-      "allowed_paths": ["src/main.cpp", "docs/phase1-parity-inventory.md", "docs/ai-run-state.md", "scripts/", "tests/"]
+      "allowed_paths": ["src/main.cpp", "docs/phase1-parity-inventory.md", "docs/ai-run-state.md", "scripts/check_account_contract.py", "tests/e2e/account.spec.ts"]
     },
     "codex/sol-audit-atomic": {
       "base_sha": "c7d5aaa6678abc8f481e7edb544cfa4fa9e1308f",
-      "allowed_paths": ["src/services/", "include/services/", "src/controllers/", "include/controllers/", "tests/", "scripts/", "docs/phase1-parity-inventory.md", "docs/ai-run-state.md"]
+      "allowed_paths": ["src/services/", "include/services/", "src/controllers/", "include/controllers/", "tests/unit/", "scripts/check_csrf_rules.py", "docs/phase1-parity-inventory.md", "docs/ai-run-state.md"]
     },
     "codex/sol-guestbook-privacy": {
       "base_sha": "c7d5aaa6678abc8f481e7edb544cfa4fa9e1308f",
-      "allowed_paths": ["src/services/HomeGuestbookService.cpp", "src/controllers/HomesController.cpp", "include/services/HomeGuestbookService.h", "include/controllers/HomesController.h", "tests/", "scripts/", "docs/phase1-parity-inventory.md", "docs/ai-run-state.md"]
+      "allowed_paths": ["src/services/HomeGuestbookService.cpp", "src/controllers/HomesController.cpp", "include/services/HomesService.h", "include/controllers/HomesController.h", "tests/unit/HomesServiceTest.cpp", "scripts/smoke_phase8_homes.sh", "docs/phase1-parity-inventory.md", "docs/ai-run-state.md"]
     },
     "codex/sol-staff-totp": {
       "base_sha": "c7d5aaa6678abc8f481e7edb544cfa4fa9e1308f",
-      "allowed_paths": ["src/controllers/AuthController.cpp", "include/controllers/AuthController.h", "src/services/", "include/services/", "src/utils/Crypto.cpp", "include/utils/Crypto.h", "tests/", "scripts/", "docs/phase1-parity-inventory.md", "docs/ai-run-state.md"]
+      "allowed_paths": ["src/controllers/AuthController.cpp", "include/controllers/AuthController.h", "src/services/UserAccountService.cpp", "include/services/UserAccountService.h", "src/utils/Crypto.cpp", "include/utils/Crypto.h", "tests/unit/AuthPolicyTest.cpp", "tests/e2e/hk-login-probe.spec.ts", "scripts/check_account_contract.py", "docs/phase1-parity-inventory.md", "docs/ai-run-state.md"]
     }
   }
 }
